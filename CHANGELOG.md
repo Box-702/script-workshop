@@ -13,6 +13,7 @@ All notable changes to 剧本工坊 are documented here.
 - Added a minimal Agent adaptation flow that creates reviewable patches and saves accepted changes as new versions.
 - Added Agent diff review details with patch before/after previews and a reject flow that leaves the current version unchanged.
 - Added model-backed Agent adaptation patches for selected scenes, with local fallback suggestions when no model key is available.
+- Added partial Agent patch acceptance so users can save only selected adaptation changes.
 - Added JSON and Markdown script exports for latest and historical script versions.
 
 ### Fixed

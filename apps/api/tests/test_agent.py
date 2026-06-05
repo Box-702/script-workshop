@@ -212,6 +212,43 @@ def test_accept_agent_run_creates_version_and_edit_event():
     assert event.patch["agent_run_id"] == run.id
 
 
+def test_accept_agent_run_can_apply_selected_patch_items_only():
+    db = _session()
+    project = Project(id="proj_test", title="Test", adaptation_type="short_drama")
+    db.add(project)
+    db.commit()
+    create_version_from_yaml(db, project, VALID_SCRIPT_YAML)
+    provider = FakeAgentProvider(
+        {
+            "plan": ["局部修改测试"],
+            "changes": [
+                {
+                    "scene_id": "scene_001",
+                    "purpose": "Open with a sharper suspense hook.",
+                    "conflict": "The stranger pulls danger into the clinic.",
+                    "adaptation_reason": "只接受部分建议。",
+                }
+            ],
+        }
+    )
+    run = create_agent_run(
+        db,
+        project,
+        payload=AgentAdaptRequest(instruction="给我三个建议", scene_ids=["scene_001"]),
+        provider=provider,
+    )
+
+    version = accept_agent_run(db, run, patch_indexes=[0, 2])
+    scene = version.json_content["script"]["scenes"][0]
+
+    assert scene["purpose"] == "Open with a sharper suspense hook."
+    assert scene["conflict"] == "The doctor wants to close, but someone needs help."
+    assert scene["adaptation_notes"]["reason"] == "只接受部分建议。"
+    event = db.query(EditEvent).filter_by(version_id=version.id).one()
+    assert event.patch["accepted_patch_indexes"] == [0, 2]
+    assert len(event.patch["patch"]) == 2
+
+
 def test_reject_agent_run_does_not_create_version():
     db = _session()
     project = Project(id="proj_test", title="Test", adaptation_type="short_drama")

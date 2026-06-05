@@ -142,9 +142,12 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  acceptAgentRun: (runId: string) =>
+  acceptAgentRun: (runId: string, patchIndexes?: number[]) =>
     jfetch<ScriptVersionDetail>(`/api/agent-runs/${runId}/accept`, {
       method: "POST",
+      body: JSON.stringify(
+        patchIndexes ? { patch_indexes: patchIndexes } : {},
+      ),
     }),
 
   rejectAgentRun: (runId: string) =>

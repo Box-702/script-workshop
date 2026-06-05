@@ -376,6 +376,24 @@ def _apply_set_patch(data: dict[str, Any], patch: list[dict]) -> dict[str, Any]:
     return next_data
 
 
+def _select_patch_items(patch: list[dict], patch_indexes: list[int] | None) -> list[dict]:
+    if patch_indexes is None:
+        return patch
+    if not patch_indexes:
+        raise HTTPException(400, "at least one patch item must be selected")
+
+    seen: set[int] = set()
+    selected: list[dict] = []
+    for index in patch_indexes:
+        if index in seen:
+            continue
+        if index < 0 or index >= len(patch):
+            raise HTTPException(400, f"patch index is out of range: {index}")
+        seen.add(index)
+        selected.append(patch[index])
+    return selected
+
+
 def create_agent_run(
     db: Session,
     project: dbm.Project,
@@ -443,7 +461,9 @@ def get_agent_run_or_404(db: Session, run_id: str) -> dbm.AgentRun:
     return run
 
 
-def accept_agent_run(db: Session, run: dbm.AgentRun) -> dbm.ScriptVersion:
+def accept_agent_run(
+    db: Session, run: dbm.AgentRun, patch_indexes: list[int] | None = None
+) -> dbm.ScriptVersion:
     if run.status != "waiting_review":
         raise HTTPException(400, f"agent run cannot be accepted from status {run.status}")
 
@@ -451,18 +471,28 @@ def accept_agent_run(db: Session, run: dbm.AgentRun) -> dbm.ScriptVersion:
     if not project:
         raise HTTPException(404, "project not found")
     base_version = get_version_or_404(db, run.project_id, run.base_version_id)
-    next_data = _apply_set_patch(base_version.json_content, run.patch or [])
+    selected_patch = _select_patch_items(run.patch or [], patch_indexes)
+    next_data = _apply_set_patch(base_version.json_content, selected_patch)
     yaml_content = to_yaml(next_data)
+    selection_note = (
+        f"（接受 {len(selected_patch)}/{len(run.patch or [])} 项）"
+        if patch_indexes is not None
+        else ""
+    )
     version = create_version_from_yaml(
         db,
         project,
         yaml_content,
         source_type="agent_adaptation",
         label="AI 改编",
-        notes=f"用户需求：{run.user_prompt}",
+        notes=f"用户需求：{run.user_prompt}{selection_note}",
         parent_version_id=base_version.id,
         edit_type="ai_patch",
-        edit_patch={"agent_run_id": run.id, "patch": run.patch},
+        edit_patch={
+            "agent_run_id": run.id,
+            "accepted_patch_indexes": patch_indexes,
+            "patch": selected_patch,
+        },
         actor_type="agent",
     )
     run.status = "accepted"

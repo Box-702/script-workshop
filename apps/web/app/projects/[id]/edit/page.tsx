@@ -202,12 +202,12 @@ export default function EditPage() {
     }
   }
 
-  async function acceptAgentSuggestion() {
+  async function acceptAgentSuggestion(patchIndexes?: number[]) {
     if (!agentRun) return;
     setAgentBusy(true);
     setNotice(null);
     try {
-      const version = await api.acceptAgentRun(agentRun.id);
+      const version = await api.acceptAgentRun(agentRun.id, patchIndexes);
       setYaml(version.yaml_content);
       setAgentRun(null);
       setAgentInstruction("");
@@ -803,9 +803,28 @@ function AgentPanel({
   setAgentInstruction: (value: string) => void;
   setAgentScope: (value: "current_scene" | "whole_script") => void;
   createAgentSuggestion: () => void;
-  acceptAgentSuggestion: () => void;
+  acceptAgentSuggestion: (patchIndexes?: number[]) => void;
   rejectAgentSuggestion: () => void;
 }) {
+  const patchCount = agentRun?.patch?.length ?? 0;
+  const [selectedPatchIndexes, setSelectedPatchIndexes] = useState<number[]>([]);
+
+  useEffect(() => {
+    setSelectedPatchIndexes(agentRun?.patch?.map((_, index) => index) ?? []);
+  }, [agentRun?.id, agentRun?.patch]);
+
+  function togglePatchIndex(index: number) {
+    setSelectedPatchIndexes((current) =>
+      current.includes(index)
+        ? current.filter((item) => item !== index)
+        : [...current, index].sort((a, b) => a - b),
+    );
+  }
+
+  function setAllPatchIndexes(selected: boolean) {
+    setSelectedPatchIndexes(selected ? agentRun?.patch?.map((_, index) => index) ?? [] : []);
+  }
+
   return (
     <div className="card space-y-3">
       <div className="label">AI 改编助手</div>
@@ -876,11 +895,45 @@ function AgentPanel({
             </ol>
           )}
           {agentRun.patch && agentRun.patch.length > 0 && (
-            <ul className="space-y-2">
+            <div className="space-y-2">
+              {agentRun.status === "waiting_review" && patchCount > 1 && (
+                <div className="flex items-center justify-between border-t border-white/10 pt-3 text-[11px] text-ink-400">
+                  <span>
+                    已选 {selectedPatchIndexes.length}/{patchCount} 项
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className="text-accent-400 hover:text-accent-500"
+                      onClick={() => setAllPatchIndexes(true)}
+                    >
+                      全选
+                    </button>
+                    <button
+                      type="button"
+                      className="text-ink-400 hover:text-ink-200"
+                      onClick={() => setAllPatchIndexes(false)}
+                    >
+                      清空
+                    </button>
+                  </div>
+                </div>
+              )}
+              <ul className="space-y-2">
               {agentRun.patch.map((item, index) => (
                 <li key={index} className="rounded border border-white/10 bg-white/[0.02] p-2">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-ink-200">{item.scene_title || `变更 ${index + 1}`}</span>
+                    <label className="flex min-w-0 items-center gap-2 text-ink-200">
+                      {agentRun.status === "waiting_review" && patchCount > 1 && (
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 accent-accent-500"
+                          checked={selectedPatchIndexes.includes(index)}
+                          onChange={() => togglePatchIndex(index)}
+                        />
+                      )}
+                      <span className="truncate">{item.scene_title || `变更 ${index + 1}`}</span>
+                    </label>
                     <span className="rounded bg-ink-800 px-1.5 py-0.5 font-mono text-[10px] uppercase text-ink-400">
                       {formatPatchField(item)}
                     </span>
@@ -889,12 +942,19 @@ function AgentPanel({
                   <PatchValue label="修改后" value={item.after ?? item.value} />
                 </li>
               ))}
-            </ul>
+              </ul>
+            </div>
           )}
           {agentRun.status === "waiting_review" && (
             <div className="flex gap-2 border-t border-white/10 pt-3">
-              <button className="btn-primary flex-1" onClick={acceptAgentSuggestion} disabled={agentBusy || saving}>
-                接受并保存
+              <button
+                className="btn-primary flex-1"
+                onClick={() =>
+                  acceptAgentSuggestion(patchCount > 1 ? selectedPatchIndexes : undefined)
+                }
+                disabled={agentBusy || saving || (patchCount > 1 && selectedPatchIndexes.length === 0)}
+              >
+                {patchCount > 1 ? "接受选中并保存" : "接受并保存"}
               </button>
               <button className="btn-ghost flex-1" onClick={rejectAgentSuggestion} disabled={agentBusy || saving}>
                 放弃

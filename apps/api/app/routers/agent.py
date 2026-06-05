@@ -8,6 +8,7 @@ from fastapi import APIRouter, Header
 from .. import db as dbm
 from ..config import get_settings
 from ..schemas import (
+    AgentAcceptRequest,
     AgentAdaptRequest,
     AgentRunOut,
     ScriptVersionDetail,
@@ -104,8 +105,14 @@ def get_agent_run(run_id: str, db: DbSession) -> AgentRunOut:
 
 
 @router.post("/agent-runs/{run_id}/accept", response_model=ScriptVersionDetail)
-def accept_agent_run_endpoint(run_id: str, db: DbSession) -> ScriptVersionDetail:
-    version = accept_agent_run(db, get_agent_run_or_404(db, run_id))
+def accept_agent_run_endpoint(
+    run_id: str, db: DbSession, payload: AgentAcceptRequest | None = None
+) -> ScriptVersionDetail:
+    version = accept_agent_run(
+        db,
+        get_agent_run_or_404(db, run_id),
+        patch_indexes=payload.patch_indexes if payload else None,
+    )
     return _version_detail(version)
 
 

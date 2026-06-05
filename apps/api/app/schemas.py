@@ -300,6 +300,10 @@ class AgentRunOut(BaseModel):
     updated_at: str
 
 
+class AgentAcceptRequest(BaseModel):
+    patch_indexes: list[int] | None = None
+
+
 class ProjectRunSummary(BaseModel):
     id: str
     status: RunStatus
