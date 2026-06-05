@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
+import os
 from datetime import datetime
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 from .config import get_settings
+
+log = logging.getLogger(__name__)
 
 
 class Base(DeclarativeBase):
@@ -95,11 +99,46 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 
 
 def init_db() -> None:
-    """Create tables; ensure data dir exists for sqlite."""
+    """Apply all pending Alembic migrations to the configured database.
+
+    Alembic owns the schema. ``Base.metadata.create_all`` is intentionally
+    not called here — it would silently mask missing columns and drift
+    between the SQLAlchemy model and the actual SQLite file. For a brand
+    new project (no versions table yet), the initial baseline migration
+    under ``alembic/versions`` brings the database up to the current model
+    schema.
+
+    The function is idempotent w.r.t. the in-process state and safe to call
+    repeatedly. ``alembic upgrade head`` is itself a no-op once the schema
+    version recorded in ``alembic_version`` matches the latest revision.
+    """
+    from pathlib import Path
+
+    from alembic import command
+    from alembic.config import Config
+
     settings = get_settings()
+    # Ensure the sqlite file's parent directory exists so Alembic can open it.
     if settings.database_url.startswith("sqlite:///"):
         path = settings.database_url.replace("sqlite:///", "", 1)
-        import os
-
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    Base.metadata.create_all(engine)
+
+    # Resolve the alembic config relative to this file. ``alembic.ini`` lives
+    # at ``apps/api/alembic.ini``; the ``script_location`` in the ini file
+    # points at ``alembic/`` next to it.
+    api_root = Path(__file__).resolve().parent.parent
+    cfg = Config(str(api_root / "alembic.ini"))
+    cfg.set_main_option("script_location", str(api_root / "alembic"))
+    # Make Alembic honour the runtime DATABASE_URL instead of the one baked
+    # into alembic.ini (which exists for the alembic CLI but should not be
+    # the source of truth for the running app).
+    cfg.set_main_option("sqlalchemy.url", settings.database_url)
+
+    try:
+        command.upgrade(cfg, "head")
+    except Exception:
+        # Re-raise after logging so the FastAPI startup handler can decide
+        # whether to crash the process. We do not try to "self-heal" here
+        # because that tends to mask real schema drift.
+        log.exception("alembic upgrade head failed")
+        raise

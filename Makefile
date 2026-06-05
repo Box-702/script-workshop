@@ -1,4 +1,4 @@
-.PHONY: help install dev dev-api dev-web test lint clean docker-up docker-down
+.PHONY: help install dev dev-api dev-web test lint clean docker-up docker-down db-upgrade db-downgrade db-new db-history
 
 PYTHON ?= python3
 PIP ?= pip
@@ -33,6 +33,19 @@ dev-web:
 test:
 	cd apps/api && . .venv/bin/activate && pytest
 	cd apps/web && $(PNPM) test
+
+db-upgrade:
+	cd apps/api && .venv/Scripts/python.exe -m alembic upgrade head
+
+db-downgrade:
+	cd apps/api && .venv/Scripts/python.exe -m alembic downgrade -1
+
+db-new:
+	@if [ -z "$(msg)" ]; then echo "usage: make db-new msg=\"describe change\""; exit 1; fi
+	cd apps/api && .venv/Scripts/python.exe -m alembic revision --autogenerate -m "$(msg)"
+
+db-history:
+	cd apps/api && .venv/Scripts/python.exe -m alembic history --verbose
 
 lint:
 	cd apps/api && . .venv/bin/activate && ruff check .
