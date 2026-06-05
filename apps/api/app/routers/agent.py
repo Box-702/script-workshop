@@ -19,6 +19,7 @@ from ..services.agent import (
     create_agent_run,
     get_agent_run_or_404,
     reject_agent_run,
+    retry_agent_run,
 )
 from ..services.versions import get_project_or_404
 from .deps import DbSession
@@ -66,6 +67,31 @@ def _agent_run_out(run: dbm.AgentRun) -> AgentRunOut:
     )
 
 
+def _agent_provider_from_headers(
+    db: DbSession,
+    *,
+    language: str,
+    llm_provider: str | None,
+    openai_api_key: str | None,
+    openai_base_url: str | None,
+    openai_model: str | None,
+) -> tuple[object | None, str | None]:
+    options = LLMRunOptions(
+        provider=llm_provider or "openai",
+        openai_api_key=openai_api_key or "",
+        openai_base_url=openai_base_url or "",
+        openai_model=openai_model or "",
+        language=language,
+    )
+    options = _fill_options_from_saved_key(db, options)
+    if options.openai_api_key.strip() or get_settings().openai_api_key.strip():
+        try:
+            return _provider_from_options(options), None
+        except Exception as e:  # noqa: BLE001
+            return None, str(e)
+    return None, "未配置模型 key，已使用本地改编建议。"
+
+
 @router.post("/projects/{project_id}/agent/adapt", response_model=AgentRunOut)
 def adapt_project(
     project_id: str,
@@ -77,23 +103,14 @@ def adapt_project(
     openai_model: Annotated[str | None, Header(alias="X-OpenAI-Model")] = None,
 ) -> AgentRunOut:
     project = get_project_or_404(db, project_id)
-    options = LLMRunOptions(
-        provider=llm_provider or "openai",
-        openai_api_key=openai_api_key or "",
-        openai_base_url=openai_base_url or "",
-        openai_model=openai_model or "",
+    provider, provider_error = _agent_provider_from_headers(
+        db,
         language=project.language or "",
+        llm_provider=llm_provider,
+        openai_api_key=openai_api_key,
+        openai_base_url=openai_base_url,
+        openai_model=openai_model,
     )
-    options = _fill_options_from_saved_key(db, options)
-    provider = None
-    provider_error = None
-    if options.openai_api_key.strip() or get_settings().openai_api_key.strip():
-        try:
-            provider = _provider_from_options(options)
-        except Exception as e:  # noqa: BLE001
-            provider_error = str(e)
-    else:
-        provider_error = "未配置模型 key，已使用本地改编建议。"
     return _agent_run_out(
         create_agent_run(db, project, payload, provider=provider, provider_error=provider_error)
     )
@@ -119,3 +136,27 @@ def accept_agent_run_endpoint(
 @router.post("/agent-runs/{run_id}/reject", response_model=AgentRunOut)
 def reject_agent_run_endpoint(run_id: str, db: DbSession) -> AgentRunOut:
     return _agent_run_out(reject_agent_run(db, get_agent_run_or_404(db, run_id)))
+
+
+@router.post("/agent-runs/{run_id}/retry", response_model=AgentRunOut)
+def retry_agent_run_endpoint(
+    run_id: str,
+    db: DbSession,
+    llm_provider: Annotated[str | None, Header(alias="X-LLM-Provider")] = None,
+    openai_api_key: Annotated[str | None, Header(alias="X-OpenAI-API-Key")] = None,
+    openai_base_url: Annotated[str | None, Header(alias="X-OpenAI-Base-URL")] = None,
+    openai_model: Annotated[str | None, Header(alias="X-OpenAI-Model")] = None,
+) -> AgentRunOut:
+    run = get_agent_run_or_404(db, run_id)
+    project = get_project_or_404(db, run.project_id)
+    provider, provider_error = _agent_provider_from_headers(
+        db,
+        language=project.language or "",
+        llm_provider=llm_provider,
+        openai_api_key=openai_api_key,
+        openai_base_url=openai_base_url,
+        openai_model=openai_model,
+    )
+    return _agent_run_out(
+        retry_agent_run(db, run, provider=provider, provider_error=provider_error)
+    )

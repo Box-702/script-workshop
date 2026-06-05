@@ -155,6 +155,12 @@ export const api = {
       method: "POST",
     }),
 
+  retryAgentRun: (runId: string, llmSettings?: LlmSettings) =>
+    jfetch<AgentRunSummary>(`/api/agent-runs/${runId}/retry`, {
+      method: "POST",
+      headers: llmSettings ? llmSettingsHeaders(llmSettings) : undefined,
+    }),
+
   validate: (yaml: string) =>
     jfetch<ValidateResponse>("/api/validate", {
       method: "POST",

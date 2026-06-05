@@ -502,6 +502,34 @@ def accept_agent_run(
     return version
 
 
+def retry_agent_run(
+    db: Session,
+    run: dbm.AgentRun,
+    *,
+    provider: LLMProvider | None = None,
+    provider_error: str | None = None,
+) -> dbm.AgentRun:
+    project = db.get(dbm.Project, run.project_id)
+    if not project:
+        raise HTTPException(404, "project not found")
+    scene_ids = []
+    if isinstance(run.selected_context, dict):
+        raw_scene_ids = run.selected_context.get("scene_ids") or []
+        if isinstance(raw_scene_ids, list):
+            scene_ids = [str(item) for item in raw_scene_ids]
+    return create_agent_run(
+        db,
+        project,
+        AgentAdaptRequest(
+            instruction=run.user_prompt,
+            base_version_id=run.base_version_id,
+            scene_ids=scene_ids,
+        ),
+        provider=provider,
+        provider_error=provider_error,
+    )
+
+
 def reject_agent_run(db: Session, run: dbm.AgentRun) -> dbm.AgentRun:
     if run.status != "waiting_review":
         raise HTTPException(400, f"agent run cannot be rejected from status {run.status}")

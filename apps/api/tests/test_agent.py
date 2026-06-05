@@ -9,7 +9,12 @@ from app.db import Base, EditEvent, Project
 from app.routers import agent
 from app.routers.deps import get_db
 from app.schemas import AgentAdaptRequest
-from app.services.agent import accept_agent_run, create_agent_run, reject_agent_run
+from app.services.agent import (
+    accept_agent_run,
+    create_agent_run,
+    reject_agent_run,
+    retry_agent_run,
+)
 from app.services.versions import create_version_from_yaml
 
 
@@ -249,6 +254,43 @@ def test_accept_agent_run_can_apply_selected_patch_items_only():
     assert len(event.patch["patch"]) == 2
 
 
+def test_retry_agent_run_reuses_original_context_and_prompt():
+    db = _session()
+    project = Project(id="proj_test", title="Test", adaptation_type="short_drama")
+    db.add(project)
+    db.commit()
+    base = create_version_from_yaml(db, project, VALID_SCRIPT_YAML)
+    run = create_agent_run(
+        db,
+        project,
+        payload=AgentAdaptRequest(
+            instruction="强化悬疑",
+            base_version_id=base.id,
+            scene_ids=["scene_001"],
+        ),
+    )
+    provider = FakeAgentProvider(
+        {
+            "plan": ["重新生成更强的悬疑版本"],
+            "changes": [
+                {
+                    "scene_id": "scene_001",
+                    "purpose": "Open with a sharper suspense hook.",
+                }
+            ],
+        }
+    )
+
+    retried = retry_agent_run(db, run, provider=provider)
+
+    assert retried.id != run.id
+    assert retried.base_version_id == base.id
+    assert retried.user_prompt == "强化悬疑"
+    assert retried.selected_context == {"scene_ids": ["scene_001"]}
+    assert retried.model == "openai-compatible-agent"
+    assert retried.patch[0]["field"] == "purpose"
+
+
 def test_reject_agent_run_does_not_create_version():
     db = _session()
     project = Project(id="proj_test", title="Test", adaptation_type="short_drama")
@@ -313,3 +355,25 @@ def test_agent_route_reject_run():
 
     accepted = client.post(f"/api/agent-runs/{run_id}/accept")
     assert accepted.status_code == 400
+
+
+def test_agent_route_retry_run():
+    db = _session()
+    project = Project(id="proj_test", title="Test", adaptation_type="short_drama")
+    db.add(project)
+    db.commit()
+    create_version_from_yaml(db, project, VALID_SCRIPT_YAML)
+    client = _client(db)
+
+    created = client.post(
+        f"/api/projects/{project.id}/agent/adapt",
+        json={"instruction": "重新强化", "scene_ids": ["scene_001"]},
+    )
+    run_id = created.json()["id"]
+
+    retried = client.post(f"/api/agent-runs/{run_id}/retry")
+
+    assert retried.status_code == 200
+    assert retried.json()["id"] != run_id
+    assert retried.json()["user_prompt"] == "重新强化"
+    assert retried.json()["selected_context"] == {"scene_ids": ["scene_001"]}

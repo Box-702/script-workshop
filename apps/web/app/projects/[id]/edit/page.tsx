@@ -235,6 +235,21 @@ export default function EditPage() {
     }
   }
 
+  async function retryAgentSuggestion() {
+    if (!agentRun) return;
+    setAgentBusy(true);
+    setNotice(null);
+    try {
+      const retried = await api.retryAgentRun(agentRun.id, loadLlmSettings());
+      setAgentRun(retried);
+      setNotice("已重新生成改编建议，等待确认。");
+    } catch (e) {
+      setErrors([{ path: "<agent>", message: (e as Error).message, severity: "error" }]);
+    } finally {
+      setAgentBusy(false);
+    }
+  }
+
   if (loadErr) {
     return <div className="card border-red-500/40 text-red-200">加载剧本失败：{loadErr}</div>;
   }
@@ -338,6 +353,7 @@ export default function EditPage() {
             createAgentSuggestion={createAgentSuggestion}
             acceptAgentSuggestion={acceptAgentSuggestion}
             rejectAgentSuggestion={rejectAgentSuggestion}
+            retryAgentSuggestion={retryAgentSuggestion}
           />
 
           <ValidationPanel busy={busy} errors={errors} />
@@ -792,6 +808,7 @@ function AgentPanel({
   createAgentSuggestion,
   acceptAgentSuggestion,
   rejectAgentSuggestion,
+  retryAgentSuggestion,
 }: {
   agentBusy: boolean;
   saving: boolean;
@@ -805,6 +822,7 @@ function AgentPanel({
   createAgentSuggestion: () => void;
   acceptAgentSuggestion: (patchIndexes?: number[]) => void;
   rejectAgentSuggestion: () => void;
+  retryAgentSuggestion: () => void;
 }) {
   const patchCount = agentRun?.patch?.length ?? 0;
   const [selectedPatchIndexes, setSelectedPatchIndexes] = useState<number[]>([]);
@@ -946,9 +964,9 @@ function AgentPanel({
             </div>
           )}
           {agentRun.status === "waiting_review" && (
-            <div className="flex gap-2 border-t border-white/10 pt-3">
+            <div className="grid grid-cols-2 gap-2 border-t border-white/10 pt-3">
               <button
-                className="btn-primary flex-1"
+                className="btn-primary col-span-2"
                 onClick={() =>
                   acceptAgentSuggestion(patchCount > 1 ? selectedPatchIndexes : undefined)
                 }
@@ -956,10 +974,18 @@ function AgentPanel({
               >
                 {patchCount > 1 ? "接受选中并保存" : "接受并保存"}
               </button>
-              <button className="btn-ghost flex-1" onClick={rejectAgentSuggestion} disabled={agentBusy || saving}>
+              <button className="btn-ghost" onClick={retryAgentSuggestion} disabled={agentBusy || saving}>
+                重新生成
+              </button>
+              <button className="btn-ghost" onClick={rejectAgentSuggestion} disabled={agentBusy || saving}>
                 放弃
               </button>
             </div>
+          )}
+          {agentRun.status !== "waiting_review" && (
+            <button className="btn-ghost w-full" onClick={retryAgentSuggestion} disabled={agentBusy || saving}>
+              重新生成建议
+            </button>
           )}
         </div>
       )}
