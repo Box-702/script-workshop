@@ -1,5 +1,4 @@
 from logging.config import fileConfig
-import os
 import sys
 from pathlib import Path
 
@@ -23,15 +22,21 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Make sure the runtime ``DATABASE_URL`` env var wins over whatever is
-# baked into alembic.ini — the app is the source of truth.
-_db_url = os.environ.get("DATABASE_URL")
+# Resolve the database URL. The app's pydantic-settings instance is the
+# single source of truth — it already reads DATABASE_URL from the
+# environment. We translate its ``sqlite:///./relative`` form into an
+# absolute path resolved against the api root, so alembic never ends
+# up opening a database file relative to the current working directory.
+from app.config import get_settings  # noqa: E402
+from app.db import Base, resolve_database_url  # noqa: E402
+
+_db_url = resolve_database_url(get_settings().database_url)
+
 if _db_url:
     config.set_main_option("sqlalchemy.url", _db_url)
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-from app.db import Base  # noqa: E402
 from app import db as _db_module  # noqa: E402,F401  (registers all models)
 
 target_metadata = Base.metadata
@@ -80,8 +85,14 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        # SQLite needs batch mode for most DDL (so alembic can use ALTER
+        # TABLE under the hood instead of the platform-native ALTER,
+        # which is limited in older sqlite versions).
+        is_sqlite = connection.dialect.name == "sqlite"
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            render_as_batch=is_sqlite,
         )
 
         with context.begin_transaction():

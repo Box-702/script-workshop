@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
@@ -10,6 +11,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship,
 from .config import get_settings
 
 log = logging.getLogger(__name__)
+API_ROOT = Path(__file__).resolve().parent.parent
 
 
 class Base(DeclarativeBase):
@@ -87,9 +89,32 @@ class ScriptVersion(Base):
     project: Mapped[Project] = relationship(back_populates="versions")
 
 
+def resolve_database_url(url: str) -> str:
+    """Resolve app-relative SQLite URLs against ``apps/api``.
+
+    The dev server is commonly launched from the repository root while
+    Alembic is configured from ``apps/api``. Anchoring relative SQLite paths
+    here keeps the runtime engine and migrations pointed at the same file.
+    Network database URLs are returned unchanged.
+    """
+    if not url.startswith("sqlite:///"):
+        return url
+
+    raw_path = url.replace("sqlite:///", "", 1)
+    if raw_path == ":memory:":
+        return url
+    if raw_path.startswith(("/", "\\")) or (
+        len(raw_path) >= 3 and raw_path[1:3] in (":/", ":\\")
+    ):
+        return url
+
+    abs_path = (API_ROOT / raw_path).resolve()
+    return f"sqlite:///{abs_path.as_posix()}"
+
+
 def make_engine():
     settings = get_settings()
-    url = settings.database_url
+    url = resolve_database_url(settings.database_url)
     connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
     return create_engine(url, connect_args=connect_args, future=True)
 
@@ -118,9 +143,10 @@ def init_db() -> None:
     from alembic.config import Config
 
     settings = get_settings()
+    database_url = resolve_database_url(settings.database_url)
     # Ensure the sqlite file's parent directory exists so Alembic can open it.
-    if settings.database_url.startswith("sqlite:///"):
-        path = settings.database_url.replace("sqlite:///", "", 1)
+    if database_url.startswith("sqlite:///") and database_url != "sqlite:///:memory:":
+        path = database_url.replace("sqlite:///", "", 1)
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
 
     # Resolve the alembic config relative to this file. ``alembic.ini`` lives
@@ -132,7 +158,7 @@ def init_db() -> None:
     # Make Alembic honour the runtime DATABASE_URL instead of the one baked
     # into alembic.ini (which exists for the alembic CLI but should not be
     # the source of truth for the running app).
-    cfg.set_main_option("sqlalchemy.url", settings.database_url)
+    cfg.set_main_option("sqlalchemy.url", database_url)
 
     try:
         command.upgrade(cfg, "head")
