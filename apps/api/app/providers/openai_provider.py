@@ -1,4 +1,4 @@
-"""OpenAI provider. Falls back to mock if no API key configured."""
+"""OpenAI-compatible provider."""
 from __future__ import annotations
 
 import json

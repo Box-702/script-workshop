@@ -25,9 +25,9 @@ Script Workshop 不再只是一次性生成 YAML 的工具，而是一个面向�
 - 前端：Next.js App Router、TypeScript、Tailwind。
 - 后端：FastAPI、Pydantic v2、SQLAlchemy、Alembic、SQLite。
 - AI 流程：章节切分、章节摘要、故事圣经、角色抽取、场景规划、逐场生成、Schema 校验、YAML 输出。
-- 数据表：`projects`、`chapters`、`generation_runs`、`script_versions`。
-- 基础页面：新建项目、运行进度、YAML 编辑、模型设置。
-- 基础接口：创建项目、启动生成、查询 run、获取 YAML、校验 YAML、修复 YAML。
+- 数据表：`projects`、`chapters`、`generation_runs`、`script_versions`、`user_model_keys`。
+- 基础页面：项目看板、项目详情、新建项目、运行进度、YAML 编辑、模型设置。
+- 基础接口：创建项目、启动生成、查询 run、获取 YAML、校验 YAML、修复 YAML、版本保存/恢复、模型 key 保存/测试/撤销。
 
 这些能力证明核心链路已经通了。全栈版要做的是把它从“本地单用户 MVP”扩展成“云端多用户剧本 IDE”。
 
@@ -361,7 +361,7 @@ Supabase Auth 负责用户表，业务库通过 `user_id` 关联。
 | provider | text | openai / deepseek / qwen / custom_openai |
 | base_url | text | 兼容 OpenAI 的 base URL |
 | default_model | text | 默认模型 |
-| encrypted_api_key | text | AES-GCM 密文 |
+| encrypted_api_key | text | 认证密文 payload |
 | key_last4 | text | 用于展示 |
 | status | text | active / revoked |
 | created_at | timestamp | 创建时间 |
@@ -584,11 +584,13 @@ Agent 不应把全项目所有内容都塞进模型。Context Builder 按范围�
 后端保存 API key 时：
 
 1. 生成随机 nonce。
-2. 使用 `KEY_ENCRYPTION_KEY` 做 AES-GCM 加密。
-3. 数据库保存 `nonce + ciphertext + tag`。
+2. 使用 `KEY_ENCRYPTION_KEY` 派生服务端主密钥。
+3. 数据库保存带认证标签的密文 payload。
 4. 只展示 `key_last4`。
 5. 调用模型时短暂解密到内存。
 6. 日志、错误、artifacts 禁止记录明文 key。
+
+当前本地实现使用标准库 HMAC 认证加密方案，避免额外依赖；生产增强时建议切换到 AES-GCM 或云 KMS。
 
 ### 11.2 权限隔离
 
@@ -903,14 +905,14 @@ apps/api/app/
 
 推荐按这个顺序动代码：
 
-1. 接 Supabase Auth，给后端加 `get_current_user`。
-2. 把数据库 URL 改为同时支持 Supabase Postgres。
-3. 给 `projects` 增加 `owner_id` 和 `current_version_id`。
-4. 扩展 `script_versions`，支持版本列表、版本详情、恢复。
-5. 新增 `user_model_keys` 和加密服务。
-6. 改造 `/settings`，从 localStorage 设置升级为云端 key 管理，同时保留本地模式。
-7. 新增项目 Dashboard。
-8. 改造 YAML 编辑页，加入保存版本。
+1. 已完成：给 `projects` 增加 `owner_id` 和 `current_version_id`。
+2. 已完成：扩展 `script_versions`，支持版本列表、版本详情、恢复。
+3. 已完成：新增 `user_model_keys` 和加密服务。
+4. 已完成：改造 `/settings`，支持云端 key 管理，同时保留本地模式。
+5. 已完成：新增项目看板和项目详情页。
+6. 已完成：改造 YAML 编辑页，加入保存版本。
+7. 接 Supabase Auth，给后端加 `get_current_user`。
+8. 把数据库 URL 改为同时支持 Supabase Postgres。
 9. 新增 `edit_events`。
 10. 新增 Agent API 和最小可用 Agent Panel。
 11. 加入 diff review。

@@ -12,11 +12,11 @@
                    ▼
 ┌────────────────────────────────────────────┐
 │  API (FastAPI)                             │
-│  - routers: projects / runs / scripts      │
-│  - services: 章节切分、pipeline、校验      │
+│  - routers: projects / scripts / keys      │
+│  - services: 版本、模型 key、pipeline      │
 │  - providers: LLM 抽象                     │
 │  - schemas: Pydantic v2 模型               │
-│  - db: SQLAlchemy + SQLite                 │
+│  - db: SQLAlchemy + Alembic + SQLite       │
 └────────────────────────────────────────────┘
                    │
                    ▼
@@ -47,20 +47,22 @@ class LLMProvider(Protocol):
 ```
 
 实现：
-- `OpenAIProvider` — 默认，模型可按 stage 覆盖
-- `MockProvider` — 离线占位，用于本地无 key 跑通
+- `OpenAIProvider`：默认实现，兼容 OpenAI 风格接口，模型可按 stage 覆盖。
+- 生成需要可用 key。来源优先级为请求头、本地用户 active key、服务端 `OPENAI_API_KEY`。
 
 ## 数据流
 
 1. 用户 POST `/api/projects` → 创建 project + chapters
 2. 可选：前端从 `/settings` 读取浏览器本地模型设置，生成请求通过 header 携带 `X-LLM-Provider`、`X-OpenAI-API-Key`、`X-OpenAI-Base-URL`、`X-OpenAI-Model`
 3. POST `/api/projects/{id}/generate` → 创建 run，丢进后台任务
-4. 后台任务用本次请求的临时 key 构造 provider；key 不进入 DB artifacts
+4. 如果请求头没有 key，后端读取 active 的 `user_model_keys`，解密后构造 provider
 5. GET `/api/runs/{id}` → 轮询进度
-6. 完成后 GET `/api/projects/{id}/script.yaml`
+6. 完成后写入 `script_versions`，项目 `current_version_id` 指向最新版本
 
 ## 目录约定
 
 - 章节原文：DB `chapters.content`，同一项目内使用 `chapter_001` 这类稳定 id；数据库用 `(project_id, id)` 复合主键避免跨项目冲突。
 - 任意阶段产物：DB `generation_runs.artifacts` (JSON)
 - 最终 YAML：DB `script_versions.yaml_content`
+- 模型 key：DB `user_model_keys.encrypted_api_key`，只展示 `key_last4`
+- 手动保存和历史恢复：通过 `script_versions` 生成新快照

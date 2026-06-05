@@ -3,7 +3,15 @@
 All notable changes to Script Workshop are documented here.
 
 ## Unreleased
+### Added
+- Added project dashboard, project detail pages, script version metadata, version restore, and current version tracking.
+- Added encrypted user model key storage with list, active lookup, test, and revoke endpoints.
+- Settings now supports cloud-saved model keys while keeping browser-local BYOK mode.
+- Project generation can use a saved active model key when no request header key is present.
+- New project creation now accepts either a browser-local key or a cloud-saved active key.
+
 ### Fixed
+- Removed stale documentation that described no-key generation as an offline mock path.
 - Tightened explicit chapter parsing so inputs with fewer than 3 declared chapters are rejected instead of being silently split by length.
 - Changed chapter persistence to a `(project_id, id)` composite key so multiple projects can each use stable ids such as `chapter_001`.
 - Persisted generation run progress at each generation callback update and capped per-scene progress below validation.
@@ -23,7 +31,7 @@ All notable changes to Script Workshop are documented here.
 ### Added
 - Day 1 scaffold: monorepo with `apps/web` (Next.js) and `apps/api` (FastAPI)
 - AI generation flow skeleton: chapter split → summary → story bible → character extraction → scene planning → per-scene script → schema validation → repair → YAML export
-- Pluggable LLM provider abstraction with OpenAI default and deterministic mock fallback
+- Pluggable LLM provider abstraction with OpenAI default
 - `schema/script.schema.json` and `docs/yaml-schema.md` initial draft
 - Sample novel + expected YAML output under `samples/`
 - Makefile + docker-compose for one-command local dev
