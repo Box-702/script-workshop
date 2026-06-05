@@ -811,6 +811,21 @@ function TextareaField({
   );
 }
 
+const AGENT_INTENT_PRESETS = [
+  "强化前三秒钩子",
+  "减少解释性对白",
+  "加强人物冲突",
+  "对白更口语",
+  "节奏更紧",
+];
+
+const AGENT_CONSTRAINT_PRESETS = [
+  "不改变人物关系",
+  "不改变结局",
+  "不新增角色",
+  "保留核心线索",
+];
+
 function AgentPanel({
   agentBusy,
   saving,
@@ -863,14 +878,49 @@ function AgentPanel({
     setSelectedPatchIndexes(selected ? agentRun?.patch?.map((_, index) => index) ?? [] : []);
   }
 
+  function appendInstruction(text: string) {
+    const current = agentInstruction.trim();
+    setAgentInstruction(current ? `${current}；${text}` : text);
+  }
+
   return (
     <div className="card space-y-3">
       <div className="label">AI 改编助手</div>
+      <div className="space-y-2">
+        <div className="text-xs text-ink-500">改编重点</div>
+        <div className="flex flex-wrap gap-1.5">
+          {AGENT_INTENT_PRESETS.map((item) => (
+            <button
+              key={item}
+              type="button"
+              className="rounded-md border border-ink-600/40 bg-ink-900 px-2 py-1 text-xs text-ink-300 hover:border-accent-500/60 hover:text-ink-50"
+              onClick={() => appendInstruction(item)}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="space-y-2">
+        <div className="text-xs text-ink-500">约束</div>
+        <div className="flex flex-wrap gap-1.5">
+          {AGENT_CONSTRAINT_PRESETS.map((item) => (
+            <button
+              key={item}
+              type="button"
+              className="rounded-md border border-ink-600/40 bg-ink-900 px-2 py-1 text-xs text-ink-300 hover:border-accent-500/60 hover:text-ink-50"
+              onClick={() => appendInstruction(item)}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      </div>
       <textarea
         className="input min-h-[96px] text-sm"
         value={agentInstruction}
         onChange={(e) => setAgentInstruction(e.target.value)}
-        placeholder="例如：把第一场改得更悬疑，减少解释性对白。"
+        placeholder="例如：强化前三秒钩子；减少解释性对白；不改变人物关系。"
       />
       <div className="rounded-md border border-ink-600/40 bg-ink-900 p-2">
         <div className="mb-2 text-xs text-ink-500">改编范围</div>
@@ -1209,5 +1259,31 @@ function PatchValue({ label, value }: { label: string; value: unknown }) {
 function formatPatchValue(value: AgentPatchOperation[keyof AgentPatchOperation]) {
   if (value === null || typeof value === "undefined" || value === "") return "空";
   if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "空列表";
+    if (value.every((item) => typeof item === "string")) {
+      return value.map((item, index) => `${index + 1}. ${item}`).join("\n");
+    }
+    if (value.every(isDialoguePatchValue)) {
+      return value
+        .map((item) => {
+          const emotion = item.emotion ? `（${item.emotion}）` : "";
+          const subtext = item.subtext ? `\n  潜台词：${item.subtext}` : "";
+          return `${item.speaker}${emotion}：${item.line}${subtext}`;
+        })
+        .join("\n");
+    }
+  }
   return JSON.stringify(value, null, 2);
+}
+
+function isDialoguePatchValue(value: unknown): value is DialogueLine {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "speaker" in value &&
+    "line" in value &&
+    typeof (value as DialogueLine).speaker === "string" &&
+    typeof (value as DialogueLine).line === "string"
+  );
 }
