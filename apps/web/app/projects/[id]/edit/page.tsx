@@ -9,7 +9,9 @@ import type {
   AgentPatchOperation,
   AgentRunSummary,
   DialogueLine,
+  ScriptCharacter,
   ScriptDocument,
+  ScriptLocation,
   ScriptScene,
   ScriptVersionSummary,
   ValidationError,
@@ -537,7 +539,7 @@ function SceneEditor({
           </div>
         </div>
         <div className="workspace-scroll min-h-0 flex-1 overflow-auto p-5">
-        <div className="grid gap-4 md:grid-cols-[1fr_180px]">
+        <div className="grid gap-4 md:grid-cols-[1fr_180px_220px]">
           <Field
             label="场景标题"
             value={scene.title}
@@ -548,6 +550,22 @@ function SceneEditor({
             value={scene.time ?? ""}
             onChange={(value) => updateScene(scene.id, (next) => ({ ...next, time: value }))}
           />
+          <div>
+            <label className="label">地点</label>
+            <select
+              className="input"
+              value={scene.location_id}
+              onChange={(e) =>
+                updateScene(scene.id, (next) => ({ ...next, location_id: e.target.value }))
+              }
+            >
+              {script.locations.map((location) => (
+                <option key={location.id} value={location.id}>
+                  {location.name || location.id}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -581,12 +599,45 @@ function SceneEditor({
             <div className="label mb-0">出场角色</div>
             <span className="text-xs text-ink-500">{scene.characters.length} 人</span>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {scene.characters.map((id) => (
-              <span key={id} className="rounded bg-ink-900 px-2 py-1 text-xs text-ink-300">
-                {characterNames[id] ?? "未命名角色"}
-              </span>
-            ))}
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {script.characters.map((character) => {
+              const checked = scene.characters.includes(character.id);
+              const appearsInDialogue = scene.dialogue.some((line) => line.speaker === character.id);
+              const removalDisabled = checked && (scene.characters.length <= 1 || appearsInDialogue);
+              return (
+                <label
+                  key={character.id}
+                  className={`flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm ${
+                    checked
+                      ? "border-accent-500/50 bg-accent-500/10 text-ink-100"
+                      : "border-ink-600/40 bg-ink-900 text-ink-400"
+                  }`}
+                  title={
+                    removalDisabled
+                      ? appearsInDialogue
+                        ? "该角色已有对白，先调整对白 speaker 后再移出场景"
+                        : "场景至少需要一个角色"
+                      : undefined
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-accent-500"
+                    checked={checked}
+                    disabled={removalDisabled}
+                    onChange={(e) =>
+                      updateScene(scene.id, (next) => ({
+                        ...next,
+                        characters: e.target.checked
+                          ? uniqueStrings([...next.characters, character.id])
+                          : next.characters.filter((id) => id !== character.id),
+                      }))
+                    }
+                  />
+                  <span className="min-w-0 truncate">{characterNames[character.id] ?? "未命名角色"}</span>
+                </label>
+              );
+            })}
           </div>
         </div>
 
@@ -604,6 +655,108 @@ function ScriptOverview({
   script: ScriptDocument;
   updateScript: (patch: (current: ScriptDocument) => ScriptDocument) => void;
 }) {
+  const usedCharacterIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const scene of script.scenes) {
+      for (const id of scene.characters) ids.add(id);
+      for (const line of scene.dialogue) ids.add(line.speaker);
+    }
+    return ids;
+  }, [script.scenes]);
+
+  const usedLocationIds = useMemo(() => {
+    return new Set(script.scenes.map((scene) => scene.location_id).filter(Boolean));
+  }, [script.scenes]);
+
+  function updateCharacter(characterId: string, patch: Partial<ScriptCharacter>) {
+    updateScript((current) => ({
+      ...current,
+      characters: current.characters.map((character) =>
+        character.id === characterId ? compactCharacter({ ...character, ...patch }) : character,
+      ),
+    }));
+  }
+
+  function renameCharacter(characterId: string, nextId: string) {
+    const trimmed = normalizeIdInput(nextId);
+    updateScript((current) => ({
+      ...current,
+      characters: current.characters.map((character) =>
+        character.id === characterId ? { ...character, id: trimmed } : character,
+      ),
+      scenes: current.scenes.map((scene) => ({
+        ...scene,
+        characters: scene.characters.map((id) => (id === characterId ? trimmed : id)),
+        dialogue: scene.dialogue.map((line) => ({
+          ...line,
+          speaker: line.speaker === characterId ? trimmed : line.speaker,
+        })),
+      })),
+    }));
+  }
+
+  function addCharacter() {
+    updateScript((current) => {
+      const id = nextAvailableId("char_new", current.characters.map((item) => item.id));
+      return {
+        ...current,
+        characters: [
+          ...current.characters,
+          { id, name: `新角色 ${current.characters.length + 1}`, role: "supporting" },
+        ],
+      };
+    });
+  }
+
+  function deleteCharacter(characterId: string) {
+    if (usedCharacterIds.has(characterId)) return;
+    updateScript((current) => ({
+      ...current,
+      characters: current.characters.filter((character) => character.id !== characterId),
+    }));
+  }
+
+  function updateLocation(locationId: string, patch: Partial<ScriptLocation>) {
+    updateScript((current) => ({
+      ...current,
+      locations: current.locations.map((location) =>
+        location.id === locationId ? compactLocation({ ...location, ...patch }) : location,
+      ),
+    }));
+  }
+
+  function renameLocation(locationId: string, nextId: string) {
+    const trimmed = normalizeIdInput(nextId);
+    updateScript((current) => ({
+      ...current,
+      locations: current.locations.map((location) =>
+        location.id === locationId ? { ...location, id: trimmed } : location,
+      ),
+      scenes: current.scenes.map((scene) => ({
+        ...scene,
+        location_id: scene.location_id === locationId ? trimmed : scene.location_id,
+      })),
+    }));
+  }
+
+  function addLocation() {
+    updateScript((current) => {
+      const id = nextAvailableId("loc_new", current.locations.map((item) => item.id));
+      return {
+        ...current,
+        locations: [...current.locations, { id, name: `新地点 ${current.locations.length + 1}` }],
+      };
+    });
+  }
+
+  function deleteLocation(locationId: string) {
+    if (usedLocationIds.has(locationId)) return;
+    updateScript((current) => ({
+      ...current,
+      locations: current.locations.filter((location) => location.id !== locationId),
+    }));
+  }
+
   return (
     <section className="panel workspace-scroll h-full overflow-auto p-5">
       <div className="grid gap-4 md:grid-cols-[1fr_160px]">
@@ -639,30 +792,181 @@ function ScriptOverview({
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <section>
-          <div className="mb-3 text-sm font-medium text-ink-100">角色</div>
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm font-medium text-ink-100">角色</div>
+            <button type="button" className="btn-ghost px-2 py-1 text-xs" onClick={addCharacter}>
+              添加角色
+            </button>
+          </div>
           <ul className="space-y-2">
             {script.characters.map((character) => (
               <li key={character.id} className="rounded border border-white/10 bg-white/[0.02] p-3">
-                <div className="font-medium">{character.name}</div>
-                <div className="mt-2 text-sm text-ink-400">{character.goal || character.motivation || character.arc}</div>
+                <CharacterCard
+                  character={character}
+                  isReferenced={usedCharacterIds.has(character.id)}
+                  onChange={(patch) => updateCharacter(character.id, patch)}
+                  onRename={(value) => renameCharacter(character.id, value)}
+                  onDelete={() => deleteCharacter(character.id)}
+                />
               </li>
             ))}
           </ul>
         </section>
-        <section>
-          <div className="mb-3 text-sm font-medium text-ink-100">地点</div>
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm font-medium text-ink-100">地点</div>
+            <button type="button" className="btn-ghost px-2 py-1 text-xs" onClick={addLocation}>
+              添加地点
+            </button>
+          </div>
           <ul className="space-y-2">
             {script.locations.map((location) => (
               <li key={location.id} className="rounded border border-white/10 bg-white/[0.02] p-3">
-                <div className="font-medium">{location.name}</div>
-                {location.description && <div className="mt-2 text-sm text-ink-400">{location.description}</div>}
+                <LocationCard
+                  location={location}
+                  isReferenced={usedLocationIds.has(location.id)}
+                  onChange={(patch) => updateLocation(location.id, patch)}
+                  onRename={(value) => renameLocation(location.id, value)}
+                  onDelete={() => deleteLocation(location.id)}
+                />
               </li>
             ))}
           </ul>
         </section>
       </div>
     </section>
+  );
+}
+
+function CharacterCard({
+  character,
+  isReferenced,
+  onChange,
+  onRename,
+  onDelete,
+}: {
+  character: ScriptCharacter;
+  isReferenced: boolean;
+  onChange: (patch: Partial<ScriptCharacter>) => void;
+  onRename: (value: string) => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-3 md:grid-cols-[1fr_140px]">
+        <Field label="角色名" value={character.name} onChange={(value) => onChange({ name: value })} />
+        <div>
+          <label className="label">类型</label>
+          <select
+            className="input"
+            value={character.role ?? ""}
+            onChange={(e) =>
+              onChange({ role: (e.target.value || undefined) as ScriptCharacter["role"] })
+            }
+          >
+            <option value="">未设置</option>
+            <option value="protagonist">主角</option>
+            <option value="antagonist">反派</option>
+            <option value="supporting">配角</option>
+            <option value="mentor">导师</option>
+            <option value="foil">映衬角色</option>
+            <option value="other">其他</option>
+          </select>
+        </div>
+      </div>
+      <Field label="角色 ID" value={character.id} onChange={onRename} />
+      <div className="grid gap-3 md:grid-cols-2">
+        <TextareaField
+          label="目标"
+          value={character.goal ?? ""}
+          onChange={(value) => onChange({ goal: value || undefined })}
+        />
+        <TextareaField
+          label="动机"
+          value={character.motivation ?? ""}
+          onChange={(value) => onChange({ motivation: value || undefined })}
+        />
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <TextareaField
+          label="性格"
+          value={character.personality ?? ""}
+          onChange={(value) => onChange({ personality: value || undefined })}
+        />
+        <TextareaField
+          label="关系"
+          value={character.relationship ?? ""}
+          onChange={(value) => onChange({ relationship: value || undefined })}
+        />
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <TextareaField
+          label="人物弧光"
+          value={character.arc ?? ""}
+          onChange={(value) => onChange({ arc: value || undefined })}
+        />
+        <TextareaField
+          label="说话风格"
+          value={character.speech_style ?? ""}
+          onChange={(value) => onChange({ speech_style: value || undefined })}
+        />
+      </div>
+      <div className="flex items-center justify-between gap-3 border-t border-white/10 pt-3">
+        <span className="text-xs text-ink-500">
+          {isReferenced ? "已被场景或对白引用" : "未被引用"}
+        </span>
+        <button
+          type="button"
+          className="btn-ghost px-2 py-1 text-xs"
+          onClick={onDelete}
+          disabled={isReferenced}
+          title={isReferenced ? "先从场景和对白中移除引用后才能删除" : undefined}
+        >
+          删除角色
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LocationCard({
+  location,
+  isReferenced,
+  onChange,
+  onRename,
+  onDelete,
+}: {
+  location: ScriptLocation;
+  isReferenced: boolean;
+  onChange: (patch: Partial<ScriptLocation>) => void;
+  onRename: (value: string) => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <Field label="地点名" value={location.name} onChange={(value) => onChange({ name: value })} />
+      <Field label="地点 ID" value={location.id} onChange={onRename} />
+      <TextareaField
+        label="描述"
+        value={location.description ?? ""}
+        onChange={(value) => onChange({ description: value || undefined })}
+      />
+      <div className="flex items-center justify-between gap-3 border-t border-white/10 pt-3">
+        <span className="text-xs text-ink-500">
+          {isReferenced ? "已被场景引用" : "未被引用"}
+        </span>
+        <button
+          type="button"
+          className="btn-ghost px-2 py-1 text-xs"
+          onClick={onDelete}
+          disabled={isReferenced}
+          title={isReferenced ? "先把相关场景切换到其他地点后才能删除" : undefined}
+        >
+          删除地点
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -1392,4 +1696,46 @@ function isDialoguePatchValue(value: unknown): value is DialogueLine {
     typeof (value as DialogueLine).speaker === "string" &&
     typeof (value as DialogueLine).line === "string"
   );
+}
+
+function uniqueStrings(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function normalizeIdInput(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "_")
+    .replace(/_+/g, "_");
+}
+
+function nextAvailableId(base: string, existingIds: string[]) {
+  const used = new Set(existingIds);
+  if (!used.has(base)) return base;
+  let index = 2;
+  while (used.has(`${base}_${index}`)) index += 1;
+  return `${base}_${index}`;
+}
+
+function compactCharacter(character: ScriptCharacter): ScriptCharacter {
+  return {
+    id: character.id,
+    name: character.name,
+    role: character.role || undefined,
+    goal: character.goal || undefined,
+    motivation: character.motivation || undefined,
+    personality: character.personality || undefined,
+    relationship: character.relationship || undefined,
+    arc: character.arc || undefined,
+    speech_style: character.speech_style || undefined,
+  };
+}
+
+function compactLocation(location: ScriptLocation): ScriptLocation {
+  return {
+    id: location.id,
+    name: location.name,
+    description: location.description || undefined,
+  };
 }
