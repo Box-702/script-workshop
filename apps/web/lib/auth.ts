@@ -41,15 +41,22 @@ export async function getAuthUser(): Promise<AuthUser | null> {
   return normalizeUser(data.user);
 }
 
-export async function signInWithEmail(email: string) {
+export async function signInWithEmail(email: string, nextPath = "/dashboard") {
   const client = await getSupabaseClient();
   if (!client) throw new Error("Supabase Auth 尚未配置。");
   const { error } = await client.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: `${window.location.origin}/settings`,
+      emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
     },
   });
+  if (error) throw error;
+}
+
+export async function exchangeAuthCode(code: string) {
+  const client = await getSupabaseClient();
+  if (!client) throw new Error("Supabase Auth 尚未配置。");
+  const { error } = await client.auth.exchangeCodeForSession(code);
   if (error) throw error;
 }
 

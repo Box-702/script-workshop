@@ -23,7 +23,7 @@ export function AuthStatus() {
 
   if (!user) {
     return (
-      <a className="text-xs text-accent-400 hover:text-accent-500" href="/settings">
+      <a className="text-xs text-accent-400 hover:text-accent-500" href="/login">
         登录
       </a>
     );

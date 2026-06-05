@@ -283,7 +283,7 @@ function AuthPanel() {
     setError(null);
     setNotice(null);
     try {
-      await signInWithEmail(value);
+      await signInWithEmail(value, "/settings");
       setNotice("登录链接已发送，请查看邮箱。");
     } catch (e) {
       setError((e as Error).message);
