@@ -70,7 +70,7 @@ export default function EditPage() {
     return next;
   }, [projectId]);
 
-  const loadScript = useCallback(async () => {
+  const loadScript = useCallback(async ({ restoreAgentRun = true }: { restoreAgentRun?: boolean } = {}) => {
     const [yamlText, jsonDoc, , nextAgentRuns] = await Promise.all([
       api.getYaml(projectId),
       api.getScriptJson(projectId),
@@ -84,7 +84,9 @@ export default function EditPage() {
         ? prev
         : jsonDoc.script.scenes[0]?.id || "",
     );
-    setAgentRun((current) => current ?? nextAgentRuns.find((run) => run.status === "waiting_review") ?? null);
+    if (restoreAgentRun) {
+      setAgentRun((current) => current ?? nextAgentRuns.find((run) => run.status === "waiting_review") ?? null);
+    }
     const validation = await api.validate(yamlText);
     setErrors(validation.errors);
   }, [projectId, loadVersions, loadAgentRuns]);
@@ -221,9 +223,7 @@ export default function EditPage() {
       setYaml(version.yaml_content);
       setAgentRun(null);
       setAgentInstruction("");
-      await loadScript();
-      await loadAgentRuns();
-      setAgentRun(null);
+      await loadScript({ restoreAgentRun: false });
       setNotice("已接受 AI 改编，并保存为新版本。");
     } catch (e) {
       setErrors([{ path: "<agent>", message: (e as Error).message, severity: "error" }]);
@@ -363,6 +363,8 @@ export default function EditPage() {
             agentRuns={agentRuns}
             scriptReady={Boolean(script)}
             selectedScene={selectedScene}
+            selectedSceneLabel={selectedScene ? sceneDisplayTitle(selectedScene, selectedSceneIndex) : null}
+            characterNames={characterNames}
             setAgentInstruction={setAgentInstruction}
             setAgentScope={setAgentScope}
             setAgentRun={setAgentRun}
@@ -835,6 +837,8 @@ function AgentPanel({
   agentRuns,
   scriptReady,
   selectedScene,
+  selectedSceneLabel,
+  characterNames,
   setAgentInstruction,
   setAgentScope,
   setAgentRun,
@@ -851,6 +855,8 @@ function AgentPanel({
   agentRuns: AgentRunSummary[];
   scriptReady: boolean;
   selectedScene: ScriptScene | null;
+  selectedSceneLabel: string | null;
+  characterNames: Record<string, string>;
   setAgentInstruction: (value: string) => void;
   setAgentScope: (value: "current_scene" | "whole_script") => void;
   setAgentRun: (value: AgentRunSummary) => void;
@@ -880,7 +886,19 @@ function AgentPanel({
 
   function appendInstruction(text: string) {
     const current = agentInstruction.trim();
-    setAgentInstruction(current ? `${current}；${text}` : text);
+    if (!current) {
+      setAgentInstruction(text);
+      return;
+    }
+    const parts = current
+      .split(/[；;]\s*/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (parts.includes(text)) {
+      setAgentInstruction(current);
+      return;
+    }
+    setAgentInstruction([...parts, text].join("；"));
   }
 
   return (
@@ -922,6 +940,17 @@ function AgentPanel({
         onChange={(e) => setAgentInstruction(e.target.value)}
         placeholder="例如：强化前三秒钩子；减少解释性对白；不改变人物关系。"
       />
+      {agentInstruction.trim() && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            className="text-xs text-ink-500 hover:text-ink-200"
+            onClick={() => setAgentInstruction("")}
+          >
+            清空需求
+          </button>
+        </div>
+      )}
       <div className="rounded-md border border-ink-600/40 bg-ink-900 p-2">
         <div className="mb-2 text-xs text-ink-500">改编范围</div>
         <div className="grid grid-cols-2 gap-2">
@@ -944,7 +973,7 @@ function AgentPanel({
         <div className="mt-2 truncate text-xs text-ink-400">
           {agentScope === "current_scene"
             ? selectedScene
-              ? selectedScene.title
+              ? selectedSceneLabel
               : "请先选择一个场景"
             : "将基于当前版本生成整体改编建议"}
         </div>
@@ -999,6 +1028,10 @@ function AgentPanel({
             <span className="rounded bg-ink-800 px-2 py-1 font-mono text-ink-400">
               AI 助手
             </span>
+          </div>
+          <div className="rounded bg-ink-950/70 px-2 py-1.5 text-ink-300">
+            <span className="text-ink-500">需求：</span>
+            {agentRun.user_prompt}
           </div>
           {agentRun.error_message && (
             <div className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-amber-200">
@@ -1059,8 +1092,8 @@ function AgentPanel({
                       {formatPatchField(item)}
                     </span>
                   </div>
-                  <PatchValue label="修改前" value={item.before} />
-                  <PatchValue label="修改后" value={item.after ?? item.value} />
+                  <PatchValue label="修改前" value={item.before} characterNames={characterNames} />
+                  <PatchValue label="修改后" value={item.after ?? item.value} characterNames={characterNames} />
                 </li>
               ))}
               </ul>
@@ -1245,18 +1278,29 @@ function formatPatchField(item: AgentPatchOperation) {
   );
 }
 
-function PatchValue({ label, value }: { label: string; value: unknown }) {
+function PatchValue({
+  label,
+  value,
+  characterNames,
+}: {
+  label: string;
+  value: unknown;
+  characterNames: Record<string, string>;
+}) {
   return (
     <div className="mt-2">
       <div className="mb-1 text-[11px] text-ink-500">{label}</div>
       <div className="max-h-28 overflow-auto rounded bg-ink-950/70 px-2 py-1.5 font-mono text-[11px] leading-relaxed text-ink-300">
-        {formatPatchValue(value)}
+        {formatPatchValue(value, characterNames)}
       </div>
     </div>
   );
 }
 
-function formatPatchValue(value: AgentPatchOperation[keyof AgentPatchOperation]) {
+function formatPatchValue(
+  value: AgentPatchOperation[keyof AgentPatchOperation],
+  characterNames: Record<string, string> = {},
+) {
   if (value === null || typeof value === "undefined" || value === "") return "空";
   if (typeof value === "string") return value;
   if (Array.isArray(value)) {
@@ -1269,12 +1313,16 @@ function formatPatchValue(value: AgentPatchOperation[keyof AgentPatchOperation])
         .map((item) => {
           const emotion = item.emotion ? `（${item.emotion}）` : "";
           const subtext = item.subtext ? `\n  潜台词：${item.subtext}` : "";
-          return `${item.speaker}${emotion}：${item.line}${subtext}`;
+          return `${formatSpeakerName(item.speaker, characterNames)}${emotion}：${item.line}${subtext}`;
         })
         .join("\n");
     }
   }
   return JSON.stringify(value, null, 2);
+}
+
+function formatSpeakerName(speakerId: string, characterNames: Record<string, string>) {
+  return characterNames[speakerId] || speakerId;
 }
 
 function isDialoguePatchValue(value: unknown): value is DialogueLine {

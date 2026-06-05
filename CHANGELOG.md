@@ -17,6 +17,7 @@ All notable changes to 剧本工坊 are documented here.
 - Added Agent suggestion retry so users can regenerate a patch from the same prompt, base version, and scene scope.
 - Added Agent run history loading in the editor so pending suggestions survive page refreshes.
 - Improved the Agent panel with adaptation-focus presets, constraint chips, and readable action/dialogue patch previews.
+- Improved Agent review context with the original user request, normalized current-scene labels, duplicate-safe prompt chips, clear prompt reset, and character-name dialogue previews.
 - Added JSON and Markdown script exports for latest and historical script versions.
 
 ### Fixed
@@ -27,6 +28,7 @@ All notable changes to 剧本工坊 are documented here.
 - Contained the script editor inside the viewport with independent scroll areas for resources, editing, and side panels, and fixed the dark background color banding during long-page scroll.
 - Compacted the script editor toolbar so the main editing canvas starts higher and has more vertical room.
 - Fixed whole-script Agent scope so the web editor sends every current scene id instead of an empty scene selection.
+- Fixed Agent acceptance refresh so accepting one suggestion does not immediately reopen another pending suggestion in the review card.
 - Reloaded the canonical script snapshot after structured editor saves so UI state matches backend normalization and validation.
 - Kept the selected scene id in sync after loading, restoring, or saving versions whose scene ids changed.
 - Made Markdown exports read like a writer-facing script draft with Chinese sections, resolved role/location names, and filtered empty action/dialogue lines.

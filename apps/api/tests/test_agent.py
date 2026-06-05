@@ -16,6 +16,7 @@ from app.services.agent import (
     retry_agent_run,
 )
 from app.services.versions import create_version_from_yaml
+from app.yaml_io import from_yaml
 
 
 class FakeAgentProvider:
@@ -332,6 +333,39 @@ def test_agent_routes_create_get_and_accept_run():
     accepted = client.post(f"/api/agent-runs/{run_id}/accept")
     assert accepted.status_code == 200
     assert accepted.json()["source_type"] == "agent_adaptation"
+
+
+def test_agent_route_accepts_selected_patch_indexes():
+    db = _session()
+    project = Project(id="proj_test", title="Test", adaptation_type="short_drama")
+    db.add(project)
+    db.commit()
+    create_version_from_yaml(db, project, MULTI_SCENE_SCRIPT_YAML)
+    client = _client(db)
+
+    created = client.post(
+        f"/api/projects/{project.id}/agent/adapt",
+        json={
+            "instruction": "只接受第二场改编说明",
+            "scene_ids": ["scene_001", "scene_002"],
+        },
+    )
+    assert created.status_code == 200
+    assert len(created.json()["patch"]) == 2
+    run_id = created.json()["id"]
+
+    accepted = client.post(
+        f"/api/agent-runs/{run_id}/accept",
+        json={"patch_indexes": [1]},
+    )
+
+    assert accepted.status_code == 200
+    accepted_doc = from_yaml(accepted.json()["yaml_content"])
+    scenes = accepted_doc["script"]["scenes"]
+    assert "adaptation_notes" not in scenes[0]
+    assert scenes[1]["adaptation_notes"]["reason"] == "AI 改编需求：只接受第二场改编说明"
+    event = db.query(EditEvent).filter_by(version_id=accepted.json()["id"]).one()
+    assert event.patch["accepted_patch_indexes"] == [1]
 
 
 def test_agent_routes_list_project_runs():
