@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { ExportMenu } from "@/components/ExportMenu";
 import { api } from "@/lib/api";
+import { loadLlmSettings } from "@/lib/llm-settings";
 import type {
   AgentPatchOperation,
   AgentRunSummary,
@@ -191,7 +192,7 @@ export default function EditPage() {
           agentScope === "current_scene" && selectedScene
             ? [selectedScene.id]
             : script?.scenes.map((scene) => scene.id) ?? [],
-      });
+      }, loadLlmSettings());
       setAgentRun(run);
       setNotice("已生成改编建议，等待确认。");
     } catch (e) {
@@ -853,12 +854,17 @@ function AgentPanel({
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="font-medium text-ink-100">{formatAgentStatus(agentRun.status)}</div>
-              <div className="mt-1 text-ink-500">改编建议已生成</div>
+              <div className="mt-1 text-ink-500">{formatAgentModel(agentRun.model)}</div>
             </div>
             <span className="rounded bg-ink-800 px-2 py-1 font-mono text-ink-400">
               AI 助手
             </span>
           </div>
+          {agentRun.error_message && (
+            <div className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-amber-200">
+              {agentRun.error_message}
+            </div>
+          )}
           {agentRun.plan && (
             <ol className="space-y-1 text-ink-300">
               {agentRun.plan.map((item, index) => (
@@ -876,7 +882,7 @@ function AgentPanel({
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-ink-200">{item.scene_title || `变更 ${index + 1}`}</span>
                     <span className="rounded bg-ink-800 px-1.5 py-0.5 font-mono text-[10px] uppercase text-ink-400">
-                      修改
+                      {formatPatchField(item)}
                     </span>
                   </div>
                   <PatchValue label="修改前" value={item.before} />
@@ -1021,6 +1027,28 @@ function formatAgentStatus(value: string) {
       rejected: "已拒绝",
       failed: "失败",
     }[value] ?? value
+  );
+}
+
+function formatAgentModel(value: string | null) {
+  if (value === "local-rule-patch-v1") return "本地建议已生成";
+  if (value === "openai-compatible-agent") return "模型改编建议已生成";
+  return "改编建议已生成";
+}
+
+function formatPatchField(item: AgentPatchOperation) {
+  return (
+    {
+      title: "标题",
+      purpose: "目的",
+      conflict: "冲突",
+      entry_state: "入场",
+      exit_state: "离场",
+      action: "动作",
+      dialogue: "对白",
+      "adaptation_notes/reason": "说明",
+      "adaptation_notes/fidelity": "方式",
+    }[item.field || String(item.path || "").split("/script/scenes/").pop()?.split("/").slice(1).join("/") || ""] ?? "修改"
   );
 }
 

@@ -60,6 +60,7 @@ class LLMProvider(Protocol):
 6. 完成后写入 `script_versions`，项目 `current_version_id` 指向最新版本
 7. 编辑页默认读取 `/script.json` 渲染结构化表单；YAML 仅作为高级源码模式和导出格式保留
 8. 导出接口提供 YAML、JSON、Markdown，其中 Markdown 面向编剧/改编者阅读稿
+9. AI 改编助手读取当前版本和选中场景；有模型 key 时生成结构化 patch，无 key 或模型失败时退回本地建议；用户确认后再保存为新的 `agent_adaptation` 版本
 
 ## 目录约定
 
@@ -69,3 +70,4 @@ class LLMProvider(Protocol):
 - 可读导出：`services.exports` 将当前或历史版本转换为 JSON/Markdown 文本
 - 模型 key：DB `user_model_keys.encrypted_api_key`，只展示 `key_last4`
 - 手动保存和历史恢复：通过 `script_versions` 生成新快照
+- AI 改编：`agent_runs` 保存用户指令、选中上下文、计划和 patch；接受后写入 `script_versions` 与 `edit_events`

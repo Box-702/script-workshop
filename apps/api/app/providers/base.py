@@ -12,6 +12,7 @@ class Stage(StrEnum):
     SCENE_PLAN = "scene_plan"
     DIALOGUE = "dialogue"
     REPAIR = "repair"
+    AGENT = "agent"
 
 
 @runtime_checkable

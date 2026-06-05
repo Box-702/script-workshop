@@ -134,9 +134,11 @@ export const api = {
   createAgentRun: (
     projectId: string,
     body: { instruction: string; base_version_id?: string; scene_ids?: string[] },
+    llmSettings?: LlmSettings,
   ) =>
     jfetch<AgentRunSummary>(`/api/projects/${projectId}/agent/adapt`, {
       method: "POST",
+      headers: llmSettings ? llmSettingsHeaders(llmSettings) : undefined,
       body: JSON.stringify(body),
     }),
 

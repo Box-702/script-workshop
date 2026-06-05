@@ -103,7 +103,9 @@ def script_to_markdown(data: dict[str, Any]) -> str:
                 for item in dialogue:
                     if not isinstance(item, dict):
                         continue
-                    speaker = character_names.get(item.get("speaker"), item.get("speaker") or "Unknown")
+                    speaker = character_names.get(
+                        item.get("speaker"), item.get("speaker") or "Unknown"
+                    )
                     line = str(item.get("line") or "").strip()
                     if not line:
                         continue

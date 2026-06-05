@@ -93,7 +93,8 @@ def create_model_key(
     if not is_plausible_api_key(api_key):
         raise HTTPException(
             400,
-            "API key 看起来不是有效密钥。请粘贴完整 key，不要填写 ****1234 这类遮罩值、端口号或空值。",
+            "API key 看起来不是有效密钥。请粘贴完整 key，"
+            "不要填写 ****1234 这类遮罩值、端口号或空值。",
         )
 
     existing = (

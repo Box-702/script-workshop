@@ -415,7 +415,6 @@ def _friendly_generation_error(error: Exception) -> str:
     raw = str(error)
     lowered = raw.lower()
     status_code = getattr(error, "status_code", None)
-    error_type = type(error).__name__.lower()
     if status_code == 401 or "authentication" in lowered or "invalid api key" in lowered:
         return (
             "模型认证失败：API key 无效、已过期或没有访问权限。"

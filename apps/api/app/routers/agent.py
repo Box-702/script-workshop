@@ -1,9 +1,12 @@
 """AI Agent adaptation endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Header
 
 from .. import db as dbm
+from ..config import get_settings
 from ..schemas import (
     AgentAdaptRequest,
     AgentRunOut,
@@ -18,6 +21,7 @@ from ..services.agent import (
 )
 from ..services.versions import get_project_or_404
 from .deps import DbSession
+from .projects import LLMRunOptions, _fill_options_from_saved_key, _provider_from_options
 
 router = APIRouter(prefix="/api", tags=["agent"])
 
@@ -62,9 +66,36 @@ def _agent_run_out(run: dbm.AgentRun) -> AgentRunOut:
 
 
 @router.post("/projects/{project_id}/agent/adapt", response_model=AgentRunOut)
-def adapt_project(project_id: str, payload: AgentAdaptRequest, db: DbSession) -> AgentRunOut:
+def adapt_project(
+    project_id: str,
+    payload: AgentAdaptRequest,
+    db: DbSession,
+    llm_provider: Annotated[str | None, Header(alias="X-LLM-Provider")] = None,
+    openai_api_key: Annotated[str | None, Header(alias="X-OpenAI-API-Key")] = None,
+    openai_base_url: Annotated[str | None, Header(alias="X-OpenAI-Base-URL")] = None,
+    openai_model: Annotated[str | None, Header(alias="X-OpenAI-Model")] = None,
+) -> AgentRunOut:
     project = get_project_or_404(db, project_id)
-    return _agent_run_out(create_agent_run(db, project, payload))
+    options = LLMRunOptions(
+        provider=llm_provider or "openai",
+        openai_api_key=openai_api_key or "",
+        openai_base_url=openai_base_url or "",
+        openai_model=openai_model or "",
+        language=project.language or "",
+    )
+    options = _fill_options_from_saved_key(db, options)
+    provider = None
+    provider_error = None
+    if options.openai_api_key.strip() or get_settings().openai_api_key.strip():
+        try:
+            provider = _provider_from_options(options)
+        except Exception as e:  # noqa: BLE001
+            provider_error = str(e)
+    else:
+        provider_error = "未配置模型 key，已使用本地改编建议。"
+    return _agent_run_out(
+        create_agent_run(db, project, payload, provider=provider, provider_error=provider_error)
+    )
 
 
 @router.get("/agent-runs/{run_id}", response_model=AgentRunOut)

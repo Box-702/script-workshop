@@ -13,6 +13,16 @@ from app.services.agent import accept_agent_run, create_agent_run, reject_agent_
 from app.services.versions import create_version_from_yaml
 
 
+class FakeAgentProvider:
+    def __init__(self, response):
+        self.response = response
+        self.calls = []
+
+    def generate_structured(self, prompt, schema, *, stage):
+        self.calls.append({"prompt": prompt, "schema": schema, "stage": stage})
+        return self.response
+
+
 MULTI_SCENE_SCRIPT_YAML = (
     VALID_SCRIPT_YAML
     + """    - id: scene_002
@@ -111,6 +121,68 @@ def test_create_agent_run_can_target_multiple_selected_scenes():
         "/script/scenes/1/adaptation_notes/reason",
     ]
     assert [item["scene_id"] for item in run.patch] == ["scene_001", "scene_002"]
+
+
+def test_create_agent_run_uses_model_patch_for_scene_rewrite():
+    db = _session()
+    project = Project(id="proj_test", title="Test", adaptation_type="short_drama")
+    db.add(project)
+    db.commit()
+    base = create_version_from_yaml(db, project, VALID_SCRIPT_YAML)
+    provider = FakeAgentProvider(
+        {
+            "plan": ["强化门外未知威胁", "压缩对白并增加动作悬念"],
+            "changes": [
+                {
+                    "scene_id": "scene_001",
+                    "purpose": "Open with a sharper suspense hook.",
+                    "conflict": (
+                        "The doctor wants safety, but the stranger brings danger to the door."
+                    ),
+                    "action": ["Rain rattles the sign.", "A bloodied hand hits the glass."],
+                    "dialogue": [
+                        {
+                            "speaker": "char_doctor",
+                            "line": "Who is out there?",
+                            "emotion": "tense",
+                        }
+                    ],
+                    "adaptation_reason": "强化悬疑钩子，减少解释性对白。",
+                    "fidelity": "reordered",
+                }
+            ],
+        }
+    )
+
+    run = create_agent_run(
+        db,
+        project,
+        payload=AgentAdaptRequest(
+            instruction="把第一场改得更悬疑，减少解释性对白",
+            base_version_id=base.id,
+            scene_ids=["scene_001"],
+        ),
+        provider=provider,
+    )
+
+    assert run.model == "openai-compatible-agent"
+    assert provider.calls
+    assert run.plan == ["强化门外未知威胁", "压缩对白并增加动作悬念"]
+    assert [item["field"] for item in run.patch] == [
+        "purpose",
+        "conflict",
+        "action",
+        "dialogue",
+        "adaptation_notes/reason",
+        "adaptation_notes/fidelity",
+    ]
+
+    version = accept_agent_run(db, run)
+    scene = version.json_content["script"]["scenes"][0]
+    assert scene["purpose"] == "Open with a sharper suspense hook."
+    assert scene["action"] == ["Rain rattles the sign.", "A bloodied hand hits the glass."]
+    assert scene["dialogue"][0]["line"] == "Who is out there?"
+    assert scene["adaptation_notes"]["reason"] == "强化悬疑钩子，减少解释性对白。"
 
 
 def test_accept_agent_run_creates_version_and_edit_event():

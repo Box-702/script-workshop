@@ -14,6 +14,7 @@ from ..schemas import (
     ScriptVersionOut,
     ScriptVersionSaveRequest,
 )
+from ..services.exports import script_to_json_text, script_to_markdown
 from ..services.versions import (
     create_version_from_yaml,
     get_project_or_404,
@@ -21,7 +22,6 @@ from ..services.versions import (
     latest_version,
     restore_version,
 )
-from ..services.exports import script_to_json_text, script_to_markdown
 from ..yaml_io import to_yaml
 from .deps import DbSession
 

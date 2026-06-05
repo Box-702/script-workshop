@@ -157,6 +157,7 @@ export interface EditEventSummary {
 export interface AgentPatchOperation {
   op?: string;
   path?: string;
+  field?: string;
   scene_id?: string | null;
   scene_title?: string | null;
   before?: unknown;

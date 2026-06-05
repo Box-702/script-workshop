@@ -30,6 +30,7 @@ def _model_for(stage: Stage, s: Settings, override: str = "") -> str:
         Stage.SCENE_PLAN: s.llm_model_scene or s.openai_model,
         Stage.DIALOGUE: s.llm_model_dialogue or s.openai_model,
         Stage.REPAIR: s.llm_model_repair or s.openai_model,
+        Stage.AGENT: s.openai_model,
     }[stage]
 
 
