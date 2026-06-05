@@ -28,6 +28,7 @@ env/
 # Local
 apps/api/.pytest_cache/
 apps/api/apps/api/
+.codegraph/
 
 # Env
 .env
