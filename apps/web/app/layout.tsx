@@ -3,7 +3,7 @@ import Link from "next/link";
 import "../styles/globals.css";
 
 export const metadata: Metadata = {
-  title: "Script Workshop",
+  title: "剧本工坊",
   description: "AI 剧本工作台",
 };
 
@@ -15,7 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
             <Link href="/" className="flex items-center gap-2 text-ink-50 hover:text-ink-50">
               <span className="inline-block h-6 w-6 rounded bg-accent-500" />
-              <span className="font-semibold tracking-tight">Script Workshop</span>
+              <span className="font-semibold tracking-tight">剧本工坊</span>
             </Link>
             <nav className="flex items-center gap-4 text-sm text-ink-400">
               <Link href="/dashboard">项目</Link>

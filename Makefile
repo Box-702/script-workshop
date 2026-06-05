@@ -53,7 +53,7 @@ lint:
 
 clean:
 	rm -rf apps/api/.venv apps/api/data apps/api/storage
-	rm -rf apps/web/node_modules apps/web/.next apps/web/out
+	rm -rf apps/web/node_modules apps/web/.next apps/web/.next-dev apps/web/out
 	rm -rf .pytest_cache .ruff_cache
 
 docker-up:

@@ -76,6 +76,24 @@ def test_create_model_key_encrypts_and_replaces_active_key():
     assert decrypt_model_key(second).api_key == "sk-second-secret"
 
 
+def test_create_model_key_rejects_masked_or_too_short_key():
+    db = _session()
+
+    for value in ("3000", "****3000", "https://api.openai.com/v1"):
+        try:
+            create_model_key(
+                db,
+                provider="openai",
+                api_key=value,
+                base_url="https://api.openai.com/v1",
+                model="gpt-4o-mini",
+            )
+        except Exception as exc:  # noqa: BLE001
+            assert "API key" in str(exc)
+        else:  # pragma: no cover
+            raise AssertionError(f"expected invalid key to be rejected: {value}")
+
+
 def test_fill_options_from_saved_key_uses_active_key_when_header_is_missing():
     db = _session()
     create_model_key(
@@ -141,7 +159,8 @@ def test_model_key_api_lists_active_tests_and_revokes_key():
 
     tested = client.post(f"/api/user/model-keys/{key_id}/test")
     assert tested.status_code == 200
-    assert tested.json() == {"ok": True, "message": "model key can be decrypted"}
+    assert tested.json()["ok"] is True
+    assert "格式可用" in tested.json()["message"]
 
     revoked = client.delete(f"/api/user/model-keys/{key_id}")
     assert revoked.status_code == 200

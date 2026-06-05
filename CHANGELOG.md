@@ -11,8 +11,12 @@ All notable changes to Script Workshop are documented here.
 - New project creation now accepts either a browser-local key or a cloud-saved active key.
 - Added edit event persistence for manual saves and restores, plus a project edit history endpoint.
 - Added a minimal Agent adaptation flow that creates reviewable patches and saves accepted changes as new versions.
+- Added Agent diff review details with patch before/after previews and a reject flow that leaves the current version unchanged.
+- Added JSON and Markdown script exports for latest and historical script versions.
 
 ### Fixed
+- Separated Next.js dev and production build directories to prevent stale chunk errors after switching between `next dev` and `next build`.
+- Added API key sanity checks and clearer generation failure messages for invalid or expired model keys.
 - Removed stale documentation that described no-key generation as an offline mock path.
 - Tightened explicit chapter parsing so inputs with fewer than 3 declared chapters are rejected instead of being silently split by length.
 - Changed chapter persistence to a `(project_id, id)` composite key so multiple projects can each use stable ids such as `chapter_001`.

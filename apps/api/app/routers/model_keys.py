@@ -10,6 +10,7 @@ from ..services.model_keys import (
     create_model_key,
     decrypt_model_key,
     get_active_model_key,
+    is_plausible_api_key,
     list_model_keys,
     revoke_model_key,
 )
@@ -67,6 +68,9 @@ def test_model_key(key_id: str, db: DbSession) -> ModelKeyTestResponse:
     if not key or key.user_id != LOCAL_USER_ID or key.status != "active":
         return ModelKeyTestResponse(ok=False, message="model key not found")
     decrypted = decrypt_model_key(key)
-    if decrypted.api_key.strip():
-        return ModelKeyTestResponse(ok=True, message="model key can be decrypted")
-    return ModelKeyTestResponse(ok=False, message="model key is empty")
+    if not is_plausible_api_key(decrypted.api_key):
+        return ModelKeyTestResponse(ok=False, message="API key 看起来不是有效密钥")
+    return ModelKeyTestResponse(
+        ok=True,
+        message="API key 已保存且格式可用；服务商认证会在生成时检查。",
+    )

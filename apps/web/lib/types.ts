@@ -85,6 +85,60 @@ export interface ScriptVersionDetail extends ScriptVersionSummary {
   yaml_content: string;
 }
 
+export interface DialogueLine {
+  speaker: string;
+  line: string;
+  emotion?: string | null;
+  subtext?: string | null;
+}
+
+export interface ScriptScene {
+  id: string;
+  title: string;
+  chapter_refs: string[];
+  location_id: string;
+  time?: string | null;
+  characters: string[];
+  purpose: string;
+  conflict: string;
+  entry_state?: string | null;
+  exit_state?: string | null;
+  action: string[];
+  dialogue: DialogueLine[];
+  adaptation_notes?: { reason?: string | null; fidelity?: string | null } | null;
+}
+
+export interface ScriptCharacter {
+  id: string;
+  name: string;
+  role?: string | null;
+  goal?: string | null;
+  motivation?: string | null;
+  personality?: string | null;
+  relationship?: string | null;
+  arc?: string | null;
+  speech_style?: string | null;
+}
+
+export interface ScriptLocation {
+  id: string;
+  name: string;
+  description?: string | null;
+}
+
+export interface ScriptDocument {
+  title: string;
+  version: string;
+  language: string;
+  adaptation?: Record<string, unknown> | null;
+  source: { chapter_count: number; chapter_ids: string[] };
+  logline: string;
+  themes: string[];
+  characters: ScriptCharacter[];
+  locations: ScriptLocation[];
+  scenes: ScriptScene[];
+}
+
 export interface EditEventSummary {
   id: string;
   project_id: string;
@@ -100,6 +154,16 @@ export interface EditEventSummary {
   created_at: string;
 }
 
+export interface AgentPatchOperation {
+  op?: string;
+  path?: string;
+  scene_id?: string | null;
+  scene_title?: string | null;
+  before?: unknown;
+  value?: unknown;
+  after?: unknown;
+}
+
 export interface AgentRunSummary {
   id: string;
   project_id: string;
@@ -108,7 +172,7 @@ export interface AgentRunSummary {
   user_prompt: string;
   selected_context: Record<string, unknown> | null;
   plan: unknown[] | null;
-  patch: unknown[] | null;
+  patch: AgentPatchOperation[] | null;
   status: string;
   model: string | null;
   error_message: string | null;

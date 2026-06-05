@@ -8,6 +8,7 @@ import type {
   ProjectSummary,
   RepairResponse,
   RunOut,
+  ScriptDocument,
   ScriptVersionDetail,
   ScriptVersionSummary,
   ValidateResponse,
@@ -22,7 +23,15 @@ async function jfetch<T>(url: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`HTTP ${res.status}: ${text}`);
+    let message = text;
+    try {
+      const data = JSON.parse(text) as { detail?: unknown; message?: unknown };
+      if (typeof data.detail === "string") message = data.detail;
+      else if (typeof data.message === "string") message = data.message;
+    } catch {
+      // Keep the raw response text.
+    }
+    throw new Error(message || `HTTP ${res.status}`);
   }
   return (await res.json()) as T;
 }
@@ -83,6 +92,9 @@ export const api = {
       return r.text();
     }),
 
+  getScriptJson: (projectId: string) =>
+    jfetch<{ script: ScriptDocument }>(`/api/projects/${projectId}/script.json`),
+
   listVersions: (projectId: string) =>
     jfetch<ScriptVersionSummary[]>(`/api/projects/${projectId}/versions`),
 
@@ -97,6 +109,16 @@ export const api = {
     jfetch<ScriptVersionDetail>(`/api/projects/${projectId}/versions`, {
       method: "POST",
       body: JSON.stringify({ yaml, ...metadata }),
+    }),
+
+  saveStructuredVersion: (
+    projectId: string,
+    script: ScriptDocument,
+    metadata?: { label?: string; notes?: string },
+  ) =>
+    jfetch<ScriptVersionDetail>(`/api/projects/${projectId}/versions/json`, {
+      method: "POST",
+      body: JSON.stringify({ script, ...metadata }),
     }),
 
   restoreVersion: (projectId: string, versionId: string) =>
@@ -116,6 +138,11 @@ export const api = {
 
   acceptAgentRun: (runId: string) =>
     jfetch<ScriptVersionDetail>(`/api/agent-runs/${runId}/accept`, {
+      method: "POST",
+    }),
+
+  rejectAgentRun: (runId: string) =>
+    jfetch<AgentRunSummary>(`/api/agent-runs/${runId}/reject`, {
       method: "POST",
     }),
 

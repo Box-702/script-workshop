@@ -6,7 +6,7 @@ export default function HomePage() {
       <section className="card">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Script Workshop</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">剧本工坊</h1>
             <p className="mt-2 text-sm text-ink-400">
               AI 剧本工作台：生成、编辑、校验并保存剧本版本。
             </p>

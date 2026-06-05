@@ -18,7 +18,11 @@ from app.db import Base, Chapter, Project
 from app.pipeline import run_pipeline, to_yaml_text
 from app.providers.base import LLMProvider, Stage
 from app.repair import repair_yaml
-from app.routers.projects import LLMRunOptions, _provider_from_options
+from app.routers.projects import (
+    LLMRunOptions,
+    _friendly_generation_error,
+    _provider_from_options,
+)
 from app.validation import validate_script
 from app.yaml_io import from_yaml
 
@@ -315,6 +319,13 @@ def test_provider_requires_openai_api_key():
     assert "API key" in exc.value.detail
 
 
+def test_provider_rejects_obviously_invalid_key():
+    with pytest.raises(HTTPException) as exc:
+        _provider_from_options(LLMRunOptions(provider="openai", openai_api_key="****3000"))
+    assert exc.value.status_code == 400
+    assert "不是有效密钥" in exc.value.detail
+
+
 def test_provider_rejects_mock_provider():
     with pytest.raises(HTTPException) as exc:
         _provider_from_options(LLMRunOptions(provider="mock", openai_api_key="sk-x"))
@@ -328,9 +339,19 @@ def test_provider_builds_with_key():
     p = _provider_from_options(
         LLMRunOptions(
             provider="openai",
-            openai_api_key="sk-test",
+            openai_api_key="sk-test-key",
             openai_base_url="https://api.openai.com/v1",
             openai_model="gpt-4o-mini",
         )
     )
     assert isinstance(p, OpenAIProvider)
+
+
+def test_friendly_generation_error_for_authentication_failure():
+    class AuthError(Exception):
+        status_code = 401
+
+    message = _friendly_generation_error(AuthError("Error code: 401 - invalid api key"))
+
+    assert "模型认证失败" in message
+    assert "invalid api key" not in message.lower()

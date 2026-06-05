@@ -28,7 +28,12 @@ from ..schemas import (
     RunOut,
     ScriptVersionOut,
 )
-from ..services.model_keys import LOCAL_USER_ID, decrypt_model_key, get_active_model_key
+from ..services.model_keys import (
+    LOCAL_USER_ID,
+    decrypt_model_key,
+    get_active_model_key,
+    is_plausible_api_key,
+)
 from ..services.versions import latest_version
 from .deps import DbSession
 
@@ -136,6 +141,14 @@ def _provider_from_options(options: LLMRunOptions) -> LLMProvider:
             detail=(
                 "OpenAI API key is missing. Configure it on /settings or set "
                 "OPENAI_API_KEY in the server environment."
+            ),
+        )
+    if not is_plausible_api_key(api_key):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "API key 看起来不是有效密钥。请在模型设置中粘贴完整 key，"
+                "不要使用 ****1234 这类遮罩值、端口号或空值。"
             ),
         )
     return OpenAIProvider(
@@ -376,7 +389,8 @@ def _run_pipeline_task(run_id: str, llm_options: LLMRunOptions) -> None:
         except Exception as e:  # noqa: BLE001
             log.exception("pipeline failed for run %s", run_id)
             run.status = "failed"
-            run.error_message = str(e)
+            run.error_message = _friendly_generation_error(e)
+            project.status = "failed"
             db.commit()
             log_event(
                 run_id,
@@ -386,3 +400,22 @@ def _run_pipeline_task(run_id: str, llm_options: LLMRunOptions) -> None:
             )
     finally:
         db.close()
+
+
+def _friendly_generation_error(error: Exception) -> str:
+    raw = str(error)
+    lowered = raw.lower()
+    status_code = getattr(error, "status_code", None)
+    error_type = type(error).__name__.lower()
+    if status_code == 401 or "authentication" in lowered or "invalid api key" in lowered:
+        return (
+            "模型认证失败：API key 无效、已过期或没有访问权限。"
+            "请到“模型设置”更新完整 key，并确认 base URL 与模型名称匹配。"
+        )
+    if status_code == 429 or "rate limit" in lowered or "quota" in lowered:
+        return "模型额度或速率受限：请稍后重试，或更换有额度的 API key。"
+    if "connection" in lowered or "timeout" in lowered:
+        return "模型服务连接失败：请检查网络、base URL 和服务商状态。"
+    if raw:
+        return raw
+    return f"生成失败：{type(error).__name__}"

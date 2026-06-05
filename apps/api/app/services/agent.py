@@ -29,12 +29,20 @@ def _selected_scene_indexes(version: dbm.ScriptVersion, scene_ids: list[str]) ->
 
 def _build_patch(version: dbm.ScriptVersion, instruction: str, scene_ids: list[str]) -> list[dict]:
     patch: list[dict] = []
+    scenes = version.json_content.get("script", {}).get("scenes", [])
     for idx in _selected_scene_indexes(version, scene_ids):
+        scene = scenes[idx]
+        notes = scene.get("adaptation_notes") or {}
+        next_value = f"AI 改编需求：{instruction.strip()}"
         patch.append(
             {
                 "op": "set",
                 "path": f"/script/scenes/{idx}/adaptation_notes/reason",
-                "value": f"AI 改编需求：{instruction.strip()}",
+                "scene_id": scene.get("id"),
+                "scene_title": scene.get("title"),
+                "before": notes.get("reason"),
+                "value": next_value,
+                "after": next_value,
             }
         )
     return patch
@@ -134,3 +142,13 @@ def accept_agent_run(db: Session, run: dbm.AgentRun) -> dbm.ScriptVersion:
     db.commit()
     db.refresh(run)
     return version
+
+
+def reject_agent_run(db: Session, run: dbm.AgentRun) -> dbm.AgentRun:
+    if run.status != "waiting_review":
+        raise HTTPException(400, f"agent run cannot be rejected from status {run.status}")
+
+    run.status = "rejected"
+    db.commit()
+    db.refresh(run)
+    return run

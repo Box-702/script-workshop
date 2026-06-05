@@ -90,8 +90,11 @@ def create_model_key(
     api_key = api_key.strip()
     if provider != "openai":
         raise HTTPException(400, "unsupported model provider")
-    if not api_key:
-        raise HTTPException(400, "api key is required")
+    if not is_plausible_api_key(api_key):
+        raise HTTPException(
+            400,
+            "API key 看起来不是有效密钥。请粘贴完整 key，不要填写 ****1234 这类遮罩值、端口号或空值。",
+        )
 
     existing = (
         db.query(dbm.UserModelKey)
@@ -115,6 +118,15 @@ def create_model_key(
     db.commit()
     db.refresh(key)
     return key
+
+
+def is_plausible_api_key(api_key: str) -> bool:
+    value = (api_key or "").strip()
+    if len(value) < 8:
+        return False
+    if "*" in value or value.lower().startswith(("bearer ", "http://", "https://")):
+        return False
+    return True
 
 
 def list_model_keys(db: Session, *, user_id: str = LOCAL_USER_ID) -> list[dbm.UserModelKey]:

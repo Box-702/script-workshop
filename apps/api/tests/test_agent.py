@@ -9,7 +9,7 @@ from app.db import Base, EditEvent, Project
 from app.routers import agent
 from app.routers.deps import get_db
 from app.schemas import AgentAdaptRequest
-from app.services.agent import accept_agent_run, create_agent_run
+from app.services.agent import accept_agent_run, create_agent_run, reject_agent_run
 from app.services.versions import create_version_from_yaml
 
 
@@ -60,7 +60,11 @@ def test_create_agent_run_builds_review_patch():
         {
             "op": "set",
             "path": "/script/scenes/0/adaptation_notes/reason",
+            "scene_id": "scene_001",
+            "scene_title": "Knock",
+            "before": None,
             "value": "AI 改编需求：把第一场改得更悬疑",
+            "after": "AI 改编需求：把第一场改得更悬疑",
         }
     ]
 
@@ -92,6 +96,25 @@ def test_accept_agent_run_creates_version_and_edit_event():
     assert event.patch["agent_run_id"] == run.id
 
 
+def test_reject_agent_run_does_not_create_version():
+    db = _session()
+    project = Project(id="proj_test", title="Test", adaptation_type="short_drama")
+    db.add(project)
+    db.commit()
+    create_version_from_yaml(db, project, VALID_SCRIPT_YAML)
+    run = create_agent_run(
+        db,
+        project,
+        payload=AgentAdaptRequest(instruction="只做审稿，不保存", scene_ids=[]),
+    )
+
+    rejected = reject_agent_run(db, run)
+
+    assert rejected.status == "rejected"
+    assert rejected.result_version_id is None
+    assert len(project.versions) == 1
+
+
 def test_agent_routes_create_get_and_accept_run():
     db = _session()
     project = Project(id="proj_test", title="Test", adaptation_type="short_drama")
@@ -114,3 +137,26 @@ def test_agent_routes_create_get_and_accept_run():
     accepted = client.post(f"/api/agent-runs/{run_id}/accept")
     assert accepted.status_code == 200
     assert accepted.json()["source_type"] == "agent_adaptation"
+
+
+def test_agent_route_reject_run():
+    db = _session()
+    project = Project(id="proj_test", title="Test", adaptation_type="short_drama")
+    db.add(project)
+    db.commit()
+    create_version_from_yaml(db, project, VALID_SCRIPT_YAML)
+    client = _client(db)
+
+    created = client.post(
+        f"/api/projects/{project.id}/agent/adapt",
+        json={"instruction": "先不要落版", "scene_ids": ["scene_001"]},
+    )
+    assert created.status_code == 200
+    run_id = created.json()["id"]
+
+    rejected = client.post(f"/api/agent-runs/{run_id}/reject")
+    assert rejected.status_code == 200
+    assert rejected.json()["status"] == "rejected"
+
+    accepted = client.post(f"/api/agent-runs/{run_id}/accept")
+    assert accepted.status_code == 400

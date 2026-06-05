@@ -1,4 +1,4 @@
-# Script Workshop YAML Schema
+# 剧本工坊 YAML Schema
 
 > JSON Schema 源文件：[`schema/script.schema.json`](../schema/script.schema.json)
 

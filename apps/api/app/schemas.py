@@ -404,6 +404,12 @@ class ScriptVersionSaveRequest(BaseModel):
     notes: str | None = None
 
 
+class ScriptVersionJsonSaveRequest(BaseModel):
+    script: dict = Field(default_factory=dict)
+    label: str | None = Field(default=None, max_length=255)
+    notes: str | None = None
+
+
 # ===== Script domain models (mirror JSON Schema) =====
 
 

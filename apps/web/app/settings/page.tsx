@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import {
   clearLlmSettings,
   DEFAULT_LLM_SETTINGS,
+  isPlausibleApiKey,
   loadLlmSettings,
   saveLlmSettings,
 } from "@/lib/llm-settings";
@@ -39,6 +40,11 @@ export default function SettingsPage() {
   }
 
   async function saveCloudKey() {
+    if (!isPlausibleApiKey(settings.apiKey)) {
+      setError("请粘贴完整 API key，不要填写 ****1234 这类遮罩值、端口号或空值。");
+      setNotice(null);
+      return;
+    }
     setBusy(true);
     setNotice(null);
     setError(null);
@@ -61,6 +67,11 @@ export default function SettingsPage() {
   }
 
   function saveLocalOnly() {
+    if (!isPlausibleApiKey(settings.apiKey)) {
+      setError("请粘贴完整 API key，不要填写 ****1234 这类遮罩值、端口号或空值。");
+      setNotice(null);
+      return;
+    }
     saveLlmSettings(settings);
     setNotice("已保存到当前浏览器。");
     setError(null);
@@ -87,7 +98,7 @@ export default function SettingsPage() {
     setError(null);
     try {
       const result = await api.testModelKey(keyId);
-      if (result.ok) setNotice("模型 key 可正常解密。");
+      if (result.ok) setNotice(result.message);
       else setError(result.message);
     } catch (e) {
       setError((e as Error).message);
@@ -172,7 +183,7 @@ export default function SettingsPage() {
               type="button"
               className="btn-primary"
               onClick={saveCloudKey}
-              disabled={busy || !settings.apiKey.trim()}
+              disabled={busy || !isPlausibleApiKey(settings.apiKey)}
             >
               {busy ? "保存中..." : "保存到云端"}
             </button>

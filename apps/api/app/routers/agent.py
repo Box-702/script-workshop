@@ -10,7 +10,12 @@ from ..schemas import (
     ScriptVersionDetail,
     ScriptVersionOut,
 )
-from ..services.agent import accept_agent_run, create_agent_run, get_agent_run_or_404
+from ..services.agent import (
+    accept_agent_run,
+    create_agent_run,
+    get_agent_run_or_404,
+    reject_agent_run,
+)
 from ..services.versions import get_project_or_404
 from .deps import DbSession
 
@@ -71,3 +76,8 @@ def get_agent_run(run_id: str, db: DbSession) -> AgentRunOut:
 def accept_agent_run_endpoint(run_id: str, db: DbSession) -> ScriptVersionDetail:
     version = accept_agent_run(db, get_agent_run_or_404(db, run_id))
     return _version_detail(version)
+
+
+@router.post("/agent-runs/{run_id}/reject", response_model=AgentRunOut)
+def reject_agent_run_endpoint(run_id: str, db: DbSession) -> AgentRunOut:
+    return _agent_run_out(reject_agent_run(db, get_agent_run_or_404(db, run_id)))

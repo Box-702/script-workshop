@@ -4,12 +4,13 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 
 from .. import db as dbm
 from ..schemas import (
     EditEventOut,
     ScriptVersionDetail,
+    ScriptVersionJsonSaveRequest,
     ScriptVersionOut,
     ScriptVersionSaveRequest,
 )
@@ -20,6 +21,8 @@ from ..services.versions import (
     latest_version,
     restore_version,
 )
+from ..services.exports import script_to_json_text, script_to_markdown
+from ..yaml_io import to_yaml
 from .deps import DbSession
 
 router = APIRouter(prefix="/api", tags=["scripts"])
@@ -72,6 +75,24 @@ def get_latest_yaml(project_id: str, db: DbSession) -> Any:
     return PlainTextResponse(version.yaml_content, media_type="text/yaml")
 
 
+@router.get("/projects/{project_id}/script.json")
+def get_latest_json(project_id: str, db: DbSession) -> Any:
+    get_project_or_404(db, project_id)
+    version = latest_version(db, project_id)
+    if not version:
+        raise HTTPException(404, "no script version yet")
+    return Response(script_to_json_text(version.json_content), media_type="application/json")
+
+
+@router.get("/projects/{project_id}/script.md")
+def get_latest_markdown(project_id: str, db: DbSession) -> Any:
+    get_project_or_404(db, project_id)
+    version = latest_version(db, project_id)
+    if not version:
+        raise HTTPException(404, "no script version yet")
+    return PlainTextResponse(script_to_markdown(version.json_content), media_type="text/markdown")
+
+
 @router.get("/projects/{project_id}/versions", response_model=list[ScriptVersionOut])
 def list_versions(project_id: str, db: DbSession) -> list[ScriptVersionOut]:
     get_project_or_404(db, project_id)
@@ -114,6 +135,23 @@ def save_version(
     return _version_detail(version)
 
 
+@router.post("/projects/{project_id}/versions/json", response_model=ScriptVersionDetail)
+def save_version_json(
+    project_id: str, payload: ScriptVersionJsonSaveRequest, db: DbSession
+) -> ScriptVersionDetail:
+    project = get_project_or_404(db, project_id)
+    version = create_version_from_yaml(
+        db,
+        project,
+        to_yaml({"script": payload.script}),
+        source_type="manual",
+        label=payload.label,
+        notes=payload.notes,
+        edit_patch={"source_type": "structured_editor"},
+    )
+    return _version_detail(version)
+
+
 @router.get(
     "/projects/{project_id}/versions/{version_id}",
     response_model=ScriptVersionDetail,
@@ -131,6 +169,20 @@ def get_version_yaml(project_id: str, version_id: str, db: DbSession) -> Any:
     get_project_or_404(db, project_id)
     version = get_version_or_404(db, project_id, version_id)
     return PlainTextResponse(version.yaml_content, media_type="text/yaml")
+
+
+@router.get("/projects/{project_id}/versions/{version_id}/script.json")
+def get_version_json(project_id: str, version_id: str, db: DbSession) -> Any:
+    get_project_or_404(db, project_id)
+    version = get_version_or_404(db, project_id, version_id)
+    return Response(script_to_json_text(version.json_content), media_type="application/json")
+
+
+@router.get("/projects/{project_id}/versions/{version_id}/script.md")
+def get_version_markdown(project_id: str, version_id: str, db: DbSession) -> Any:
+    get_project_or_404(db, project_id)
+    version = get_version_or_404(db, project_id, version_id)
+    return PlainTextResponse(script_to_markdown(version.json_content), media_type="text/markdown")
 
 
 @router.post(

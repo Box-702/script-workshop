@@ -48,7 +48,7 @@ export function llmSettingsHeaders(settings: LlmSettings): HeadersInit {
     "X-LLM-Provider": settings.provider,
   };
   if (settings.provider === "openai") {
-    if (settings.apiKey.trim()) headers["X-OpenAI-API-Key"] = settings.apiKey.trim();
+    if (isPlausibleApiKey(settings.apiKey)) headers["X-OpenAI-API-Key"] = settings.apiKey.trim();
     if (settings.baseUrl.trim()) headers["X-OpenAI-Base-URL"] = settings.baseUrl.trim();
     if (settings.model.trim()) headers["X-OpenAI-Model"] = settings.model.trim();
   }
@@ -56,5 +56,13 @@ export function llmSettingsHeaders(settings: LlmSettings): HeadersInit {
 }
 
 export function hasUsableLlmSettings(settings: LlmSettings = loadLlmSettings()): boolean {
-  return settings.provider === "openai" && settings.apiKey.trim().length > 0;
+  return settings.provider === "openai" && isPlausibleApiKey(settings.apiKey);
+}
+
+export function isPlausibleApiKey(value: string): boolean {
+  const key = value.trim();
+  if (key.length < 8) return false;
+  if (key.includes("*")) return false;
+  if (/^https?:\/\//i.test(key) || /^bearer\s+/i.test(key)) return false;
+  return true;
 }

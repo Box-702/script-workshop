@@ -18,9 +18,9 @@ log = logging.getLogger("script_workshop")
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
-        title="Script Workshop",
+        title="剧本工坊 API",
         version="0.1.0",
-        description="AI 小说转剧本工作台 — API",
+        description="AI 小说转剧本工作台 API",
     )
 
     # CORS for dev (vite/next on different port)

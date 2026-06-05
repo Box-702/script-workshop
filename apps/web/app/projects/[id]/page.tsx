@@ -77,7 +77,13 @@ export default function ProjectDetailPage() {
                 编辑
               </Link>
               <a className="btn-ghost" href={`/api/projects/${project.id}/script.yaml`} download>
-                下载 YAML
+                YAML
+              </a>
+              <a className="btn-ghost" href={`/api/projects/${project.id}/script.md`} download>
+                Markdown
+              </a>
+              <a className="btn-ghost" href={`/api/projects/${project.id}/script.json`} download>
+                JSON
               </a>
             </>
           )}
