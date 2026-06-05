@@ -25,6 +25,10 @@ env/
 .ruff_cache/
 .pytest_cache/
 
+# Local
+apps/api/.pytest_cache/
+apps/api/apps/api/
+
 # Env
 .env
 .env.local
