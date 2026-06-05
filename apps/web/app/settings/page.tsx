@@ -3,6 +3,14 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import {
+  getAuthUser,
+  isSupabaseConfigured,
+  onAuthStateChanged,
+  signInWithEmail,
+  signOut,
+  type AuthUser,
+} from "@/lib/auth";
+import {
   clearLlmSettings,
   DEFAULT_LLM_SETTINGS,
   isPlausibleApiKey,
@@ -136,6 +144,8 @@ export default function SettingsPage() {
         </div>
       )}
 
+      <AuthPanel />
+
       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
         <section className="card space-y-4">
           <div>
@@ -238,5 +248,99 @@ export default function SettingsPage() {
         </aside>
       </div>
     </div>
+  );
+}
+
+function AuthPanel() {
+  const [email, setEmail] = useState("");
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const configured = isSupabaseConfigured();
+
+  useEffect(() => {
+    if (!configured) return;
+    let unsubscribe = () => {};
+    void getAuthUser().then(setUser).catch(() => setUser(null));
+    void onAuthStateChanged(setUser).then((next) => {
+      unsubscribe = next;
+    });
+    return () => unsubscribe();
+  }, [configured]);
+
+  async function sendMagicLink() {
+    const value = email.trim();
+    if (!value) {
+      setError("请输入邮箱。");
+      setNotice(null);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await signInWithEmail(value);
+      setNotice("登录链接已发送，请查看邮箱。");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function logout() {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await signOut();
+      setUser(null);
+      setNotice("已退出登录。");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="card space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="label mb-0">账号</div>
+          <div className="text-sm text-ink-300">
+            {configured
+              ? user
+                ? user.email || user.id
+                : "使用 Supabase Auth 登录后启用云端用户隔离。"
+              : "当前未配置 Supabase，使用本地单用户模式。"}
+          </div>
+        </div>
+        {user && (
+          <button type="button" className="btn-ghost px-3 py-1.5 text-xs" onClick={logout} disabled={busy}>
+            退出登录
+          </button>
+        )}
+      </div>
+
+      {configured && !user && (
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input
+            className="input"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+          />
+          <button type="button" className="btn-primary whitespace-nowrap" onClick={sendMagicLink} disabled={busy}>
+            {busy ? "发送中..." : "发送登录链接"}
+          </button>
+        </div>
+      )}
+
+      {notice && <div className="text-sm text-emerald-300">{notice}</div>}
+      {error && <div className="text-sm text-red-300">{error}</div>}
+    </section>
   );
 }

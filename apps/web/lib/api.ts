@@ -14,12 +14,21 @@ import type {
   ValidateResponse,
 } from "./types";
 import type { LlmSettings } from "./llm-settings";
+import { getAccessToken } from "./auth";
 import { llmSettingsHeaders } from "./llm-settings";
+
+async function requestHeaders(initHeaders?: HeadersInit) {
+  const headers = new Headers(initHeaders);
+  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  const token = await getAccessToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return headers;
+}
 
 async function jfetch<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: await requestHeaders(init?.headers),
   });
   if (!res.ok) {
     const text = await res.text();
@@ -35,6 +44,15 @@ async function jfetch<T>(url: string, init?: RequestInit): Promise<T> {
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+async function tfetch(url: string, init?: RequestInit): Promise<string> {
+  const res = await fetch(url, {
+    ...init,
+    headers: await requestHeaders(init?.headers),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
 }
 
 export const api = {
@@ -91,10 +109,7 @@ export const api = {
   getRun: (runId: string) => jfetch<RunOut>(`/api/runs/${runId}`),
 
   getYaml: (projectId: string) =>
-    fetch(`/api/projects/${projectId}/script.yaml`).then((r) => {
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.text();
-    }),
+    tfetch(`/api/projects/${projectId}/script.yaml`),
 
   getScriptJson: (projectId: string) =>
     jfetch<{ script: ScriptDocument }>(`/api/projects/${projectId}/script.json`),

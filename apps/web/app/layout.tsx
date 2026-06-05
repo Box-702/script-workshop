@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { AuthStatus } from "@/components/AuthStatus";
 import "../styles/globals.css";
 
 export const metadata: Metadata = {
@@ -62,6 +63,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <a href="https://github.com/Box-702/script-workshop" target="_blank" rel="noreferrer">
                 GitHub
               </a>
+              <AuthStatus />
             </nav>
           </div>
         </header>
