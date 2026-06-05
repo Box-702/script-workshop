@@ -1,953 +1,938 @@
-# Script Workshop 设计文档
+# Script Workshop 全栈版设计文档
 
 中文名：剧本工坊  
-项目方向：AI 小说转剧本工具  
-参赛题目：题目三：AI 小说转剧本工具  
-目标：将 3 个章节以上的小说文本自动转换为结构化 YAML 剧本，并提供可编辑、可校验、可导出的创作工作台。
+产品方向：AI 剧本 IDE 与智能改编工作台  
+当前目标：把现有“小说转结构化 YAML 剧本工具”升级为可免费部署、可登录、可持久化、可追踪版本、可人工编辑、可由 AI Agent 辅助改编的完整全栈项目。
 
-## 1. 项目定位
+## 1. 新定位
 
-Script Workshop 是一个面向小说作者、编剧和内容改编团队的 AI 辅助剧本创作工具。
+Script Workshop 不再只是一次性生成 YAML 的工具，而是一个面向作者、编剧、短剧团队和内容工作室的“剧本 IDE”。
 
-它不是简单地把小说总结成大纲，而是将小说内容拆解为可追溯、可编辑、可校验的结构化剧本。系统会先理解章节内容，抽取人物、地点、冲突、主题和情节，再将小说改编为具有场景、动作、对白、情绪、潜台词和改编说明的 YAML 剧本。
+用户可以把小说、故事大纲、已有剧本或分集梗概导入项目，系统先生成结构化剧本初稿，然后让用户像使用 IDE 一样继续创作：
 
-核心价值：
+- 保存每一次生成、手动修改、AI 改编和导出记录。
+- 管理多个剧本项目、章节原文、角色卡、场景表、分集结构和版本历史。
+- 保存用户自己的模型 API key，并在服务端安全调用模型。
+- 通过 AI Agent 处理自然语言改编需求，例如“把第 3 场改得更悬疑”“删掉支线角色”“把短剧改成电影第一幕”。
+- 支持人工直接编辑 YAML、结构化表单或剧本文本，AI 改编和手动编辑都进入同一套版本系统。
 
-- 降低小说改编成剧本的门槛。
-- 让作者快速获得结构化剧本初稿。
-- 保留原文章节引用，方便追溯和人工打磨。
-- 通过 YAML Schema 保证输出格式稳定、可编辑、可程序化处理。
-- 提供剧本预览、结构校验、自动修复和导出能力。
+一句话：Script Workshop 是一个把“AI 生成初稿”延伸到“持续改编、审稿、版本管理和导出交付”的剧本开发环境。
 
-## 2. 题目要求对应关系
+## 2. 现有基础
 
-| 题目要求 | 产品实现 |
-|---|---|
-| 支持 3 个章节以上小说文本 | 项目创建页要求至少输入 3 个章节；MVP 支持粘贴文本、上传 `.txt` / `.md` 和载入示例 |
-| 自动转换为结构化剧本 | 多阶段 AI 生成流程生成人物表、场景表和对白 |
-| YAML 格式 | 后端先生成严格 JSON，再转换为 YAML |
-| 可编辑、可进一步打磨 | MVP 提供 YAML textarea 编辑、校验面板和一键修复；Monaco 编辑器与剧本预览为后续增强 |
-| 额外定义 YAML Schema | 提供 `docs/yaml-schema.md` 和 `schema/script.schema.json` |
-| 说明 Schema 设计原因 | Schema 文档解释每个核心字段的设计目的 |
+当前项目已经具备以下基础：
 
-## 3. 技术栈
+- 前端：Next.js App Router、TypeScript、Tailwind。
+- 后端：FastAPI、Pydantic v2、SQLAlchemy、Alembic、SQLite。
+- AI 流程：章节切分、章节摘要、故事圣经、角色抽取、场景规划、逐场生成、Schema 校验、YAML 输出。
+- 数据表：`projects`、`chapters`、`generation_runs`、`script_versions`。
+- 基础页面：新建项目、运行进度、YAML 编辑、模型设置。
+- 基础接口：创建项目、启动生成、查询 run、获取 YAML、校验 YAML、修复 YAML。
 
-### 3.1 前端
+这些能力证明核心链路已经通了。全栈版要做的是把它从“本地单用户 MVP”扩展成“云端多用户剧本 IDE”。
 
-- Next.js
-- React
-- TypeScript
-- Tailwind CSS
-- textarea YAML 编辑器（MVP）
-- shadcn/ui、Monaco Editor、React Flow、ECharts/Recharts（后续增强）
+## 3. 架构升级原则
 
-前端职责：
+### 3.1 不推倒重来
 
-- 创建项目和输入小说文本。
-- 提供模型设置入口，支持浏览器本地保存用户自带 API key（BYOK）。
-- 展示章节解析进度。
-- 展示人物表、地点表、主题和冲突。
-- 展示场景时间线。
-- 编辑 YAML。
-- 实时显示 Schema 校验结果。
-- 展示剧本预览。
-- 导出 YAML / Markdown。
+保留现有 FastAPI pipeline、Pydantic schema、YAML 校验和 Next.js 页面资产。新增认证、云数据库、版本模型、Agent 改编服务和 IDE 页面。
 
-### 3.2 后端
+### 3.2 数据从本地 SQLite 迁移到云端 Postgres
 
-- FastAPI
-- Python
-- Pydantic v2
-- ruamel.yaml
-- jsonschema
-- SQLite 本地数据库
+免费部署时不能依赖本地 SQLite 文件，因为免费云服务的磁盘可能不可持久化，服务也可能休眠。生产数据放到 Supabase Postgres，本地开发仍可继续使用 SQLite。
 
-后端职责：
+### 3.3 API key 不能明文保存
 
-- 接收小说章节。
-- 执行长文本分块和预处理。
-- 调用 AI 模型完成分阶段生成。
-- 接收单次生成请求携带的临时模型设置，避免将用户 API key 写入数据库。
-- 使用 Pydantic 校验结构化结果。
-- 将合法 JSON 转换为 YAML。
-- 存储生成历史。
-- 提供自动修复能力。
+用户 API key 分两种模式：
 
-### 3.3 AI 模型层
+- 推荐模式：登录后保存到后端，后端使用服务端主密钥加密，数据库只保存密文、provider、base_url、model、last4 和更新时间。
+- 兜底模式：浏览器 localStorage 保存 key，只在请求头临时传给后端，不进入数据库。适合纯本地或不愿托管 key 的用户。
 
-建议设计成可替换 provider：
+### 3.4 所有编辑都版本化
 
-- OpenAI
-- Qwen
-- DeepSeek
-- Doubao
+AI 生成、AI 改编、手动保存、自动修复、导入和回滚都生成版本或编辑事件。用户永远可以回到旧版本、查看差异、知道哪次修改来自自己，哪次来自 AI。
 
-接口抽象：
+### 3.5 AI Agent 只改结构化数据
 
-```python
-class LLMProvider:
-    async def generate_structured(self, prompt: str, schema: dict) -> dict:
-        pass
-```
+Agent 不直接拼接最终 YAML 文本。它先读取项目上下文，生成改编计划，再输出结构化 patch，后端应用 patch、校验 schema、保存新版本。这样可控、可回滚、可解释。
 
-推荐策略：
+## 4. 推荐免费部署方案
 
-- 章节摘要、人物抽取：使用低成本模型。
-- 全局故事圣经：使用较强模型。
-- 场景拆分：使用较强模型。
-- 对白生成：使用较强模型。
-- Schema 修复：使用低成本模型。
-
-## 4. 系统总体架构
+### 4.1 首选方案
 
 ```text
-用户输入 3+ 章节小说
-        |
-        v
-前端项目创建页
-        |
-        v
+Next.js 前端       -> Vercel Hobby
+FastAPI 后端       -> Render Free Web Service
+Postgres/Auth/文件 -> Supabase Free
+模型调用           -> 用户自带 API key
+```
+
+选择原因：
+
+- Vercel 对 Next.js 支持最好，Hobby 计划适合个人项目和小型应用。
+- Render 可以免费部署 Python Web Service，适合保留当前 FastAPI 后端。
+- Supabase 免费计划提供 Postgres、Auth、Storage，足够支撑早期项目和演示。
+- AI 成本由用户自带 API key 承担，平台本身不承担模型费用。
+
+需要接受的限制：
+
+- Render Free Web Service 空闲一段时间会休眠，首次访问可能冷启动。
+- Supabase Free 项目有数据库、存储、活跃项目和闲置暂停限制。
+- 免费方案不适合作为正式商业生产环境，但足够 demo、内测和个人作品集。
+
+### 4.2 可选替代方案
+
+如果后续希望减少后端运维，可以考虑：
+
+- 前端和轻量 API 都放 Vercel，长任务仍留给外部 worker。
+- Cloudflare Pages + Workers + D1，但需要重写较多 Python 后端逻辑。
+- Supabase Edge Functions 承担部分轻量任务，但复杂 pipeline 和长模型调用仍建议留在 FastAPI。
+
+### 4.3 部署环境变量
+
+前端：
+
+```text
+NEXT_PUBLIC_API_BASE_URL=https://script-workshop-api.onrender.com
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+```
+
+后端：
+
+```text
+DATABASE_URL=postgresql+psycopg://...
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+KEY_ENCRYPTION_KEY=base64-encoded-32-byte-key
+OPENAI_API_KEY=
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4o-mini
+```
+
+`OPENAI_API_KEY` 可以留空，因为默认使用用户自己的 key。
+
+## 5. 总体系统架构
+
+```text
+浏览器
+  |
+  | Next.js UI
+  v
+Vercel 前端
+  |
+  | HTTPS / JSON / SSE
+  v
+Render FastAPI 后端
+  |
+  | SQLAlchemy / Alembic
+  v
+Supabase Postgres
+  |
+  | Auth / Storage / RLS
+  v
+用户数据、剧本版本、编辑事件、加密 API key
+
 FastAPI 后端
-        |
-        v
-章节清洗与分块
-        |
-        v
-章节摘要生成
-        |
-        v
-故事圣经生成
-        |
-        v
-人物、地点、主题、冲突抽取
-        |
-        v
-场景规划
-        |
-        v
-逐场生成剧本
-        |
-        v
-Pydantic 结构校验
-        |
-        v
-JSON 转 YAML
-        |
-        v
-前端编辑、预览、校验、导出
+  |
+  | 用户 API key 解密后临时调用
+  v
+OpenAI 或兼容模型服务
 ```
 
-## 5. 核心 AI 生成流程
-
-### 5.1 阶段一：章节输入与清洗
-
-输入方式：
-
-- 用户粘贴文本。
-- 上传 `.txt` 或 `.md` 文件。
-- 使用内置原创示例小说。
-
-处理逻辑：
-
-1. 检测章节标题，例如 `第一章`、`Chapter 1`、`## 第一章`。
-2. 如果无法检测章节标题，按文本长度和段落自动切分。
-3. 校验章节数量是否大于等于 3。
-4. 清理空行、重复空格、异常字符。
-5. 保存原始文本和清洗文本。
-
-输出：
-
-```json
-{
-  "chapters": [
-    {
-      "id": "chapter_001",
-      "title": "第一章 雨夜来客",
-      "content": "...",
-      "word_count": 3200
-    }
-  ]
-}
-```
-
-### 5.2 阶段二：章节摘要
-
-目标：
-
-为每个章节生成结构化摘要，降低后续模型处理长文本的压力。
-
-每章输出：
-
-```json
-{
-  "chapter_id": "chapter_001",
-  "summary": "本章讲述...",
-  "major_events": ["..."],
-  "characters": ["..."],
-  "locations": ["..."],
-  "conflicts": ["..."],
-  "turning_points": ["..."]
-}
-```
-
-### 5.3 阶段三：故事圣经 Story Bible
-
-目标：
-
-建立全局一致性，避免后续生成中人物性格、目标和情节逻辑漂移。
-
-输出内容：
-
-- 故事标题
-- 一句话梗概 logline
-- 类型 genre
-- 主题 themes
-- 世界观 setting
-- 主线冲突 central conflict
-- 人物表 characters
-- 地点表 locations
-- 时间线 timeline
-
-### 5.4 阶段四：人物抽取与角色弧光
-
-目标：
-
-将小说人物转换为剧本创作可用的人物卡。
-
-人物字段：
-
-- id
-- name
-- role
-- goal
-- motivation
-- personality
-- relationship
-- arc
-- speech_style
-
-设计原因：
-
-剧本创作中，人物不只是名字。人物目标、动机、语言风格和弧光会直接影响场景冲突和对白质量。
-
-### 5.5 阶段五：场景拆分 Scene Planning
-
-目标：
-
-将小说叙事转换为剧本场景。
-
-每个场景必须具备：
-
-- 场景 id
-- 来源章节
-- 地点
-- 时间
-- 出场人物
-- 戏剧目的
-- 冲突
-- 进入状态
-- 离开状态
-
-输出示例：
-
-```json
-{
-  "id": "scene_001",
-  "chapter_refs": ["chapter_001"],
-  "location": "旧城区诊所",
-  "time": "雨夜",
-  "characters": ["char_linyu", "char_moke"],
-  "purpose": "建立主角的职业状态，并引出神秘来客",
-  "conflict": "陌生来客要求主角隐瞒伤情来源",
-  "entry_state": "林屿准备关门",
-  "exit_state": "林屿决定收留来客"
-}
-```
-
-### 5.6 阶段六：逐场剧本生成
-
-目标：
-
-基于场景规划生成剧本正文。
-
-每场包含：
-
-- 场景标题
-- 动作描写
-- 对白
-- 情绪
-- 潜台词
-- 改编说明
-
-生成策略：
-
-1. 每次只生成 1 到 3 个场景，降低幻觉和格式错误。
-2. 传入 Story Bible，保证全局一致性。
-3. 传入对应章节摘要，保证内容可追溯。
-4. 生成后立即校验。
-5. 校验失败则自动修复。
-
-### 5.7 阶段七：Schema 校验
-
-校验内容：
-
-- 必填字段是否存在。
-- 字段类型是否正确。
-- 场景引用的人物 id 是否存在。
-- 章节引用是否存在。
-- scene id 是否唯一。
-- dialogue speaker 是否来自 characters。
-- YAML 是否可解析。
-
-错误示例：
-
-```json
-{
-  "path": "script.scenes[2].dialogue[1].speaker",
-  "message": "speaker references unknown character id: char_unknown",
-  "severity": "error"
-}
-```
-
-### 5.8 阶段八：自动修复
-
-目标：
-
-当生成结果或用户编辑后的 YAML 不符合 Schema 时，系统能提供自动修复。
-
-修复类型：
-
-- 补全缺失字段。
-- 修复错误类型。
-- 修正人物 id 引用。
-- 修复 YAML 缩进。
-- 将自由文本转换为结构化字段。
-
-修复原则：
-
-- 不改变原剧情。
-- 不删除用户已有内容。
-- 修复前后显示 diff。
-
-## 6. YAML Schema 初稿
-
-```yaml
-script:
-  title: "雨夜来客"
-  version: "1.0"
-  language: "zh-CN"
-  adaptation:
-    type: "series"
-    target_format: "short_drama"
-    tone: "suspense"
-  source:
-    chapter_count: 3
-    chapter_ids:
-      - "chapter_001"
-      - "chapter_002"
-      - "chapter_003"
-  logline: "一名年轻医生在雨夜救下神秘来客，却卷入一场关于身份和记忆的阴谋。"
-  themes:
-    - "信任"
-    - "身份"
-    - "自我救赎"
-  characters:
-    - id: "char_linyu"
-      name: "林屿"
-      role: "protagonist"
-      goal: "查明神秘来客的真实身份"
-      motivation: "弥补过去一次误诊造成的遗憾"
-      personality: "克制、敏锐、谨慎"
-      arc: "从逃避责任到主动面对真相"
-      speech_style: "简短、理性、偶尔带有冷幽默"
-  locations:
-    - id: "loc_clinic"
-      name: "旧城区诊所"
-      description: "狭窄、潮湿、灯光昏黄的小诊所"
-  scenes:
-    - id: "scene_001"
-      title: "雨夜敲门"
-      chapter_refs:
-        - "chapter_001"
-      location_id: "loc_clinic"
-      time: "深夜"
-      characters:
-        - "char_linyu"
-      purpose: "建立主角状态并引出核心事件"
-      conflict: "主角想关门休息，但门外有人急需救治"
-      action:
-        - "雨水敲打卷帘门，诊所内只剩一盏台灯。"
-      dialogue:
-        - speaker: "char_linyu"
-          line: "今天已经停诊了。"
-          emotion: "疲惫"
-          subtext: "他不想再卷入任何麻烦。"
-      adaptation_notes:
-        reason: "原文大段心理描写被改为环境和动作，以增强画面感。"
-```
-
-## 7. Schema 设计原因
-
-### 7.1 为什么保留 source 和 chapter_refs
-
-剧本改编不是脱离原文重新创作。保留章节引用可以让作者知道每场戏来自哪些章节，方便回查原文和人工修改。
-
-### 7.2 为什么人物使用 id
-
-小说中人物可能有本名、昵称、称谓和代号。使用稳定 id 可以避免同一人物在不同场景中被误认为多个角色。
-
-### 7.3 为什么场景中要有 purpose 和 conflict
-
-一个合格剧本场景必须有戏剧功能。`purpose` 说明这场戏为什么存在，`conflict` 说明这场戏的张力来源，可以帮助作者判断场景是否冗余。
-
-### 7.4 为什么对白有 emotion 和 subtext
-
-剧本不是小说复述。演员和导演需要知道台词背后的情绪和潜台词，这能显著提升剧本可用性。
-
-### 7.5 为什么要有 adaptation_notes
-
-AI 改编可能会压缩、合并或重排情节。改编说明能解释“为什么这样改”，增强作者对结果的信任。
-
-### 7.6 为什么选择 YAML
-
-YAML 对人类可读性更好，适合作家和编剧编辑。同时它仍然可以被程序解析、校验和转换，适合后续导入剧本工具、分镜工具或项目管理系统。
-
-## 8. 页面设计
-
-### 8.1 项目创建页
-
-功能：
-
-- 输入项目名。
-- 粘贴小说文本。
-- 上传 `.txt` / `.md`。
-- 自动识别章节。
-- 显示章节数量和字数。
-- 选择改编类型。
-
-关键校验：
-
-- 章节数必须大于等于 3。
-- 单章文本不能为空。
-- 总字数过少时提示用户补充内容。
-
-### 8.2 生成进度页
-
-展示生成流程状态：
-
-- 章节解析
-- 章节摘要
-- 故事圣经
-- 人物抽取
-- 场景拆分
-- 剧本生成
-- Schema 校验
-- YAML 导出
-
-每一步显示：
-
-- 状态：等待中、生成中、完成、失败
-- 耗时
-- 简要结果
-
-### 8.3 故事分析页
+关键模块：
+
+- `auth`：登录、会话校验、用户身份映射。
+- `projects`：项目、章节、源材料管理。
+- `scripts`：剧本结构、YAML/JSON、版本与导出。
+- `edits`：手动编辑记录、自动保存、diff。
+- `keys`：模型 provider 配置和加密 API key。
+- `agent`：AI 改编需求理解、上下文检索、patch 生成、校验和保存。
+- `runs`：长任务状态、进度、错误、产物。
+
+## 6. 用户核心流程
+
+### 6.1 首次使用
+
+1. 用户打开站点。
+2. 使用邮箱 magic link、GitHub OAuth 或 Supabase Auth 登录。
+3. 进入模型设置页。
+4. 选择 provider，填写 API key、base URL、模型名。
+5. 后端加密保存 key，只展示 provider、模型名和 key 后四位。
+
+### 6.2 创建剧本项目
+
+1. 用户新建项目。
+2. 输入项目标题、目标格式、语言、原文或大纲。
+3. 后端切分章节，保存 `source_documents` 和 `chapters`。
+4. 用户确认章节切分结果。
+5. 启动生成。
+
+### 6.3 生成初稿
+
+1. 后端创建 `generation_run`。
+2. pipeline 分阶段执行。
+3. 前端通过轮询或 SSE 展示进度。
+4. 生成完整 `script_versions` 版本。
+5. 进入剧本 IDE。
+
+### 6.4 手动编辑
+
+1. 用户在 IDE 内编辑场景、对白、角色、YAML 或剧本文本。
+2. 前端本地自动保存草稿。
+3. 用户点击保存，后端校验并写入 `edit_events`。
+4. 重要保存点生成新的 `script_versions`。
+
+### 6.5 AI Agent 改编
+
+1. 用户选中一段场景、角色或全剧，输入改编需求。
+2. Agent 读取当前版本、相关章节、角色卡、场景上下文和历史编辑记录。
+3. Agent 生成改编计划。
+4. 后端要求模型输出结构化 patch。
+5. 系统应用 patch 到当前 JSON 剧本。
+6. 执行 Pydantic 和 JSON Schema 校验。
+7. 前端展示 diff。
+8. 用户选择接受、局部接受、重新生成或放弃。
+9. 接受后保存新版本，并记录 agent prompt、计划、patch、模型和耗时。
+
+## 7. 剧本 IDE 页面设计
+
+### 7.1 项目首页
 
 展示：
 
-- Logline
-- 类型和基调
-- 主题
-- 主线冲突
-- 人物卡
-- 地点表
-- 章节摘要
+- 项目标题、状态、更新时间。
+- 最新剧本版本。
+- 最近生成/改编任务。
+- 章节原文入口。
+- 剧本 IDE 入口。
+- 导出入口。
 
-### 8.4 场景规划页
+### 7.2 IDE 主界面
 
-展示：
-
-- 场景时间线
-- 每场戏的地点、人物、冲突
-- 场景来源章节
-- 进入状态和离开状态
-
-### 8.5 YAML 编辑页
-
-布局：
+推荐布局：
 
 ```text
-左侧：YAML textarea 编辑器（MVP；后续替换为 Monaco）
-右侧：Schema 校验错误与最近修复记录
-顶部：下载、自动修复
+顶部：项目名、保存状态、版本选择、导出、运行校验
+
+左侧：资源树
+  - 原文章节
+  - 角色
+  - 地点
+  - 场景
+  - 版本历史
+
+中间：编辑区
+  - 剧本文本视图
+  - 场景结构表单
+  - YAML/JSON 高级编辑
+
+右侧：AI 改编助手
+  - 当前选择上下文
+  - 改编需求输入
+  - 改编计划
+  - Diff 预览
+  - 接受/拒绝/重试
+
+底部：校验问题、引用来源、修改记录
 ```
 
-核心能力：
+### 7.3 编辑视图
 
-- YAML 文本编辑。
-- Schema 校验。
-- 错误路径展示。
-- 一键修复。
-- 下载 YAML。
-- 保存版本、剧本预览、语法高亮为后续增强。
+至少提供三种视图：
 
-### 8.6 导出页
+- 剧本文本视图：更像传统剧本，适合写对白和动作。
+- 结构化视图：角色、地点、场景、冲突、目的、情绪、潜台词等字段可编辑。
+- YAML 高级视图：保留当前能力，方便技术用户直接改结构。
 
-导出格式：
+### 7.4 改编助手
 
-- YAML
-- Markdown 剧本预览
-- JSON
-- Schema 文档
+用户可以输入：
 
-## 9. API 设计
+- “把第 4 场节奏加快，减少解释性对白。”
+- “把女主改成更主动，但不要改变结局。”
+- “按照短剧前三秒强钩子重写第一场。”
+- “把这个版本改成电影大纲。”
+- “检查所有角色动机是否前后矛盾。”
 
-### 9.1 创建项目
+助手输出：
 
-```http
-POST /api/projects
-```
+- 改编计划。
+- 影响范围。
+- 修改后的片段。
+- 结构化 diff。
+- 风险提示，例如“该修改会删除 scene_008 中的角色出场”。
 
-请求：
+## 8. 数据模型设计
 
-```json
-{
-  "title": "雨夜来客",
-  "raw_text": "...",
-  "adaptation_type": "short_drama"
-}
-```
+### 8.1 users
 
-响应：
+Supabase Auth 负责用户表，业务库通过 `user_id` 关联。
 
-```json
-{
-  "project_id": "proj_001",
-  "chapter_count": 3
-}
-```
-
-### 9.2 启动生成任务
-
-```http
-POST /api/projects/{project_id}/generate
-```
-
-响应：
-
-```json
-{
-  "run_id": "run_001",
-  "status": "queued"
-}
-```
-
-### 9.3 查询生成进度
-
-```http
-GET /api/runs/{run_id}
-```
-
-响应：
-
-```json
-{
-  "run_id": "run_001",
-  "status": "running",
-  "current_step": "scene_planning",
-  "progress": 62
-}
-```
-
-### 9.4 获取 YAML
-
-```http
-GET /api/projects/{project_id}/script.yaml
-```
-
-### 9.5 校验 YAML
-
-```http
-POST /api/validate
-```
-
-请求：
-
-```json
-{
-  "yaml": "script:\n  title: ..."
-}
-```
-
-响应：
-
-```json
-{
-  "valid": false,
-  "errors": [
-    {
-      "path": "script.scenes[0].purpose",
-      "message": "field required"
-    }
-  ]
-}
-```
-
-### 9.6 自动修复 YAML
-
-```http
-POST /api/repair
-```
-
-请求：
-
-```json
-{
-  "yaml": "...",
-  "errors": []
-}
-```
-
-响应：
-
-```json
-{
-  "fixed_yaml": "...",
-  "changes": [
-    "Added missing field: script.scenes[0].purpose"
-  ]
-}
-```
-
-## 10. 数据库设计
-
-### 10.1 projects
+### 8.2 projects
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| id | string | 项目 id |
-| title | string | 项目标题 |
-| adaptation_type | string | 改编类型 |
-| status | string | 项目状态 |
-| created_at | datetime | 创建时间 |
-| updated_at | datetime | 更新时间 |
+| id | uuid/string | 项目 id |
+| owner_id | uuid | 用户 id |
+| title | text | 项目标题 |
+| description | text | 简介 |
+| adaptation_type | text | short_drama / film / series / stage |
+| language | text | zh-CN / en / ja 等 |
+| status | text | draft / generating / ready / archived |
+| current_version_id | string | 当前剧本版本 |
+| created_at | timestamp | 创建时间 |
+| updated_at | timestamp | 更新时间 |
 
-### 10.2 chapters
+### 8.3 source_documents
+
+保存导入的原始材料。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| id | string | 章节 id |
+| id | string | 文档 id |
 | project_id | string | 项目 id |
-| title | string | 章节标题 |
+| type | text | novel / outline / script / notes |
+| title | text | 文档标题 |
+| content | text | 原文内容 |
+| storage_path | text | 大文件路径，可选 |
+| metadata | jsonb | 文件名、字数、语言等 |
+
+### 8.4 chapters
+
+继续保留现有表，但增加 `source_document_id`。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | string | chapter_001 |
+| project_id | string | 项目 id |
+| source_document_id | string | 原文文档 id |
+| title | text | 章节名 |
 | content | text | 章节正文 |
-| summary | text | 章节摘要 |
-| order_index | int | 章节顺序 |
+| summary | text | AI 摘要 |
+| order_index | int | 顺序 |
 
-### 10.3 generation_runs
+### 8.5 script_versions
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| id | string | 任务 id |
-| project_id | string | 项目 id |
-| status | string | queued / running / done / failed |
-| current_step | string | 当前步骤 |
-| progress | int | 进度 |
-| error_message | text | 错误信息 |
-| created_at | datetime | 创建时间 |
-
-### 10.4 script_versions
+剧本的快照版本。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | id | string | 版本 id |
 | project_id | string | 项目 id |
-| yaml_content | text | YAML 内容 |
-| json_content | text | JSON 内容 |
-| validation_status | string | 校验状态 |
-| created_at | datetime | 创建时间 |
+| parent_version_id | string | 来源版本 |
+| version_no | int | 项目内递增版本号 |
+| label | text | 用户命名，例如“短剧第一版” |
+| yaml_content | text | YAML 快照 |
+| json_content | jsonb | 结构化剧本 |
+| validation_status | text | valid / invalid |
+| validation_errors | jsonb | 校验错误 |
+| created_by | text | user / ai / system |
+| source_run_id | string | 生成或改编任务 id |
+| created_at | timestamp | 创建时间 |
 
-## 11. 仓库结构建议
+### 8.6 edit_events
 
-```text
-script-workshop/
-  apps/
-    web/
-      app/
-      components/
-      lib/
-      styles/
-    api/
-      app/
-        main.py
-        routers/
-        services/
-        schemas/
-        providers/
-        workers/
-  docs/
-    yaml-schema.md
-    architecture.md
-    demo-script.md
-  schema/
-    script.schema.json
-  samples/
-    sample-novel.md
-    sample-output.yaml
-  README.md
-  docker-compose.yml
+记录手动编辑和 AI patch。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | string | 事件 id |
+| project_id | string | 项目 id |
+| version_id | string | 关联版本 |
+| actor_type | text | user / agent / system |
+| actor_id | string | 用户或 agent id |
+| edit_type | text | manual_save / autosave / ai_patch / repair / rollback |
+| target_path | text | JSON path，例如 script.scenes[3].dialogue |
+| before_snapshot | jsonb | 修改前片段 |
+| after_snapshot | jsonb | 修改后片段 |
+| patch | jsonb | JSON Patch 或自定义 patch |
+| note | text | 用户备注或 AI 说明 |
+| created_at | timestamp | 创建时间 |
+
+### 8.7 user_model_keys
+
+保存用户模型配置。API key 必须加密。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | string | key id |
+| user_id | uuid | 用户 id |
+| provider | text | openai / deepseek / qwen / custom_openai |
+| base_url | text | 兼容 OpenAI 的 base URL |
+| default_model | text | 默认模型 |
+| encrypted_api_key | text | AES-GCM 密文 |
+| key_last4 | text | 用于展示 |
+| status | text | active / revoked |
+| created_at | timestamp | 创建时间 |
+| updated_at | timestamp | 更新时间 |
+
+### 8.8 agent_runs
+
+AI Agent 改编任务。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | string | run id |
+| project_id | string | 项目 id |
+| base_version_id | string | 改编基准版本 |
+| result_version_id | string | 接受后生成的新版本 |
+| user_prompt | text | 用户改编需求 |
+| selected_context | jsonb | 用户选中的场景、角色、章节等 |
+| plan | jsonb | Agent 改编计划 |
+| patch | jsonb | 结构化修改 |
+| status | text | queued / running / waiting_review / accepted / rejected / failed |
+| model | text | 使用模型 |
+| error_message | text | 错误 |
+| created_at | timestamp | 创建时间 |
+| updated_at | timestamp | 更新时间 |
+
+## 9. API 设计
+
+### 9.1 认证
+
+```http
+GET /api/me
 ```
 
-如果时间紧，可以简化为：
+返回当前用户信息。后端从 Supabase JWT 中解析 `user_id`。
 
-```text
-script-workshop/
-  web/
-  api/
-  docs/
-  schema/
-  samples/
-  README.md
+### 9.2 模型 key
+
+```http
+POST /api/user/model-keys
+GET /api/user/model-keys
+DELETE /api/user/model-keys/{key_id}
+POST /api/user/model-keys/{key_id}/test
 ```
 
-## 12. Demo 重点
+写入时后端加密 key；读取时永不返回明文。
 
-Demo 视频建议控制在 3 到 5 分钟。
+### 9.3 项目
 
-### 12.1 开场
+```http
+POST /api/projects
+GET /api/projects
+GET /api/projects/{project_id}
+PATCH /api/projects/{project_id}
+DELETE /api/projects/{project_id}
+```
 
-说明：
+### 9.4 原文与章节
 
-Script Workshop 是一个 AI 小说转剧本工具，可以将 3 个章节以上的小说自动改编为结构化 YAML 剧本。
+```http
+POST /api/projects/{project_id}/sources
+GET /api/projects/{project_id}/sources
+POST /api/projects/{project_id}/chapters/resplit
+PATCH /api/projects/{project_id}/chapters/{chapter_id}
+```
 
-### 12.2 展示输入
+### 9.5 生成
 
-展示：
+```http
+POST /api/projects/{project_id}/generate
+GET /api/runs/{run_id}
+GET /api/runs/{run_id}/events
+```
 
-- 输入三章原创小说。
-- 系统自动识别章节。
-- 选择改编类型为短剧。
+`/events` 可用 SSE 推送进度，免费部署初期也可以继续轮询。
 
-### 12.3 展示生成过程
+### 9.6 剧本版本
 
-展示生成流程：
+```http
+GET /api/projects/{project_id}/versions
+GET /api/projects/{project_id}/versions/{version_id}
+POST /api/projects/{project_id}/versions
+POST /api/projects/{project_id}/versions/{version_id}/restore
+GET /api/projects/{project_id}/versions/{version_id}/script.yaml
+```
 
-- 章节摘要完成。
-- 故事圣经完成。
-- 人物抽取完成。
-- 场景拆分完成。
-- 剧本生成完成。
+### 9.7 手动编辑
 
-### 12.4 展示结果
+```http
+POST /api/projects/{project_id}/edits/autosave
+POST /api/projects/{project_id}/edits/save
+GET /api/projects/{project_id}/edits
+GET /api/projects/{project_id}/diff?from=ver_a&to=ver_b
+```
 
-重点展示：
+保存策略：
 
-- 人物表。
-- 场景时间线。
-- YAML 结构。
-- 对白中的 emotion 和 subtext。
-- 每场戏的 chapter_refs。
+- autosave 只保存草稿，不一定生成正式版本。
+- save 生成 `edit_event`。
+- 当用户主动保存、AI patch 被接受或导出前保存时，生成 `script_version`。
 
-### 12.5 展示校验和修复
+### 9.8 AI Agent 改编
 
-故意删除一个字段，例如 `purpose`。
+```http
+POST /api/projects/{project_id}/agent/adapt
+GET /api/agent-runs/{agent_run_id}
+POST /api/agent-runs/{agent_run_id}/accept
+POST /api/agent-runs/{agent_run_id}/reject
+POST /api/agent-runs/{agent_run_id}/retry
+```
 
-展示：
+请求示例：
 
-- 系统提示 Schema 错误。
-- 点击自动修复。
-- YAML 恢复合法。
+```json
+{
+  "base_version_id": "ver_001",
+  "instruction": "把第一场改成更强的短剧开场，前三秒必须有悬念，但不要改变人物关系。",
+  "selection": {
+    "scene_ids": ["scene_001"]
+  },
+  "mode": "patch_with_review"
+}
+```
 
-### 12.6 展示导出
+Agent 返回：
 
-展示：
+```json
+{
+  "agent_run_id": "agent_001",
+  "status": "waiting_review",
+  "plan": [
+    "保留诊所雨夜环境",
+    "提前暴露神秘来客受伤",
+    "减少解释性对白"
+  ],
+  "patch_preview": {
+    "affected_paths": [
+      "script.scenes[0].action",
+      "script.scenes[0].dialogue"
+    ]
+  }
+}
+```
 
-- 导出 YAML。
-- 导出 Markdown 预览。
-- 打开 YAML Schema 文档。
+## 10. AI Agent 设计
 
-## 13. 三天开发计划
+### 10.1 Agent 分层
 
-### Day 1：2026-06-05
+```text
+用户需求
+  |
+  v
+Intent Parser：识别任务类型、范围、约束
+  |
+  v
+Context Builder：拉取版本、场景、角色、原文、编辑历史
+  |
+  v
+Planner：生成改编计划和风险说明
+  |
+  v
+Patch Generator：输出结构化 patch
+  |
+  v
+Validator：Schema 校验、引用校验、剧情约束校验
+  |
+  v
+Reviewer：生成 diff 和说明，等待用户确认
+```
 
-目标：跑通端到端最小链路。
+### 10.2 支持的改编类型
+
+- 场景重写：重写某一场动作、对白、冲突和节奏。
+- 角色调整：改变角色性格、目标、口吻，并同步影响相关场景。
+- 结构改编：从小说改短剧、短剧改电影大纲、电影改分集剧。
+- 风格改编：悬疑、喜剧、现实主义、古装、赛博朋克等。
+- 长度控制：压缩到 N 场、扩展到 N 集、每集 N 分钟。
+- 连贯性检查：查找角色动机冲突、地点前后矛盾、时间线问题。
+- 对白打磨：更口语、更克制、更有潜台词、更适合短视频节奏。
+- 审稿建议：只给修改建议，不直接改文本。
+
+### 10.3 Patch 格式
+
+内部推荐使用 JSON Patch 或接近 JSON Patch 的格式：
+
+```json
+[
+  {
+    "op": "replace",
+    "path": "/script/scenes/0/action/0",
+    "value": "雨声砸在卷帘门上。门外的敲击突然停住，一道血水从门缝渗进来。"
+  },
+  {
+    "op": "add",
+    "path": "/script/scenes/0/adaptation_notes/agent_reason",
+    "value": "提前放出危险信号，增强短剧开场钩子。"
+  }
+]
+```
+
+应用规则：
+
+- patch 只能作用在允许编辑的字段。
+- 不能删除角色 id、场景 id、章节引用等关键索引，除非用户明确要求。
+- 所有 patch 应用后必须重新校验。
+- 校验失败时不覆盖当前版本，只保存失败原因和可重试上下文。
+
+### 10.4 上下文控制
+
+Agent 不应把全项目所有内容都塞进模型。Context Builder 按范围裁剪：
+
+- 用户选中场景：当前场景、前后各一场、相关角色卡、相关原文章节。
+- 用户选中角色：角色卡、该角色出现的场景列表、代表性对白。
+- 全剧结构改编：故事圣经、场景摘要、角色弧光、分集结构，不传全文。
+- 一致性检查：传结构化摘要和索引，必要时分批检查。
+
+## 11. 安全设计
+
+### 11.1 API key 加密
+
+后端保存 API key 时：
+
+1. 生成随机 nonce。
+2. 使用 `KEY_ENCRYPTION_KEY` 做 AES-GCM 加密。
+3. 数据库保存 `nonce + ciphertext + tag`。
+4. 只展示 `key_last4`。
+5. 调用模型时短暂解密到内存。
+6. 日志、错误、artifacts 禁止记录明文 key。
+
+### 11.2 权限隔离
+
+所有表都必须带 `owner_id` 或通过 project 关联 owner。后端接口每次校验：
+
+- 当前 JWT 是否有效。
+- 用户是否拥有该 project。
+- 用户是否有权限读取该 version、edit、run。
+
+如果直接让前端访问 Supabase 表，需要配置 RLS；如果统一走 FastAPI，则 FastAPI 是主权限边界，Supabase service role 只在服务端使用。
+
+### 11.3 内容安全
+
+- 模型输出永远进入校验层，不直接写入当前版本。
+- AI patch 接受前先展示 diff。
+- 大规模删除、跨项目操作、导出全部数据需要二次确认。
+- 用户删除项目默认软删除，保留短期恢复窗口。
+
+## 12. 生成与编辑版本策略
+
+### 12.1 版本类型
+
+- `initial_generation`：第一次 AI 生成。
+- `manual_save`：用户手动保存。
+- `agent_adaptation`：AI Agent 改编后用户接受。
+- `repair`：自动修复后保存。
+- `rollback`：从历史版本恢复。
+- `import`：用户导入已有 YAML/JSON。
+
+### 12.2 何时生成正式版本
+
+生成正式版本的触发条件：
+
+- pipeline 完成。
+- 用户点击保存版本。
+- 用户接受 AI 改编。
+- 用户执行回滚。
+- 用户导入新剧本。
+
+不生成正式版本的情况：
+
+- 每次键盘输入。
+- 自动保存草稿。
+- Agent 生成了 diff 但用户未接受。
+
+### 12.3 Diff 设计
+
+短期：
+
+- 后端比较两个 JSON 快照，返回 path 级 diff。
+- YAML diff 作为文本辅助显示。
+
+中期：
+
+- 场景、角色、对白等结构化 diff。
+- 支持局部接受 Agent 修改。
+
+## 13. 前端实现计划
+
+### 13.1 保留现有页面
+
+- `/new`：继续作为创建项目入口。
+- `/runs/[id]`：继续展示生成进度。
+- `/projects/[id]/edit`：从 YAML textarea 升级为 IDE。
+- `/settings`：从 localStorage key 升级为登录后的模型 key 管理。
+
+### 13.2 新增页面
+
+```text
+/login
+/dashboard
+/projects/[id]
+/projects/[id]/ide
+/projects/[id]/versions
+/projects/[id]/sources
+/projects/[id]/exports
+```
+
+### 13.3 组件拆分
+
+```text
+components/
+  ide/
+    ResourceTree.tsx
+    ScriptEditor.tsx
+    SceneInspector.tsx
+    AgentPanel.tsx
+    VersionTimeline.tsx
+    ValidationPanel.tsx
+    DiffViewer.tsx
+  settings/
+    ModelKeyForm.tsx
+    ModelKeyList.tsx
+  projects/
+    ProjectCard.tsx
+    ProjectStatusBadge.tsx
+```
+
+### 13.4 编辑器选型
+
+短期继续 textarea，尽快完成全栈闭环。  
+中期引入 Monaco Editor 做 YAML/JSON 编辑。  
+结构化剧本编辑可以先用 React 表单和列表，不必一开始做复杂富文本编辑器。
+
+## 14. 后端实现计划
+
+### 14.1 目录调整
+
+```text
+apps/api/app/
+  auth/
+    dependencies.py
+    supabase.py
+  routers/
+    projects.py
+    runs.py
+    scripts.py
+    edits.py
+    agent.py
+    model_keys.py
+    validate.py
+  services/
+    project_service.py
+    version_service.py
+    edit_service.py
+    key_service.py
+    agent_service.py
+    context_builder.py
+    patch_service.py
+  providers/
+    base.py
+    openai_provider.py
+  db.py
+  schemas.py
+  pipeline.py
+```
+
+### 14.2 迁移策略
+
+1. 新增 Supabase/Postgres 支持，保留 SQLite 本地开发。
+2. 加入 `owner_id`，旧本地数据可用匿名开发用户迁移。
+3. 新增 source、edit、key、agent 表。
+4. 将 `script_versions` 扩展为正式版本系统。
+5. 把 `projects.current_version_id` 指向当前版本。
+
+### 14.3 长任务策略
+
+免费阶段：
+
+- 继续使用 FastAPI BackgroundTasks。
+- run 状态持久化到数据库。
+- 服务重启时把长时间 stuck 的 running run 标记为 failed 或 queued。
+
+增强阶段：
+
+- 增加轻量 job queue 表。
+- API 进程启动时拉取 queued jobs。
+- 后续如需要再拆成独立 worker。
+
+## 15. 导出设计
+
+支持格式：
+
+- YAML：保留结构化资产。
+- JSON：给开发者或下游工具。
+- Markdown：可读剧本文本。
+- Fountain：对接专业剧本工具。
+- DOCX/PDF：后续实现，用于交付和打印。
+
+导出记录写入 `export_jobs`：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | string | 导出 id |
+| project_id | string | 项目 id |
+| version_id | string | 导出版本 |
+| format | text | yaml / json / md / fountain / docx / pdf |
+| storage_path | text | 文件路径 |
+| status | text | done / failed |
+| created_at | timestamp | 创建时间 |
+
+## 16. Roadmap
+
+### 阶段 1：免费部署可用版
+
+目标：用户登录后能创建项目、保存 key、生成剧本、保存版本、再次打开继续编辑。
 
 任务：
 
-- 创建项目仓库。
-- 搭建 Next.js 前端。
-- 搭建 FastAPI 后端。
-- 设计 Pydantic 模型。
-- 完成章节切分。
-- 完成章节摘要和人物抽取。
-- 完成第一版 YAML 生成。
-- 写 README 初稿。
+- 接入 Supabase Auth。
+- 数据库迁移到 Supabase Postgres。
+- 后端支持 JWT 校验。
+- 新增 user_model_keys 加密保存。
+- 项目列表和项目详情页。
+- script_versions 支持 current version。
+- YAML 编辑保存到后端。
+- Vercel + Render + Supabase 部署文档。
 
-验收标准：
+验收：
 
-- 输入 3 章文本后，可以生成一份 YAML。
-- YAML 能通过后端基础校验。
+- 新用户能注册登录。
+- 保存 API key 后刷新页面仍可使用。
+- 生成后的剧本能持久保存。
+- 手动改 YAML 并保存后，重新打开仍是新版本。
 
-### Day 2：2026-06-06
+### 阶段 2：剧本 IDE 版
 
-目标：做成可展示的产品。
-
-任务：
-
-- 完成项目创建页。
-- 完成生成进度页。
-- 完成人物分析页（后续增强）。
-- 完成场景规划页（后续增强）。
-- 接入 Monaco Editor（后续增强）。
-- 实现 YAML 校验面板。
-- 实现自动修复。
-- 编写 YAML Schema 文档。
-
-验收标准：
-
-- 用户能从页面完成完整流程。
-- YAML 编辑后能实时校验。
-- 自动修复能处理常见错误。
-
-### Day 3：2026-06-07
-
-目标：打磨、录屏、整理提交材料。
+目标：用户不必只改 YAML，可以以剧本 IDE 的方式编辑。
 
 任务：
 
-- 固定 demo 示例小说。
-- 修复关键 bug。
-- 优化加载状态和错误提示。
-- 完善 README。
-- 完善设计文档。
-- 准备 demo 视频脚本。
-- 录制 demo 视频。
-- 确认仓库权限和提交信息。
+- IDE 三栏布局。
+- 资源树：章节、角色、地点、场景、版本。
+- 场景结构化编辑。
+- 校验面板。
+- 版本时间线。
+- JSON/YAML diff。
+- 导出 Markdown/YAML/JSON。
 
-验收标准：
+验收：
 
-- 本地一键启动。
-- demo 视频完整展示核心能力。
-- 仓库文档清晰。
-- 作品符合题目要求。
+- 用户能通过表单改角色和场景。
+- 每次正式保存都有版本记录。
+- 能查看两个版本差异。
+- 能从旧版本恢复。
 
-## 14. 风险与应对
+### 阶段 3：AI Agent 改编版
 
-### 14.1 长文本超过模型上下文
+目标：用户用自然语言提出改编要求，AI 能生成可审查、可接受、可回滚的修改。
+
+任务：
+
+- Agent adapt API。
+- Context Builder。
+- Patch Generator。
+- Patch Validator。
+- Diff Review UI。
+- Agent run 历史。
+- 支持场景重写、对白打磨、角色调整、结构压缩。
+
+验收：
+
+- 用户选中一个场景后输入改编需求。
+- AI 给出计划和 diff。
+- 用户接受后生成新版本。
+- 用户拒绝后当前版本不变。
+- Agent 修改失败时能看到错误和重试入口。
+
+### 阶段 4：高级创作协作
+
+目标：接近专业团队可用。
+
+任务：
+
+- 评论和批注。
+- 多人协作权限。
+- 分支版本。
+- 角色弧光图、场景节奏图。
+- 自动一致性检查。
+- DOCX/PDF/Fountain 导出。
+- 模板库：短剧、电影、分集剧、舞台剧。
+
+## 17. 风险与应对
+
+### 17.1 免费部署休眠影响体验
 
 应对：
 
-- 先做章节摘要。
-- 再基于摘要生成故事圣经。
-- 逐场生成剧本。
+- 前端显示“服务启动中”状态。
+- 首次请求失败时自动重试。
+- demo 录屏时提前唤醒后端。
 
-### 14.2 YAML 格式错误
-
-应对：
-
-- 模型先输出 JSON。
-- Pydantic 校验。
-- 校验成功后由程序转 YAML。
-- 用户编辑后再次校验。
-
-### 14.3 人物名称不一致
+### 17.2 长模型任务中断
 
 应对：
 
-- 统一生成 character id。
-- 场景和对白只能引用 character id。
-- 校验 speaker 是否存在。
+- 每个阶段结束都保存 artifacts。
+- run 状态持久化。
+- 支持从失败阶段重试。
+- 生成过程按章节和场景分块。
 
-### 14.4 生成内容像小说摘要，不像剧本
-
-应对：
-
-- Schema 强制区分 action 和 dialogue。
-- prompt 明确禁止大段心理描写。
-- 增加 emotion 和 subtext 字段。
-- 增加 adaptation_notes 解释改编方式。
-
-### 14.5 Demo 生成太慢
+### 17.3 API key 安全风险
 
 应对：
 
-- 准备缓存好的 demo project。
-- 录屏时先展示一次实时生成，再展示缓存结果。
-- README 中说明完整生成链路。
+- 密文存储。
+- 明文不进日志。
+- key 测试接口只返回成功/失败。
+- 用户可随时撤销。
+- 后端调用模型时设置超时和错误清洗。
 
-## 15. 加分点
+### 17.4 AI 修改不可控
 
-### 15.1 结构化生成不是单 prompt
+应对：
 
-强调系统采用多阶段生成流程：
+- Agent 输出 patch 而不是整份覆盖。
+- 用户接受前必须看 diff。
+- 关键字段保护。
+- Schema 校验和剧情约束校验。
+- 失败不覆盖当前版本。
 
-- 章节摘要
-- 故事圣经
-- 人物抽取
-- 场景规划
-- 剧本生成
-- Schema 校验
-- 自动修复
+### 17.5 数据量超过免费额度
 
-### 15.2 可追溯改编
+应对：
 
-每场戏保留 `chapter_refs`，让作者知道剧本内容来自原文哪里。
+- 原文和导出文件压缩或放 Supabase Storage。
+- 限制单项目最大字数和版本数量。
+- 给用户提供清理历史版本功能。
+- 大文件后续支持外部对象存储。
 
-### 15.3 可编辑和可校验
+## 18. 近期代码改造顺序
 
-当前 MVP 使用 YAML textarea 配合 Schema 校验，让输出不是一次性文本，而是可继续加工的创作资产；Monaco YAML 编辑器可作为后续增强。
+推荐按这个顺序动代码：
 
-### 15.4 自动修复
+1. 接 Supabase Auth，给后端加 `get_current_user`。
+2. 把数据库 URL 改为同时支持 Supabase Postgres。
+3. 给 `projects` 增加 `owner_id` 和 `current_version_id`。
+4. 扩展 `script_versions`，支持版本列表、版本详情、恢复。
+5. 新增 `user_model_keys` 和加密服务。
+6. 改造 `/settings`，从 localStorage 设置升级为云端 key 管理，同时保留本地模式。
+7. 新增项目 Dashboard。
+8. 改造 YAML 编辑页，加入保存版本。
+9. 新增 `edit_events`。
+10. 新增 Agent API 和最小可用 Agent Panel。
+11. 加入 diff review。
+12. 完成 Vercel、Render、Supabase 部署文档和环境变量模板。
 
-用户编辑破坏结构后，系统可以基于 Schema 自动修复。
+## 19. 最小可上线版本定义
 
-### 15.5 Schema 文档完整
+全栈免费版的最低可上线范围：
 
-题目明确要求写 YAML Schema 文档。这个文档应该作为重点交付物，而不是附属说明。
+- 用户登录。
+- 用户保存模型 key。
+- 用户创建项目。
+- 用户生成剧本。
+- 用户再次登录后能看到项目和剧本。
+- 用户能手动编辑 YAML 并保存新版本。
+- 用户能查看版本列表和恢复版本。
+- 用户能导出 YAML/Markdown。
 
-## 16. 最小可行版本
+AI Agent 改编不必放进第一版上线，但数据库和版本系统必须提前为它留好位置。
 
-如果时间不足，必须保证以下功能完成：
+## 20. 最终产品愿景
 
-- 输入 3 个章节。
-- 章节摘要。
-- 人物抽取。
-- 场景拆分。
-- YAML 剧本生成。
-- YAML Schema 文档。
-- YAML 校验。
-- 导出 YAML。
+Script Workshop 最终应该成为一个懂剧本结构的 AI 创作环境。它既能把小说改成初稿，也能陪用户做后续漫长的改编：删线、改角色、调节奏、补动机、查矛盾、做版本、导出交付。
 
-可以暂缓：
-
-- 登录系统。
-- 云存储。
-- 多用户协作。
-- PDF 导出。
-- 高级可视化。
-- 多模型切换。
-
-## 17. 最终交付物
-
-仓库应包含：
-
-- 源代码。
-- README。
-- 设计文档。
-- YAML Schema 文档。
-- 示例小说。
-- 示例输出 YAML。
-- demo 视频链接。
-- 本地运行说明。
-
-README 中建议突出：
-
-- 题目对应关系。
-- 核心功能。
-- 技术架构。
-- AI 生成流程。
-- Schema 设计。
-- 如何运行。
-- demo 截图。
-
-## 18. 项目一句话介绍
-
-Script Workshop 是一个 AI 小说转剧本工作台，能够将 3 个章节以上的小说文本转换为可编辑、可校验、可追溯的 YAML 剧本初稿，帮助作者快速完成从叙事文本到剧本结构的第一轮改编。
+真正的核心不是“生成一次”，而是让每一次生成和每一次修改都变成可保存、可解释、可比较、可回滚的创作资产。
