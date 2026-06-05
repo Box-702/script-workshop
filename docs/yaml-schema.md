@@ -1,4 +1,4 @@
-# ScriptForge YAML Schema
+# Script Workshop YAML Schema
 
 > JSON Schema 源文件：[`schema/script.schema.json`](../schema/script.schema.json)
 

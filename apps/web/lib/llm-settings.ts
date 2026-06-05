@@ -8,7 +8,6 @@ export interface LlmSettings {
 }
 
 const STORAGE_KEY = "script-workshop.llmSettings";
-const LEGACY_STORAGE_KEY = "scriptforge.llmSettings";
 
 export const DEFAULT_LLM_SETTINGS: LlmSettings = {
   provider: "openai",
@@ -19,13 +18,10 @@ export const DEFAULT_LLM_SETTINGS: LlmSettings = {
 
 export function loadLlmSettings(): LlmSettings {
   if (typeof window === "undefined") return DEFAULT_LLM_SETTINGS;
-  const raw =
-    window.localStorage.getItem(STORAGE_KEY) ??
-    window.localStorage.getItem(LEGACY_STORAGE_KEY);
+  const raw = window.localStorage.getItem(STORAGE_KEY);
   if (!raw) return DEFAULT_LLM_SETTINGS;
   try {
     const parsed = JSON.parse(raw) as Partial<LlmSettings>;
-    // Normalize legacy 'mock' provider to 'openai' so a stale value never silently downgrades.
     if (parsed.provider && parsed.provider !== "openai") {
       parsed.provider = "openai";
     }
@@ -45,7 +41,6 @@ export function saveLlmSettings(settings: LlmSettings) {
 
 export function clearLlmSettings() {
   window.localStorage.removeItem(STORAGE_KEY);
-  window.localStorage.removeItem(LEGACY_STORAGE_KEY);
 }
 
 export function llmSettingsHeaders(settings: LlmSettings): HeadersInit {

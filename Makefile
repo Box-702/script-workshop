@@ -5,7 +5,7 @@ PIP ?= pip
 PNPM ?= pnpm
 
 help:
-	@echo "ScriptForge AI — make targets"
+	@echo "Script Workshop — make targets"
 	@echo "  install      install backend + frontend deps"
 	@echo "  dev          run api + web together"
 	@echo "  dev-api      run fastapi on :8000"
@@ -16,7 +16,7 @@ help:
 
 install:
 	cd apps/api && $(PYTHON) -m venv .venv && . .venv/bin/activate && $(PIP) install -U pip && $(PIP) install -e ".[dev]"
-	cd apps/web && $(PNPM) install
+	$(PNPM) install
 
 dev:
 	@echo "Use two terminals:"
@@ -32,24 +32,24 @@ dev-web:
 
 test:
 	cd apps/api && . .venv/bin/activate && pytest
-	cd apps/web && $(PNPM) test
+	$(PNPM) --dir apps/web typecheck
 
 db-upgrade:
-	cd apps/api && .venv/Scripts/python.exe -m alembic upgrade head
+	cd apps/api && . .venv/bin/activate && alembic upgrade head
 
 db-downgrade:
-	cd apps/api && .venv/Scripts/python.exe -m alembic downgrade -1
+	cd apps/api && . .venv/bin/activate && alembic downgrade -1
 
 db-new:
 	@if [ -z "$(msg)" ]; then echo "usage: make db-new msg=\"describe change\""; exit 1; fi
-	cd apps/api && .venv/Scripts/python.exe -m alembic revision --autogenerate -m "$(msg)"
+	cd apps/api && . .venv/bin/activate && alembic revision --autogenerate -m "$(msg)"
 
 db-history:
-	cd apps/api && .venv/Scripts/python.exe -m alembic history --verbose
+	cd apps/api && . .venv/bin/activate && alembic history --verbose
 
 lint:
 	cd apps/api && . .venv/bin/activate && ruff check .
-	cd apps/web && $(PNPM) lint
+	$(PNPM) --dir apps/web lint
 
 clean:
 	rm -rf apps/api/.venv apps/api/data apps/api/storage

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scriptforge.ai/schema/script.schema.json",
-  "title": "ScriptForge Script",
-  "description": "YAML/JSON schema for ScriptForge AI generated scripts.",
+  "$id": "https://script-workshop.local/schema/script.schema.json",
+  "title": "Script Workshop Script",
+  "description": "YAML/JSON schema for Script Workshop generated scripts.",
   "type": "object",
   "required": ["script"],
   "additionalProperties": false,

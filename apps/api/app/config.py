@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     llm_model_repair: str = Field(default="", alias="LLM_MODEL_REPAIR")
 
     # Storage
-    database_url: str = Field(default="sqlite:///./data/scriptforge.db", alias="DATABASE_URL")
+    database_url: str = Field(default="sqlite:///./data/script-workshop.db", alias="DATABASE_URL")
     storage_dir: str = Field(default="./storage", alias="STORAGE_DIR")
     key_encryption_key: str = Field(default="", alias="KEY_ENCRYPTION_KEY")
 

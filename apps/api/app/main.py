@@ -12,13 +12,13 @@ from .db import init_db
 from .routers import model_keys, projects, scripts, validate
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
-log = logging.getLogger("scriptforge")
+log = logging.getLogger("script_workshop")
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
-        title="ScriptForge AI",
+        title="Script Workshop",
         version="0.1.0",
         description="AI 小说转剧本工作台 — API",
     )

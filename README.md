@@ -75,6 +75,7 @@ IDE 集成终端里推荐用更短的启动脚本：
 | `make dev-web` | 仅起前端 |
 | `make test` | 跑测试 |
 | `make lint` | 跑 lint |
+| `pnpm clean` | 清理前端构建缓存、Python 缓存和本地日志 |
 
 ## 模型设置与自带 API Key
 

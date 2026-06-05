@@ -1,4 +1,4 @@
-"""JSON Schema validation + reference checks for ScriptForge scripts."""
+"""JSON Schema validation + reference checks for Script Workshop scripts."""
 from __future__ import annotations
 
 import json

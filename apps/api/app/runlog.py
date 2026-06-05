@@ -5,7 +5,7 @@ stage, level, message, and any extra context. Combined with the default
 text logger output this gives operators both human-readable logs and
 machine-parseable events for dashboards / debugging.
 
-Events are emitted on the `scriptforge.runs` logger; the default formatter
+Events are emitted on the `script_workshop.runs` logger; the default formatter
 in `app.main` can be replaced with a JSON formatter if downstream tooling
 prefers to consume the whole stream uniformly.
 """
@@ -18,12 +18,12 @@ import sys
 import time
 from typing import Any
 
-_RUN_LOGGER_NAME = "scriptforge.runs"
+_RUN_LOGGER_NAME = "script_workshop.runs"
 _run_logger = logging.getLogger(_RUN_LOGGER_NAME)
 
-# Emit structured events at INFO by default; set SCRIPTFORGE_RUNS_DEBUG=1
+# Emit structured events at INFO by default; set SCRIPT_WORKSHOP_RUNS_DEBUG=1
 # to see DEBUG entries (rare — used only when a developer opts in).
-_LEVEL = logging.DEBUG if os.environ.get("SCRIPTFORGE_RUNS_DEBUG") else logging.INFO
+_LEVEL = logging.DEBUG if os.environ.get("SCRIPT_WORKSHOP_RUNS_DEBUG") else logging.INFO
 if not _run_logger.handlers:
     handler = logging.StreamHandler(sys.stderr)
     handler.setLevel(_LEVEL)

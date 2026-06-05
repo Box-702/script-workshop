@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "scriptforge-api"
+name = "script-workshop-api"
 version = "0.1.0"
-description = "ScriptForge AI backend — FastAPI + AI pipeline"
+description = "Script Workshop backend — FastAPI + AI pipeline"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.111",
