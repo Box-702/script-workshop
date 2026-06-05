@@ -964,8 +964,9 @@ AI Agent 改编不必放进第一版上线，但数据库和版本系统必须�
 
 - 已完成基础用户隔离依赖：本地开发默认 `local_user`，也可用 `X-Dev-User-Id` 模拟不同用户。
 - 已完成项目、版本、导出、编辑记录、Agent run 和模型 key 的 owner/user 过滤。
+- 已完成后端 `AUTH_MODE=supabase` 验证入口：通过 Supabase Auth user endpoint 校验 Bearer access token 并提取用户 id。
 - 接入 Supabase Auth，前端保存登录态。
-- 将 `get_current_user` 从本地开发用户切换为已校验的 Supabase JWT 身份。
+- 前端 API 请求携带 Supabase access token，并处理登录/退出/会话刷新。
 - 数据库从本地 SQLite 兼容迁移到 Supabase Postgres；本地开发仍保留 SQLite。
 - 补充 Postgres 驱动依赖、生产环境变量说明和 Render/Vercel/Supabase 部署文档。
 - 梳理 CORS、错误清洗和 API key 加密配置，生产环境必须显式设置 `KEY_ENCRYPTION_KEY`。

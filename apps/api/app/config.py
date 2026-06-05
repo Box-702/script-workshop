@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     supabase_url: str = Field(default="", alias="SUPABASE_URL")
     supabase_anon_key: str = Field(default="", alias="SUPABASE_ANON_KEY")
     supabase_service_role_key: str = Field(default="", alias="SUPABASE_SERVICE_ROLE_KEY")
+    auth_mode: str = Field(default="local", alias="AUTH_MODE")
 
     # Server
     api_host: str = Field(default="127.0.0.1", alias="API_HOST")
