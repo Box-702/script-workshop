@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     # Storage
     database_url: str = Field(default="sqlite:///./data/scriptforge.db", alias="DATABASE_URL")
     storage_dir: str = Field(default="./storage", alias="STORAGE_DIR")
+    key_encryption_key: str = Field(default="", alias="KEY_ENCRYPTION_KEY")
 
     # Server
     api_host: str = Field(default="127.0.0.1", alias="API_HOST")

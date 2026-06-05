@@ -1,4 +1,6 @@
 import type {
+  ModelKeySummary,
+  ModelKeyTestResponse,
   ProjectDetail,
   ProjectCreateResponse,
   ProjectSummary,
@@ -24,6 +26,32 @@ async function jfetch<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  listModelKeys: () => jfetch<ModelKeySummary[]>("/api/user/model-keys"),
+
+  getActiveModelKey: () =>
+    jfetch<ModelKeySummary | null>("/api/user/model-keys/active"),
+
+  saveModelKey: (body: {
+    provider: "openai";
+    api_key: string;
+    base_url: string;
+    model: string;
+  }) =>
+    jfetch<ModelKeySummary>("/api/user/model-keys", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  revokeModelKey: (keyId: string) =>
+    jfetch<ModelKeyTestResponse>(`/api/user/model-keys/${keyId}`, {
+      method: "DELETE",
+    }),
+
+  testModelKey: (keyId: string) =>
+    jfetch<ModelKeyTestResponse>(`/api/user/model-keys/${keyId}/test`, {
+      method: "POST",
+    }),
+
   listProjects: () => jfetch<ProjectSummary[]>("/api/projects"),
 
   getProject: (projectId: string) =>

@@ -77,6 +77,23 @@ class GenerationRun(Base):
     project: Mapped[Project] = relationship(back_populates="runs")
 
 
+class UserModelKey(Base):
+    __tablename__ = "user_model_keys"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), default="local_user", index=True)
+    provider: Mapped[str] = mapped_column(String(64), default="openai")
+    base_url: Mapped[str] = mapped_column(String(512), default="")
+    default_model: Mapped[str] = mapped_column(String(128), default="")
+    encrypted_api_key: Mapped[str] = mapped_column(Text, nullable=False)
+    key_last4: Mapped[str] = mapped_column(String(8), default="")
+    status: Mapped[str] = mapped_column(String(32), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
 class ScriptVersion(Base):
     __tablename__ = "script_versions"
 

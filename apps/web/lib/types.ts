@@ -112,3 +112,19 @@ export interface ProjectSummary {
 export interface ProjectDetail extends ProjectSummary {
   chapters: ChapterOut[];
 }
+
+export interface ModelKeySummary {
+  id: string;
+  provider: string;
+  base_url: string;
+  default_model: string;
+  key_last4: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ModelKeyTestResponse {
+  ok: boolean;
+  message: string;
+}

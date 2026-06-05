@@ -58,9 +58,35 @@ export default function NewProjectPage() {
   const [error, setError] = useState<string | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   const [hasKey, setHasKey] = useState(false);
+  const [keyLoading, setKeyLoading] = useState(true);
 
   useEffect(() => {
-    setHasKey(hasUsableLlmSettings());
+    let alive = true;
+
+    async function refreshKeyStatus() {
+      const localReady = hasUsableLlmSettings();
+      if (localReady) {
+        if (alive) {
+          setHasKey(true);
+          setKeyLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const activeKey = await api.getActiveModelKey();
+        if (alive) setHasKey(Boolean(activeKey && activeKey.status === "active"));
+      } catch {
+        if (alive) setHasKey(false);
+      } finally {
+        if (alive) setKeyLoading(false);
+      }
+    }
+
+    void refreshKeyStatus();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const characterCount = text.trim().length;
@@ -110,8 +136,8 @@ export default function NewProjectPage() {
     e.preventDefault();
     setError(null);
     const llm = loadLlmSettings();
-    if (!hasUsableLlmSettings(llm)) {
-      setError("尚未配置 API 密钥，请先到“模型设置”填写。");
+    if (!hasUsableLlmSettings(llm) && !hasKey) {
+      setError("请先在“模型设置”保存云端或本地 API key。");
       return;
     }
     setBusy(true);
@@ -236,16 +262,16 @@ export default function NewProjectPage() {
           </div>
         )}
 
-        {!hasKey && (
+        {!keyLoading && !hasKey && (
           <div className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
-            检测到浏览器尚未保存 API 密钥。请先前往{" "}
+            尚未检测到可用模型 key。请先前往{" "}
             <Link href="/settings" className="underline">模型设置</Link>
-            ，填写后再回来生成。
+            ，保存云端或本地 API key 后再回来生成。
           </div>
         )}
 
         <div className="flex justify-end">
-          <button type="submit" className="btn-primary" disabled={busy || !text || !hasKey}>
+          <button type="submit" className="btn-primary" disabled={busy || !text || keyLoading || !hasKey}>
             {busy ? "提交中…" : "创建并启动生成"}
           </button>
         </div>

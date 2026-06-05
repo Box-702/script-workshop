@@ -28,6 +28,7 @@ from ..schemas import (
     RunOut,
     ScriptVersionOut,
 )
+from ..services.model_keys import LOCAL_USER_ID, decrypt_model_key, get_active_model_key
 from ..services.versions import latest_version
 from .deps import DbSession
 
@@ -146,6 +147,22 @@ def _provider_from_options(options: LLMRunOptions) -> LLMProvider:
     )
 
 
+def _fill_options_from_saved_key(db: Session, options: LLMRunOptions) -> LLMRunOptions:
+    if options.openai_api_key.strip():
+        return options
+    key = get_active_model_key(db, user_id=LOCAL_USER_ID, provider=options.provider)
+    if key is None:
+        return options
+    decrypted = decrypt_model_key(key)
+    return LLMRunOptions(
+        provider=decrypted.provider,
+        openai_api_key=decrypted.api_key,
+        openai_base_url=options.openai_base_url or decrypted.base_url,
+        openai_model=options.openai_model or decrypted.model,
+        language=options.language,
+    )
+
+
 @router.get("/projects", response_model=list[ProjectOut])
 def list_projects(db: DbSession) -> list[ProjectOut]:
     projects = db.query(dbm.Project).order_by(dbm.Project.updated_at.desc()).all()
@@ -230,6 +247,7 @@ def generate(
         openai_model=openai_model or "",
         language=project.language or "",
     )
+    options = _fill_options_from_saved_key(db, options)
     # Fail fast with a clean HTTP error so the UI can show it. Background task
     # will only run after we've already proved the provider can be built.
     _provider_from_options(options)

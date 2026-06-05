@@ -338,6 +338,29 @@ class RepairResponse(BaseModel):
     changes: list[str]
 
 
+class ModelKeyCreate(BaseModel):
+    provider: Literal["openai"] = "openai"
+    api_key: str = Field(min_length=1)
+    base_url: str = "https://api.openai.com/v1"
+    model: str = "gpt-4o-mini"
+
+
+class ModelKeyOut(BaseModel):
+    id: str
+    provider: str
+    base_url: str
+    default_model: str
+    key_last4: str
+    status: str
+    created_at: str
+    updated_at: str
+
+
+class ModelKeyTestResponse(BaseModel):
+    ok: bool
+    message: str
+
+
 class ScriptVersionSaveRequest(BaseModel):
     yaml: str = Field(min_length=1)
     label: str | None = Field(default=None, max_length=255)
