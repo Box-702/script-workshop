@@ -259,7 +259,7 @@ def run_pipeline(
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
             summary_results = list(ex.map(lambda c: _stage_summary(provider, c), chapters))
     summaries: list[dict] = []
-    for ch, s in zip(chapters, summary_results):
+    for ch, s in zip(chapters, summary_results, strict=True):
         s.setdefault("chapter_id", ch.chapter_id)
         s.setdefault("summary", ch.title)
         summaries.append(s)

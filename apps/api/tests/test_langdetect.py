@@ -28,7 +28,8 @@ def test_japanese_kana_disambiguates_from_chinese():
 
 
 def test_korean():
-    assert detect_language("서울의 비가 내리기 시작했다. 한 남자가 진료소 문을 두드렸다.") == "ko-KR"
+    text = "서울의 비가 내리기 시작했다. 한 남자가 진료소 문을 두드렸다."
+    assert detect_language(text) == "ko-KR"
 
 
 def test_russian():

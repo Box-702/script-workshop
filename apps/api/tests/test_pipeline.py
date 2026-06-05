@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -20,7 +21,6 @@ from app.repair import repair_yaml
 from app.routers.projects import LLMRunOptions, _provider_from_options
 from app.validation import validate_script
 from app.yaml_io import from_yaml
-from fastapi import HTTPException
 
 NOVEL = """第一章 雨夜敲门
 

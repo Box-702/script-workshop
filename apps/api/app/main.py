@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .db import init_db
-from .routers import projects, validate
+from .routers import projects, scripts, validate
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
 log = logging.getLogger("scriptforge")
@@ -47,6 +47,7 @@ def create_app() -> FastAPI:
         return {"status": "ok", "version": app.version}
 
     app.include_router(projects.router)
+    app.include_router(scripts.router)
     app.include_router(validate.router)
     return app
 

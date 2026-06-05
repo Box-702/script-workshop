@@ -2,21 +2,20 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException
 
 from .. import db as dbm
 from ..chunking import split_chapters
 from ..config import get_settings
+from ..ids import gen_id
 from ..langdetect import detect_language
 from ..pipeline import PipelineCallbacks, run_pipeline, to_yaml_text
-from ..runlog import log_event
 from ..providers.base import LLMProvider
 from ..providers.openai_provider import OpenAIProvider
+from ..runlog import log_event
 from ..schemas import (
     ChapterOut,
     GenerateAccepted,
@@ -24,20 +23,10 @@ from ..schemas import (
     ProjectCreateResponse,
     RunOut,
 )
+from .deps import DbSession
 
 router = APIRouter(prefix="/api", tags=["projects"])
 log = logging.getLogger(__name__)
-
-
-def get_db():
-    s = dbm.SessionLocal()
-    try:
-        yield s
-    finally:
-        s.close()
-
-
-DbSession = Annotated[Session, Depends(get_db)]
 
 
 @dataclass(frozen=True)
@@ -78,10 +67,6 @@ def _provider_from_options(options: LLMRunOptions) -> LLMProvider:
     )
 
 
-def _gen_id(prefix: str) -> str:
-    return f"{prefix}_{uuid.uuid4().hex[:12]}"
-
-
 @router.post("/projects", response_model=ProjectCreateResponse)
 def create_project(payload: ProjectCreate, db: DbSession) -> Any:
     try:
@@ -95,7 +80,7 @@ def create_project(payload: ProjectCreate, db: DbSession) -> Any:
         )
 
     project = dbm.Project(
-        id=_gen_id("proj"),
+        id=gen_id("proj"),
         title=payload.title,
         adaptation_type=payload.adaptation_type,
         language=payload.language or detect_language(payload.raw_text),
@@ -171,7 +156,7 @@ def generate(
         return GenerateAccepted(run_id=existing.id, status=existing.status)  # type: ignore[arg-type]
 
     run = dbm.GenerationRun(
-        id=_gen_id("run"),
+        id=gen_id("run"),
         project_id=project.id,
         status="queued",
         current_step="queued",
@@ -201,31 +186,12 @@ def get_run(run_id: str, db: DbSession) -> Any:
     )
 
 
-@router.get("/projects/{project_id}/script.yaml")
-def get_yaml(project_id: str, db: DbSession) -> Any:
-    project = db.get(dbm.Project, project_id)
-    if not project:
-        raise HTTPException(404, "project not found")
-    latest = (
-        db.query(dbm.ScriptVersion)
-        .filter_by(project_id=project_id)
-        .order_by(dbm.ScriptVersion.created_at.desc())
-        .first()
-    )
-    if not latest:
-        raise HTTPException(404, "no script version yet")
-    from fastapi.responses import PlainTextResponse
-
-    return PlainTextResponse(latest.yaml_content, media_type="text/yaml")
-
-
 # ---------- background ----------
 
 
 def _run_pipeline_task(run_id: str, llm_options: LLMRunOptions) -> None:
     """Background task: execute the 8-stage pipeline, persist outputs."""
     from ..db import SessionLocal
-    from ..runlog import log_event
 
     log_event(run_id, "lifecycle", "background_task_started")
     db = SessionLocal()
@@ -268,7 +234,7 @@ def _run_pipeline_task(run_id: str, llm_options: LLMRunOptions) -> None:
             )
             yaml_text = to_yaml_text(doc)
             version = dbm.ScriptVersion(
-                id=_gen_id("ver"),
+                id=gen_id("ver"),
                 project_id=project.id,
                 yaml_content=yaml_text,
                 json_content=doc.model_dump(exclude_none=True),

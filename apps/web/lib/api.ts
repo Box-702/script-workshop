@@ -2,6 +2,8 @@ import type {
   ProjectCreateResponse,
   RepairResponse,
   RunOut,
+  ScriptVersionDetail,
+  ScriptVersionSummary,
   ValidateResponse,
 } from "./types";
 import type { LlmSettings } from "./llm-settings";
@@ -43,6 +45,21 @@ export const api = {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.text();
     }),
+
+  listVersions: (projectId: string) =>
+    jfetch<ScriptVersionSummary[]>(`/api/projects/${projectId}/versions`),
+
+  saveVersion: (projectId: string, yaml: string) =>
+    jfetch<ScriptVersionDetail>(`/api/projects/${projectId}/versions`, {
+      method: "POST",
+      body: JSON.stringify({ yaml }),
+    }),
+
+  restoreVersion: (projectId: string, versionId: string) =>
+    jfetch<ScriptVersionDetail>(
+      `/api/projects/${projectId}/versions/${versionId}/restore`,
+      { method: "POST" },
+    ),
 
   validate: (yaml: string) =>
     jfetch<ValidateResponse>("/api/validate", {

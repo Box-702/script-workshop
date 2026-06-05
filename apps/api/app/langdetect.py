@@ -19,7 +19,6 @@ from __future__ import annotations
 import re
 from collections import Counter
 
-
 _CJK_RE = re.compile(r"[㐀-鿿豈-﫿]")
 _HANGUL_RE = re.compile(r"[가-힯]")
 _HIRAGANA_RE = re.compile(r"[぀-ゟ]")

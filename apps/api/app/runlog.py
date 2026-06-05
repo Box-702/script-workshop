@@ -67,7 +67,7 @@ class StageTimer:
         self.level = level
         self._start: float = 0.0
 
-    def __enter__(self) -> "StageTimer":
+    def __enter__(self) -> StageTimer:
         self._start = time.perf_counter()
         log_event(self.run_id, self.stage, "stage_started", level=self.level)
         return self

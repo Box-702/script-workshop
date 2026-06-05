@@ -139,8 +139,9 @@ def init_db() -> None:
     """
     from pathlib import Path
 
-    from alembic import command
     from alembic.config import Config
+
+    from alembic import command
 
     settings = get_settings()
     database_url = resolve_database_url(settings.database_url)

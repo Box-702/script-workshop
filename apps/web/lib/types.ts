@@ -68,3 +68,15 @@ export interface RepairResponse {
   fixed_yaml: string;
   changes: string[];
 }
+
+export interface ScriptVersionSummary {
+  id: string;
+  project_id: string;
+  validation_status: string;
+  validation_errors: ValidationError[] | null;
+  created_at: string;
+}
+
+export interface ScriptVersionDetail extends ScriptVersionSummary {
+  yaml_content: string;
+}

@@ -305,6 +305,22 @@ class RepairResponse(BaseModel):
     changes: list[str]
 
 
+class ScriptVersionSaveRequest(BaseModel):
+    yaml: str = Field(min_length=1)
+
+
+class ScriptVersionOut(BaseModel):
+    id: str
+    project_id: str
+    validation_status: str
+    validation_errors: list[dict] | None = None
+    created_at: str
+
+
+class ScriptVersionDetail(ScriptVersionOut):
+    yaml_content: str
+
+
 # ===== Script domain models (mirror JSON Schema) =====
 
 

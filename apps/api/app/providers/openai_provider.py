@@ -7,11 +7,11 @@ import re
 from typing import Any
 
 from tenacity import (
+    before_sleep_log,
     retry,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    before_sleep_log,
 )
 
 from ..config import Settings
