@@ -11,9 +11,23 @@
     background:
       linear-gradient(180deg, rgba(124, 92, 255, 0.08), transparent 280px),
       #0f1218;
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+    background-size: 100% 360px, auto;
   }
   a {
     @apply text-accent-400 hover:text-accent-500;
+  }
+  body:has(.editor-workspace) {
+    overflow: hidden;
+  }
+  body:has(.editor-workspace) main {
+    min-height: auto;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  body:has(.editor-workspace) footer {
+    display: none;
   }
 }
 
@@ -44,6 +58,22 @@
   .input {
     @apply w-full rounded-md border border-ink-600/40 bg-ink-900 px-3 py-2 text-sm
            focus:border-accent-500 focus:outline-none focus:ring-1 focus:ring-accent-500;
+  }
+  .workspace-scroll {
+    scrollbar-color: #4a5160 #0f1218;
+    scrollbar-width: thin;
+  }
+  .workspace-scroll::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  .workspace-scroll::-webkit-scrollbar-track {
+    background: #0f1218;
+  }
+  .workspace-scroll::-webkit-scrollbar-thumb {
+    background: #4a5160;
+    border-radius: 999px;
+    border: 2px solid #0f1218;
   }
   .label {
     @apply mb-1 block text-xs font-medium text-ink-400;

@@ -16,6 +16,7 @@ All notable changes to 剧本工坊 are documented here.
 
 ### Fixed
 - Reworked the web workspace layout for wider editor pages, clearer project navigation, and fewer internal identifiers in the writing UI.
+- Contained the script editor inside the viewport with independent scroll areas for resources, editing, and side panels, and fixed the dark background color banding during long-page scroll.
 - Fixed whole-script Agent scope so the web editor sends every current scene id instead of an empty scene selection.
 - Reloaded the canonical script snapshot after structured editor saves so UI state matches backend normalization and validation.
 - Kept the selected scene id in sync after loading, restoring, or saving versions whose scene ids changed.

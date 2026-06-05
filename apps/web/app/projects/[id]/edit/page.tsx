@@ -232,8 +232,8 @@ export default function EditPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="panel overflow-hidden">
+    <div className="editor-workspace flex h-[calc(100vh-78px)] min-h-0 flex-col gap-3 overflow-hidden">
+      <div className="panel shrink-0 overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-ink-600/30 px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
             <div className="text-sm text-ink-400">剧本工作台</div>
@@ -267,7 +267,7 @@ export default function EditPage() {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 px-4 py-3">
+        <div className="flex flex-wrap gap-2 px-4 py-2.5">
           <ModeButton active={mode === "scene"} onClick={() => setMode("scene")}>
             场景编辑
           </ModeButton>
@@ -281,13 +281,13 @@ export default function EditPage() {
       </div>
 
       {notice && (
-        <div className="rounded border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+        <div className="shrink-0 rounded border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
           {notice}
         </div>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)_360px]">
-        <aside className="space-y-4">
+      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[300px_minmax(0,1fr)_360px]">
+        <aside className="min-h-0">
           {script && (
             <ResourcePanel
               script={script}
@@ -298,7 +298,7 @@ export default function EditPage() {
           )}
         </aside>
 
-        <main className="min-w-0">
+        <main className="min-h-0 min-w-0 overflow-hidden">
           {mode === "scene" && script && selectedScene && (
             <SceneEditor
               script={script}
@@ -313,16 +313,16 @@ export default function EditPage() {
           )}
           {mode === "yaml" && (
             <textarea
-              className="input min-h-[720px] font-mono text-xs leading-relaxed"
+              className="input workspace-scroll h-full min-h-0 resize-none overflow-auto font-mono text-xs leading-relaxed"
               value={yaml}
               onChange={(e) => updateYaml(e.target.value)}
               spellCheck={false}
             />
           )}
-          {!script && mode !== "yaml" && <div className="card text-sm text-ink-400">加载中...</div>}
+          {!script && mode !== "yaml" && <div className="card h-full text-sm text-ink-400">加载中...</div>}
         </main>
 
-        <aside className="space-y-4">
+        <aside className="workspace-scroll min-h-0 space-y-4 overflow-y-auto pr-1">
           <AgentPanel
             agentBusy={agentBusy}
             saving={saving}
@@ -391,7 +391,7 @@ function ResourcePanel({
   setSelectedSceneId: (id: string) => void;
 }) {
   return (
-    <div className="panel overflow-hidden">
+    <div className="panel flex h-full min-h-0 flex-col overflow-hidden">
       <div className="panel-header">
         <div className="text-sm font-medium text-ink-100">资源</div>
       </div>
@@ -402,7 +402,7 @@ function ResourcePanel({
           <ResourceMetric label="地点" value={script.locations.length} />
         </div>
       </div>
-      <div className="max-h-[calc(100vh-250px)] overflow-auto p-3">
+      <div className="workspace-scroll min-h-0 flex-1 overflow-auto p-3">
         <div className="mb-2 text-xs font-medium text-ink-500">场景目录</div>
         <ul className="space-y-2">
           {script.scenes.map((item, index) => (
@@ -460,15 +460,18 @@ function SceneEditor({
   updateScene: (sceneId: string, patch: (scene: ScriptScene) => ScriptScene) => void;
 }) {
   return (
-      <section className="panel p-5">
-        <div className="mb-5 flex flex-col gap-2 border-b border-ink-600/30 pb-4 sm:flex-row sm:items-start sm:justify-between">
+      <section className="panel flex h-full min-h-0 flex-col overflow-hidden">
+        <div className="shrink-0 border-b border-ink-600/30 p-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="text-xs text-ink-500">当前场景</div>
             <h2 className="mt-1 text-xl font-semibold text-ink-50">{scene.title}</h2>
             <p className="mt-1 text-sm text-ink-400">{sceneMeta(scene, locationNames)}</p>
           </div>
           <div className="text-sm text-ink-500">{script.scenes.length} 场</div>
+          </div>
         </div>
+        <div className="workspace-scroll min-h-0 flex-1 overflow-auto p-5">
         <div className="grid gap-4 md:grid-cols-[1fr_180px]">
           <Field
             label="场景标题"
@@ -524,6 +527,7 @@ function SceneEditor({
 
         <ActionEditor scene={scene} updateScene={updateScene} />
         <DialogueEditor scene={scene} characterNames={characterNames} updateScene={updateScene} />
+        </div>
       </section>
   );
 }
@@ -536,7 +540,7 @@ function ScriptOverview({
   updateScript: (patch: (current: ScriptDocument) => ScriptDocument) => void;
 }) {
   return (
-    <section className="rounded-lg border border-ink-600/30 bg-ink-800/30 p-5">
+    <section className="panel workspace-scroll h-full overflow-auto p-5">
       <div className="grid gap-4 md:grid-cols-[1fr_160px]">
         <Field
           label="剧名"
