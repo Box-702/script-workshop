@@ -132,13 +132,14 @@ def restore_version(
     db: Session, project: dbm.Project, version: dbm.ScriptVersion
 ) -> dbm.ScriptVersion:
     before_version = latest_version(db, project.id)
+    source_label = version.label or version.id
     restored = dbm.ScriptVersion(
         id=gen_id("ver"),
         project_id=project.id,
         parent_version_id=version.id,
         source_type="restore",
-        label=f"Restore {version.label or version.id}",
-        notes="Restored from history.",
+        label=f"回退到：{source_label}",
+        notes=f"从快照「{source_label}」回退。",
         yaml_content=version.yaml_content,
         json_content=version.json_content,
         validation_status=version.validation_status,

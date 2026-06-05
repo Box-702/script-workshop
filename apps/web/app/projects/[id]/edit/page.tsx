@@ -31,11 +31,13 @@ export default function EditPage() {
   const [saving, setSaving] = useState(false);
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentInstruction, setAgentInstruction] = useState("");
+  const [agentInstructionFocused, setAgentInstructionFocused] = useState(false);
   const [agentScope, setAgentScope] = useState<"current_scene" | "whole_script">("current_scene");
   const [agentRun, setAgentRun] = useState<AgentRunSummary | null>(null);
   const [agentRuns, setAgentRuns] = useState<AgentRunSummary[]>([]);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [snapshotName, setSnapshotName] = useState("");
 
   const selectedScene = useMemo(() => {
     return script?.scenes.find((scene) => scene.id === selectedSceneId) ?? script?.scenes[0] ?? null;
@@ -146,12 +148,14 @@ export default function EditPage() {
     setSaving(true);
     setNotice(null);
     try {
+      const label = snapshotLabel(snapshotName);
       const saved = await api.saveStructuredVersion(projectId, script, {
-        label: "结构化保存",
-        notes: "用户从剧本编辑界面保存。",
+        label,
+        notes: "用户从剧本编辑界面保存快照。",
       });
       await loadScript();
-      setNotice(saved.validation_status === "valid" ? "已保存为新版本。" : "已保存，但仍有结构问题需要处理。");
+      setSnapshotName("");
+      setNotice(saved.validation_status === "valid" ? `已保存快照：${label}` : `已保存快照：${label}，但仍有结构问题需要处理。`);
     } catch (e) {
       setErrors([{ path: "<root>", message: (e as Error).message, severity: "error" }]);
     } finally {
@@ -163,13 +167,15 @@ export default function EditPage() {
     setSaving(true);
     setNotice(null);
     try {
+      const label = snapshotLabel(snapshotName);
       const saved = await api.saveVersion(projectId, yaml, {
-        label: "源码保存",
-        notes: "用户从 YAML 源码保存。",
+        label,
+        notes: "用户从 YAML 源码保存快照。",
       });
       setYaml(saved.yaml_content);
       await loadScript();
-      setNotice(saved.validation_status === "valid" ? "已保存为新版本。" : "已保存，但仍有结构问题需要处理。");
+      setSnapshotName("");
+      setNotice(saved.validation_status === "valid" ? `已保存快照：${label}` : `已保存快照：${label}，但仍有结构问题需要处理。`);
     } catch (e) {
       setErrors([{ path: "<root>", message: (e as Error).message, severity: "error" }]);
     } finally {
@@ -184,7 +190,7 @@ export default function EditPage() {
       const restored = await api.restoreVersion(projectId, versionId);
       setYaml(restored.yaml_content);
       await loadScript();
-      setNotice("已从历史版本恢复，并创建了新的当前版本。");
+      setNotice("已回退到所选快照，并创建了新的当前快照。");
     } catch (e) {
       setErrors([{ path: "<root>", message: (e as Error).message, severity: "error" }]);
     } finally {
@@ -303,7 +309,7 @@ export default function EditPage() {
               onClick={mode === "yaml" ? saveYamlVersion : saveStructuredVersion}
               disabled={busy || saving || (!script && mode !== "yaml")}
             >
-              {saving ? "保存中..." : "保存版本"}
+              {saving ? "保存中..." : "保存快照"}
             </button>
             <ExportMenu projectId={projectId} compact />
           </div>
@@ -311,8 +317,17 @@ export default function EditPage() {
       </div>
 
       {notice && (
-        <div className="shrink-0 rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
-          {notice}
+        <div className="flex shrink-0 items-center justify-between gap-3 rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+          <span className="min-w-0">{notice}</span>
+          <button
+            type="button"
+            className="shrink-0 rounded px-1.5 text-lg leading-none text-emerald-300 hover:bg-emerald-500/10 hover:text-emerald-100"
+            onClick={() => setNotice(null)}
+            aria-label="关闭通知"
+            title="关闭通知"
+          >
+            ×
+          </button>
         </div>
       )}
 
@@ -358,6 +373,7 @@ export default function EditPage() {
             agentBusy={agentBusy}
             saving={saving}
             agentInstruction={agentInstruction}
+            agentInstructionFocused={agentInstructionFocused}
             agentScope={agentScope}
             agentRun={agentRun}
             agentRuns={agentRuns}
@@ -366,6 +382,7 @@ export default function EditPage() {
             selectedSceneLabel={selectedScene ? sceneDisplayTitle(selectedScene, selectedSceneIndex) : null}
             characterNames={characterNames}
             setAgentInstruction={setAgentInstruction}
+            setAgentInstructionFocused={setAgentInstructionFocused}
             setAgentScope={setAgentScope}
             setAgentRun={setAgentRun}
             createAgentSuggestion={createAgentSuggestion}
@@ -375,7 +392,15 @@ export default function EditPage() {
           />
 
           <ValidationPanel busy={busy} errors={errors} />
-          <VersionPanel versions={versions} saving={saving} restoreVersion={restoreVersion} />
+          <VersionPanel
+            versions={versions}
+            saving={saving}
+            snapshotName={snapshotName}
+            setSnapshotName={setSnapshotName}
+            canSaveSnapshot={Boolean(script) || mode === "yaml"}
+            saveSnapshot={mode === "yaml" ? saveYamlVersion : saveStructuredVersion}
+            restoreVersion={restoreVersion}
+          />
 
           {changes.length > 0 && (
             <div className="card">
@@ -832,6 +857,7 @@ function AgentPanel({
   agentBusy,
   saving,
   agentInstruction,
+  agentInstructionFocused,
   agentScope,
   agentRun,
   agentRuns,
@@ -840,6 +866,7 @@ function AgentPanel({
   selectedSceneLabel,
   characterNames,
   setAgentInstruction,
+  setAgentInstructionFocused,
   setAgentScope,
   setAgentRun,
   createAgentSuggestion,
@@ -850,6 +877,7 @@ function AgentPanel({
   agentBusy: boolean;
   saving: boolean;
   agentInstruction: string;
+  agentInstructionFocused: boolean;
   agentScope: "current_scene" | "whole_script";
   agentRun: AgentRunSummary | null;
   agentRuns: AgentRunSummary[];
@@ -858,6 +886,7 @@ function AgentPanel({
   selectedSceneLabel: string | null;
   characterNames: Record<string, string>;
   setAgentInstruction: (value: string) => void;
+  setAgentInstructionFocused: (value: boolean) => void;
   setAgentScope: (value: "current_scene" | "whole_script") => void;
   setAgentRun: (value: AgentRunSummary) => void;
   createAgentSuggestion: () => void;
@@ -938,7 +967,9 @@ function AgentPanel({
         className="input min-h-[96px] text-sm"
         value={agentInstruction}
         onChange={(e) => setAgentInstruction(e.target.value)}
-        placeholder="例如：强化前三秒钩子；减少解释性对白；不改变人物关系。"
+        onFocus={() => setAgentInstructionFocused(true)}
+        onBlur={() => setAgentInstructionFocused(false)}
+        placeholder={agentInstructionFocused ? "" : "例如：强化前三秒钩子；减少解释性对白；不改变人物关系。"}
       />
       {agentInstruction.trim() && (
         <div className="flex justify-end">
@@ -1019,7 +1050,7 @@ function AgentPanel({
         </div>
       )}
       {agentRun && (
-        <div className="space-y-4 rounded border border-white/10 bg-ink-900/60 p-3 text-xs">
+        <div className="space-y-4 rounded-md border border-white/10 bg-ink-900/70 p-3 text-sm">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="font-medium text-ink-100">{formatAgentStatus(agentRun.status)}</div>
@@ -1029,20 +1060,20 @@ function AgentPanel({
               AI 助手
             </span>
           </div>
-          <div className="rounded bg-ink-950/70 px-2 py-1.5 text-ink-300">
+          <div className="rounded-md bg-ink-950/70 px-2.5 py-2 leading-5 text-ink-200">
             <span className="text-ink-500">需求：</span>
             {agentRun.user_prompt}
           </div>
           {agentRun.error_message && (
-            <div className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-amber-200">
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-sm leading-5 text-amber-200">
               {agentRun.error_message}
             </div>
           )}
           {agentRun.plan && (
-            <ol className="space-y-1 text-ink-300">
+            <ol className="space-y-1.5 text-sm leading-5 text-ink-200">
               {agentRun.plan.map((item, index) => (
                 <li key={index} className="flex gap-2">
-                  <span className="text-ink-600">{index + 1}</span>
+                  <span className="shrink-0 text-ink-500">{index + 1}</span>
                   <span>{String(item)}</span>
                 </li>
               ))}
@@ -1075,9 +1106,9 @@ function AgentPanel({
               )}
               <ul className="space-y-2">
               {agentRun.patch.map((item, index) => (
-                <li key={index} className="rounded border border-white/10 bg-white/[0.02] p-2">
+                <li key={index} className="rounded-md border border-white/10 bg-white/[0.03] p-2.5">
                   <div className="flex items-center justify-between gap-2">
-                    <label className="flex min-w-0 items-center gap-2 text-ink-200">
+                    <label className="flex min-w-0 items-center gap-2 text-sm text-ink-100">
                       {agentRun.status === "waiting_review" && patchCount > 1 && (
                         <input
                           type="checkbox"
@@ -1088,7 +1119,7 @@ function AgentPanel({
                       )}
                       <span className="truncate">{item.scene_title || `变更 ${index + 1}`}</span>
                     </label>
-                    <span className="rounded bg-ink-800 px-1.5 py-0.5 font-mono text-[10px] uppercase text-ink-400">
+                    <span className="rounded bg-ink-800 px-1.5 py-0.5 text-xs text-ink-300">
                       {formatPatchField(item)}
                     </span>
                   </div>
@@ -1153,31 +1184,57 @@ function ValidationPanel({ busy, errors }: { busy: boolean; errors: ValidationEr
 function VersionPanel({
   versions,
   saving,
+  snapshotName,
+  setSnapshotName,
+  canSaveSnapshot,
+  saveSnapshot,
   restoreVersion,
 }: {
   versions: ScriptVersionSummary[];
   saving: boolean;
+  snapshotName: string;
+  setSnapshotName: (value: string) => void;
+  canSaveSnapshot: boolean;
+  saveSnapshot: () => void;
   restoreVersion: (versionId: string) => void;
 }) {
   return (
-    <div className="card">
-      <div className="label">版本历史</div>
+    <div className="card space-y-3">
+      <div className="label">快照历史</div>
+      <div className="space-y-2 rounded-md border border-ink-600/40 bg-ink-900 p-2">
+        <div className="text-xs text-ink-500">快照名</div>
+        <input
+          className="input h-9 text-sm"
+          value={snapshotName}
+          onChange={(e) => setSnapshotName(e.target.value)}
+          placeholder="例如：第一版钩子调整"
+          maxLength={80}
+        />
+        <button
+          type="button"
+          className="btn-primary w-full px-2 py-1.5 text-xs"
+          onClick={saveSnapshot}
+          disabled={saving || !canSaveSnapshot}
+        >
+          {saving ? "保存中..." : "保存当前快照"}
+        </button>
+      </div>
       {versions.length === 0 ? (
-        <div className="text-sm text-ink-400">暂无历史版本。</div>
+        <div className="text-sm text-ink-400">暂无快照。</div>
       ) : (
-        <ul className="space-y-2 text-xs">
+        <ul className="space-y-2 text-sm">
           {versions.map((version, index) => (
-            <li key={version.id} className="rounded border border-white/10 bg-white/[0.02] p-2">
+            <li key={version.id} className="rounded-md border border-white/10 bg-white/[0.02] p-2.5">
               <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-ink-200">{index === 0 ? "当前" : `历史 ${index}`}</span>
-                <span className={version.validation_status === "valid" ? "text-emerald-300" : "text-amber-300"}>
+                <span className="min-w-0 truncate font-medium text-ink-100">
+                  {formatVersionLabel(version.label, index)}
+                </span>
+                <span className={version.validation_status === "valid" ? "shrink-0 text-xs text-emerald-300" : "shrink-0 text-xs text-amber-300"}>
                   {formatValidation(version.validation_status)}
                 </span>
               </div>
-              <div className="mt-2 space-y-1 text-ink-400">
-                <div>{formatVersionLabel(version.label, version.source_type)}</div>
-                <div>来源：{formatSource(version.source_type)}</div>
-                {version.notes && <div>备注：{version.notes}</div>}
+              <div className="mt-2 space-y-1 text-xs text-ink-400">
+                {formatVersionNote(version.notes) && <div>备注：{formatVersionNote(version.notes)}</div>}
                 <div className="font-mono">{new Date(version.created_at).toLocaleString()}</div>
               </div>
               {index > 0 && (
@@ -1186,9 +1243,10 @@ function VersionPanel({
                   onClick={() => restoreVersion(version.id)}
                   disabled={saving}
                 >
-                  恢复为当前版本
+                  回退到此快照
                 </button>
               )}
+              {index === 0 && <div className="mt-2 text-xs text-ink-500">当前使用中</div>}
             </li>
           ))}
         </ul>
@@ -1215,21 +1273,21 @@ function sceneMeta(scene: ScriptScene, locationNames: Record<string, string>) {
   return parts.length > 0 ? parts.join(" / ") : "未设置地点和时间";
 }
 
-function formatSource(value: string) {
-  return (
-    {
-      generation: "AI 生成",
-      manual: "手动保存",
-      restore: "历史恢复",
-      repair: "自动修复",
-      import: "导入",
-    }[value] ?? value
-  );
+function snapshotLabel(value: string) {
+  const trimmed = value.trim();
+  if (trimmed) return trimmed;
+  return `剧本快照 ${new Date().toLocaleString()}`;
 }
 
-function formatVersionLabel(label: string | null, sourceType: string) {
+function formatVersionLabel(label: string | null, index: number) {
   if (label === "AI generated draft") return "AI 生成初稿";
-  return label || formatSource(sourceType);
+  return label || (index === 0 ? "当前快照" : `未命名快照 ${index}`);
+}
+
+function formatVersionNote(note: string | null) {
+  if (!note) return null;
+  if (/^Generated by run\s+run_[\w-]+\.?$/i.test(note.trim())) return null;
+  return note;
 }
 
 function formatValidation(value: string) {
@@ -1289,8 +1347,8 @@ function PatchValue({
 }) {
   return (
     <div className="mt-2">
-      <div className="mb-1 text-[11px] text-ink-500">{label}</div>
-      <div className="max-h-28 overflow-auto rounded bg-ink-950/70 px-2 py-1.5 font-mono text-[11px] leading-relaxed text-ink-300">
+      <div className="mb-1 text-xs text-ink-500">{label}</div>
+      <div className="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-md bg-ink-950/70 px-2.5 py-2 text-[13px] leading-5 text-ink-200">
         {formatPatchValue(value, characterNames)}
       </div>
     </div>

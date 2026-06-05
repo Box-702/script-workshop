@@ -69,5 +69,5 @@ class LLMProvider(Protocol):
 - 最终剧本：DB `script_versions.json_content` 保存规范 JSON，`script_versions.yaml_content` 保存可导出的 YAML
 - 可读导出：`services.exports` 将当前或历史版本转换为 JSON/Markdown 文本
 - 模型 key：DB `user_model_keys.encrypted_api_key`，只展示 `key_last4`
-- 手动保存和历史恢复：通过 `script_versions` 生成新快照
+- 手动保存和历史恢复：通过 `script_versions` 生成可命名快照；编辑页隐藏技术来源字段，用户从快照历史直接回退到任意旧快照
 - AI 改编：`agent_runs` 保存用户指令、选中上下文、计划和 patch；接受全部或部分 patch 后写入 `script_versions` 与 `edit_events`，并记录 `accepted_patch_indexes` 便于追溯局部落版范围

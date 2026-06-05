@@ -108,6 +108,8 @@ def test_restore_version_creates_new_latest_snapshot():
     assert restored.id != original.id
     assert restored.parent_version_id == original.id
     assert restored.source_type == "restore"
+    assert restored.label == f"回退到：{original.label or original.id}"
+    assert restored.notes == f"从快照「{original.label or original.id}」回退。"
     assert restored.yaml_content == original.yaml_content
     assert restored.validation_status == original.validation_status
     assert project.current_version_id == restored.id
