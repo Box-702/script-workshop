@@ -31,10 +31,22 @@ def test_project_summary_includes_counts_and_latest_state():
                 order_index=0,
             ),
             ScriptVersion(
-                id="ver_test",
+                id="ver_old",
                 project_id=project.id,
                 yaml_content="script: {}",
                 json_content={"script": {}},
+                source_type="generation",
+                label="Old",
+                validation_status="valid",
+                validation_errors=[],
+            ),
+            ScriptVersion(
+                id="ver_current",
+                project_id=project.id,
+                yaml_content="script: {}",
+                json_content={"script": {}},
+                source_type="manual",
+                label="Current",
                 validation_status="invalid",
                 validation_errors=[{"path": "script", "message": "missing fields"}],
             ),
@@ -47,14 +59,20 @@ def test_project_summary_includes_counts_and_latest_state():
             ),
         ]
     )
+    project.current_version_id = "ver_current"
     db.commit()
     db.refresh(project)
 
     summary = _project_out(db, project)
 
     assert summary.chapter_count == 1
-    assert summary.version_count == 1
+    assert summary.owner_id == "local_user"
+    assert summary.current_version_id == "ver_current"
+    assert summary.version_count == 2
     assert summary.latest_version is not None
+    assert summary.latest_version.id == "ver_current"
+    assert summary.latest_version.source_type == "manual"
+    assert summary.latest_version.label == "Current"
     assert summary.latest_version.validation_status == "invalid"
     assert summary.latest_run is not None
     assert summary.latest_run.status == "done"

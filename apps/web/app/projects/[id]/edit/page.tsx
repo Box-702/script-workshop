@@ -8,7 +8,7 @@ import type { ScriptVersionSummary, ValidationError } from "@/lib/types";
 export default function EditPage() {
   const params = useParams<{ id: string }>();
   const projectId = params.id;
-  const [yaml, setYaml] = useState<string>("");
+  const [yaml, setYaml] = useState("");
   const [errors, setErrors] = useState<ValidationError[]>([]);
   const [changes, setChanges] = useState<string[]>([]);
   const [versions, setVersions] = useState<ScriptVersionSummary[]>([]);
@@ -69,7 +69,10 @@ export default function EditPage() {
     setSaving(true);
     setNotice(null);
     try {
-      const saved = await api.saveVersion(projectId, yaml);
+      const saved = await api.saveVersion(projectId, yaml, {
+        label: "手动保存",
+        notes: "用户从编辑器保存。",
+      });
       await loadVersions();
       setNotice(
         saved.validation_status === "valid"
@@ -110,7 +113,7 @@ export default function EditPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">剧本编辑</h1>
           <p className="mt-1 text-sm text-ink-400">
-            编辑 YAML 后可以保存为新版本，历史版本可随时恢复。
+            编辑 YAML 后保存为新版本，历史版本可随时恢复。
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -132,7 +135,7 @@ export default function EditPage() {
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
         <textarea
           className="input min-h-[640px] font-mono text-xs leading-relaxed"
           value={yaml}
@@ -182,8 +185,14 @@ export default function EditPage() {
                         {version.validation_status}
                       </span>
                     </div>
-                    <div className="mt-1 font-mono text-ink-500">
-                      {new Date(version.created_at).toLocaleString()}
+                    <div className="mt-2 space-y-1 text-ink-400">
+                      <div>{version.label || formatSource(version.source_type)}</div>
+                      <div>来源：{formatSource(version.source_type)}</div>
+                      {version.notes && <div>备注：{version.notes}</div>}
+                      {version.parent_version_id && (
+                        <div className="font-mono">父版本：{version.parent_version_id}</div>
+                      )}
+                      <div className="font-mono">{new Date(version.created_at).toLocaleString()}</div>
                     </div>
                     {index > 0 && (
                       <button
@@ -215,5 +224,17 @@ export default function EditPage() {
         </aside>
       </div>
     </div>
+  );
+}
+
+function formatSource(value: string) {
+  return (
+    {
+      generation: "AI 生成",
+      manual: "手动保存",
+      restore: "历史恢复",
+      repair: "自动修复",
+      import: "导入",
+    }[value] ?? value
   );
 }

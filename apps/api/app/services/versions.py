@@ -32,6 +32,15 @@ def get_version_or_404(
 
 
 def latest_version(db: Session, project_id: str) -> dbm.ScriptVersion | None:
+    project = db.get(dbm.Project, project_id)
+    if project and project.current_version_id:
+        current = (
+            db.query(dbm.ScriptVersion)
+            .filter_by(project_id=project_id, id=project.current_version_id)
+            .first()
+        )
+        if current:
+            return current
     return (
         db.query(dbm.ScriptVersion)
         .filter_by(project_id=project_id)
@@ -62,12 +71,23 @@ def parse_version_yaml(yaml_content: str) -> tuple[dict[str, Any], list[dict[str
 
 
 def create_version_from_yaml(
-    db: Session, project: dbm.Project, yaml_content: str
+    db: Session,
+    project: dbm.Project,
+    yaml_content: str,
+    *,
+    source_type: str = "manual",
+    label: str | None = None,
+    notes: str | None = None,
+    parent_version_id: str | None = None,
 ) -> dbm.ScriptVersion:
     data, errors = parse_version_yaml(yaml_content)
     version = dbm.ScriptVersion(
         id=gen_id("ver"),
         project_id=project.id,
+        parent_version_id=parent_version_id or project.current_version_id,
+        source_type=source_type,
+        label=label,
+        notes=notes,
         yaml_content=yaml_content,
         json_content=data,
         validation_status="valid" if not errors else "invalid",
@@ -75,6 +95,7 @@ def create_version_from_yaml(
     )
     db.add(version)
     project.status = "ready" if not errors else "needs_review"
+    project.current_version_id = version.id
     db.commit()
     db.refresh(version)
     return version
@@ -86,6 +107,10 @@ def restore_version(
     restored = dbm.ScriptVersion(
         id=gen_id("ver"),
         project_id=project.id,
+        parent_version_id=version.id,
+        source_type="restore",
+        label=f"Restore {version.label or version.id}",
+        notes="Restored from history.",
         yaml_content=version.yaml_content,
         json_content=version.json_content,
         validation_status=version.validation_status,
@@ -93,6 +118,7 @@ def restore_version(
     )
     db.add(restored)
     project.status = "ready" if restored.validation_status == "valid" else "needs_review"
+    project.current_version_id = restored.id
     db.commit()
     db.refresh(restored)
     return restored

@@ -127,6 +127,8 @@ export default function ProjectDetailPage() {
                 <div className="font-mono text-xs text-ink-400">
                   {project.latest_version.id}
                 </div>
+                <div>标签：{project.latest_version.label || formatSource(project.latest_version.source_type)}</div>
+                <div>来源：{formatSource(project.latest_version.source_type)}</div>
                 <div>状态：{project.latest_version.validation_status}</div>
                 <div className="text-ink-400">
                   创建于 {formatDate(project.latest_version.created_at)}
@@ -188,6 +190,18 @@ function formatAdaptation(value: string) {
       film: "电影",
       stage: "舞台剧",
       other: "其他",
+    }[value] ?? value
+  );
+}
+
+function formatSource(value: string) {
+  return (
+    {
+      generation: "AI 生成",
+      manual: "手动保存",
+      restore: "历史恢复",
+      repair: "自动修复",
+      import: "导入",
     }[value] ?? value
   );
 }

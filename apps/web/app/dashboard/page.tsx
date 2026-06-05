@@ -81,6 +81,13 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
         <Metric label="类型" value={formatAdaptation(project.adaptation_type)} />
       </div>
 
+      {project.latest_version && (
+        <div className="rounded border border-white/10 bg-white/[0.02] px-3 py-2 text-xs text-ink-400">
+          当前版本：{project.latest_version.label || formatSource(project.latest_version.source_type)}
+          <span className="ml-2 text-ink-500">({project.latest_version.validation_status})</span>
+        </div>
+      )}
+
       <div className="flex items-center justify-between gap-3 border-t border-ink-600/30 pt-4 text-xs text-ink-400">
         <span>更新于 {formatDate(project.updated_at)}</span>
         <div className="flex gap-2">
@@ -144,6 +151,18 @@ function formatAdaptation(value: string) {
       film: "电影",
       stage: "舞台剧",
       other: "其他",
+    }[value] ?? value
+  );
+}
+
+function formatSource(value: string) {
+  return (
+    {
+      generation: "AI 生成",
+      manual: "手动保存",
+      restore: "历史恢复",
+      repair: "自动修复",
+      import: "导入",
     }[value] ?? value
   );
 }

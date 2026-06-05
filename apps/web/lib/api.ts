@@ -56,10 +56,14 @@ export const api = {
   listVersions: (projectId: string) =>
     jfetch<ScriptVersionSummary[]>(`/api/projects/${projectId}/versions`),
 
-  saveVersion: (projectId: string, yaml: string) =>
+  saveVersion: (
+    projectId: string,
+    yaml: string,
+    metadata?: { label?: string; notes?: string },
+  ) =>
     jfetch<ScriptVersionDetail>(`/api/projects/${projectId}/versions`, {
       method: "POST",
-      body: JSON.stringify({ yaml }),
+      body: JSON.stringify({ yaml, ...metadata }),
     }),
 
   restoreVersion: (projectId: string, versionId: string) =>

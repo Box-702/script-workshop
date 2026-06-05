@@ -250,6 +250,10 @@ class ChapterOut(BaseModel):
 class ScriptVersionOut(BaseModel):
     id: str
     project_id: str
+    parent_version_id: str | None = None
+    source_type: str
+    label: str | None = None
+    notes: str | None = None
     validation_status: str
     validation_errors: list[dict] | None = None
     created_at: str
@@ -269,10 +273,12 @@ class ProjectRunSummary(BaseModel):
 
 class ProjectOut(BaseModel):
     id: str
+    owner_id: str
     title: str
     adaptation_type: str
     language: str
     status: str
+    current_version_id: str | None = None
     created_at: str
     updated_at: str
     chapter_count: int = 0
@@ -334,6 +340,8 @@ class RepairResponse(BaseModel):
 
 class ScriptVersionSaveRequest(BaseModel):
     yaml: str = Field(min_length=1)
+    label: str | None = Field(default=None, max_length=255)
+    notes: str | None = None
 
 
 # ===== Script domain models (mirror JSON Schema) =====

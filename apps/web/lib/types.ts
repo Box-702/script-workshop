@@ -72,6 +72,10 @@ export interface RepairResponse {
 export interface ScriptVersionSummary {
   id: string;
   project_id: string;
+  parent_version_id: string | null;
+  source_type: string;
+  label: string | null;
+  notes: string | null;
   validation_status: string;
   validation_errors: ValidationError[] | null;
   created_at: string;
@@ -91,10 +95,12 @@ export interface ProjectRunSummary {
 
 export interface ProjectSummary {
   id: string;
+  owner_id: string;
   title: string;
   adaptation_type: AdaptationType;
   language: string;
   status: string;
+  current_version_id: string | null;
   created_at: string;
   updated_at: string;
   chapter_count: number;

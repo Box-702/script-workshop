@@ -28,6 +28,10 @@ def _version_out(version: dbm.ScriptVersion) -> ScriptVersionOut:
     return ScriptVersionOut(
         id=version.id,
         project_id=version.project_id,
+        parent_version_id=version.parent_version_id,
+        source_type=version.source_type,
+        label=version.label,
+        notes=version.notes,
         validation_status=version.validation_status,
         validation_errors=version.validation_errors,
         created_at=version.created_at.isoformat(),
@@ -67,7 +71,14 @@ def save_version(
     project_id: str, payload: ScriptVersionSaveRequest, db: DbSession
 ) -> ScriptVersionDetail:
     project = get_project_or_404(db, project_id)
-    version = create_version_from_yaml(db, project, payload.yaml)
+    version = create_version_from_yaml(
+        db,
+        project,
+        payload.yaml,
+        source_type="manual",
+        label=payload.label,
+        notes=payload.notes,
+    )
     return _version_detail(version)
 
 

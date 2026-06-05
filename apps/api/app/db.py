@@ -22,10 +22,12 @@ class Project(Base):
     __tablename__ = "projects"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), default="local_user", index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     adaptation_type: Mapped[str] = mapped_column(String(64), default="short_drama")
     language: Mapped[str] = mapped_column(String(16), default="zh-CN")
     status: Mapped[str] = mapped_column(String(32), default="created")
+    current_version_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
@@ -80,6 +82,10 @@ class ScriptVersion(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    parent_version_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_type: Mapped[str] = mapped_column(String(32), default="manual")
+    label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     yaml_content: Mapped[str] = mapped_column(Text, nullable=False)
     json_content: Mapped[dict] = mapped_column(JSON, nullable=False)
     validation_status: Mapped[str] = mapped_column(String(32), default="valid")

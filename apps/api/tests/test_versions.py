@@ -56,13 +56,23 @@ def test_create_version_from_yaml_persists_valid_snapshot():
     db.add(project)
     db.commit()
 
-    version = create_version_from_yaml(db, project, VALID_SCRIPT_YAML)
+    version = create_version_from_yaml(
+        db,
+        project,
+        VALID_SCRIPT_YAML,
+        label="Manual edit",
+        notes="Saved by user.",
+    )
 
     assert version.id.startswith("ver_")
+    assert version.source_type == "manual"
+    assert version.label == "Manual edit"
+    assert version.notes == "Saved by user."
     assert version.validation_status == "valid"
     assert version.validation_errors == []
     assert version.json_content["script"]["title"] == "Smoke Script"
     assert project.status == "ready"
+    assert project.current_version_id == version.id
 
 
 def test_create_version_from_yaml_keeps_parseable_invalid_snapshot():
@@ -76,6 +86,7 @@ def test_create_version_from_yaml_keeps_parseable_invalid_snapshot():
     assert version.validation_status == "invalid"
     assert version.validation_errors
     assert project.status == "needs_review"
+    assert project.current_version_id == version.id
 
 
 def test_restore_version_creates_new_latest_snapshot():
@@ -88,5 +99,8 @@ def test_restore_version_creates_new_latest_snapshot():
     restored = restore_version(db, project, original)
 
     assert restored.id != original.id
+    assert restored.parent_version_id == original.id
+    assert restored.source_type == "restore"
     assert restored.yaml_content == original.yaml_content
     assert restored.validation_status == original.validation_status
+    assert project.current_version_id == restored.id
