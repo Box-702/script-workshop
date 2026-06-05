@@ -6,7 +6,7 @@
 
 ## 技术栈
 
-- **前端** `apps/web`：Next.js 14 (App Router) + TypeScript + Tailwind。当前使用项目看板、项目详情、运行进度、结构化剧本编辑器、YAML 源码模式和模型设置页承载 MVP。
+- **前端** `apps/web`：Next.js 14 (App Router) + TypeScript + Tailwind。当前使用项目看板、项目详情、运行进度、结构化剧本编辑器、YAML 源码模式、统一导出菜单和模型设置页承载 MVP。
 - **后端** `apps/api`：FastAPI + Python 3.11+ + Pydantic v2 + SQLAlchemy + Alembic + SQLite。
 - **AI 层**：OpenAI 兼容 Provider。支持浏览器临时传 key，也支持后端加密保存用户模型 key。
 
@@ -127,7 +127,7 @@ Day 1（2026-06-05）已完成：
 - 编辑记录保存和项目详情页最近修改记录。
 - AI 改编助手最小闭环：当前场景/全剧范围、生成建议、确认接受、放弃建议、保存为新版本。
 - 模型 key 后端加密保存、本地浏览器保存、测试和撤销。
-- 最新/历史版本支持 YAML、Markdown 和 JSON 导出；Markdown 导出面向编剧阅读稿。
+- 最新/历史版本支持 YAML、Markdown 和 JSON 导出；项目详情页和编辑器顶部使用统一导出菜单，Markdown 导出面向编剧阅读稿。
 - Docker 构建上下文、Alembic 迁移和基础文档同步。
 
 下一阶段重点：角色/地点的完整结构化增删改、版本 diff 可视化、Supabase Auth/Postgres 和免费部署文档。

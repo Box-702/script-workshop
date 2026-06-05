@@ -75,6 +75,12 @@
     border-radius: 999px;
     border: 2px solid #0f1218;
   }
+  .export-menu > summary {
+    list-style: none;
+  }
+  .export-menu > summary::-webkit-details-marker {
+    display: none;
+  }
   .label {
     @apply mb-1 block text-xs font-medium text-ink-400;
   }

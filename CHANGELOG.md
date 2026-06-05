@@ -15,6 +15,8 @@ All notable changes to 剧本工坊 are documented here.
 - Added JSON and Markdown script exports for latest and historical script versions.
 
 ### Fixed
+- Collapsed script export actions into a single format menu, fixed the editor toolbar dropdown so it is not clipped by the workspace header, and made the menu close when users click elsewhere.
+- Fixed scene directory numbering so generated titles like "第 1 场" are renumbered by their actual scene order in the editor.
 - Added project deletion from the dashboard and changed failed or previously generated projects to show a regenerate action.
 - Reworked the web workspace layout for wider editor pages, clearer project navigation, and fewer internal identifiers in the writing UI.
 - Contained the script editor inside the viewport with independent scroll areas for resources, editing, and side panels, and fixed the dark background color banding during long-page scroll.

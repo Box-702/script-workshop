@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import { ExportMenu } from "@/components/ExportMenu";
 import { api } from "@/lib/api";
 import type {
   AgentPatchOperation,
@@ -37,6 +38,12 @@ export default function EditPage() {
   const selectedScene = useMemo(() => {
     return script?.scenes.find((scene) => scene.id === selectedSceneId) ?? script?.scenes[0] ?? null;
   }, [script, selectedSceneId]);
+
+  const selectedSceneIndex = useMemo(() => {
+    if (!script || !selectedScene) return 0;
+    const index = script.scenes.findIndex((scene) => scene.id === selectedScene.id);
+    return index >= 0 ? index : 0;
+  }, [script, selectedScene]);
 
   const characterNames = useMemo(() => {
     const map: Record<string, string> = {};
@@ -233,7 +240,7 @@ export default function EditPage() {
 
   return (
     <div className="editor-workspace flex h-[calc(100vh-78px)] min-h-0 flex-col gap-2 overflow-hidden">
-      <div className="panel shrink-0 overflow-hidden px-3 py-2">
+      <div className="panel shrink-0 overflow-visible px-3 py-2">
         <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex min-w-0 flex-col gap-2 md:flex-row md:items-center">
             <div className="min-w-0 md:w-72">
@@ -268,15 +275,7 @@ export default function EditPage() {
             >
               {saving ? "保存中..." : "保存版本"}
             </button>
-            <a className="btn-ghost px-3 py-1.5 text-xs" href={`/api/projects/${projectId}/script.md`} download>
-              导出文稿
-            </a>
-            <a className="btn-ghost px-3 py-1.5 text-xs" href={`/api/projects/${projectId}/script.yaml`} download>
-              导出源码
-            </a>
-            <a className="btn-ghost px-3 py-1.5 text-xs" href={`/api/projects/${projectId}/script.json`} download>
-              导出数据
-            </a>
+            <ExportMenu projectId={projectId} compact />
           </div>
         </div>
       </div>
@@ -304,6 +303,7 @@ export default function EditPage() {
             <SceneEditor
               script={script}
               scene={selectedScene}
+              sceneIndex={selectedSceneIndex}
               characterNames={characterNames}
               locationNames={locationNames}
               updateScene={updateScene}
@@ -450,12 +450,14 @@ function ResourceMetric({ label, value }: { label: string; value: number }) {
 function SceneEditor({
   script,
   scene,
+  sceneIndex,
   characterNames,
   locationNames,
   updateScene,
 }: {
   script: ScriptDocument;
   scene: ScriptScene;
+  sceneIndex: number;
   characterNames: Record<string, string>;
   locationNames: Record<string, string>;
   updateScene: (sceneId: string, patch: (scene: ScriptScene) => ScriptScene) => void;
@@ -466,7 +468,9 @@ function SceneEditor({
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="text-xs text-ink-500">当前场景</div>
-            <h2 className="mt-1 text-xl font-semibold text-ink-50">{scene.title}</h2>
+            <h2 className="mt-1 text-xl font-semibold text-ink-50">
+              {sceneDisplayTitle(scene, sceneIndex)}
+            </h2>
             <p className="mt-1 text-sm text-ink-400">{sceneMeta(scene, locationNames)}</p>
           </div>
           <div className="text-sm text-ink-500">{script.scenes.length} 场</div>
@@ -967,9 +971,14 @@ function VersionPanel({
 
 function sceneDisplayTitle(scene: ScriptScene, index: number) {
   const title = scene.title.trim();
-  if (!title) return `第 ${index + 1} 场`;
-  if (title.startsWith("第") && title.includes("场")) return title;
-  return title;
+  const sceneNumber = `第 ${index + 1} 场`;
+  if (!title) return sceneNumber;
+
+  const withoutGeneratedNumber = title
+    .replace(/^第\s*[\d一二三四五六七八九十百千万两〇零]+\s*场\s*[：:、.-]?\s*/, "")
+    .trim();
+
+  return withoutGeneratedNumber ? `${sceneNumber}：${withoutGeneratedNumber}` : sceneNumber;
 }
 
 function sceneMeta(scene: ScriptScene, locationNames: Record<string, string>) {

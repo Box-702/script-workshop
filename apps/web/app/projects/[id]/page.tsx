@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { ExportMenu } from "@/components/ExportMenu";
 import { api } from "@/lib/api";
 import { loadLlmSettings } from "@/lib/llm-settings";
 import type { EditEventSummary, ProjectDetail } from "@/lib/types";
@@ -80,15 +81,7 @@ export default function ProjectDetailPage() {
               <Link href={`/projects/${project.id}/edit`} className="btn-primary">
                 编辑
               </Link>
-              <a className="btn-ghost" href={`/api/projects/${project.id}/script.yaml`} download>
-                导出源码
-              </a>
-              <a className="btn-ghost" href={`/api/projects/${project.id}/script.md`} download>
-                导出文稿
-              </a>
-              <a className="btn-ghost" href={`/api/projects/${project.id}/script.json`} download>
-                导出数据
-              </a>
+              <ExportMenu projectId={project.id} />
             </>
           )}
         </div>
