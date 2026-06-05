@@ -232,56 +232,57 @@ export default function EditPage() {
   }
 
   return (
-    <div className="editor-workspace flex h-[calc(100vh-78px)] min-h-0 flex-col gap-3 overflow-hidden">
-      <div className="panel shrink-0 overflow-hidden">
-        <div className="flex flex-col gap-3 border-b border-ink-600/30 px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="min-w-0">
-            <div className="text-sm text-ink-400">剧本工作台</div>
-            <h1 className="mt-1 truncate text-2xl font-semibold tracking-tight">
+    <div className="editor-workspace flex h-[calc(100vh-78px)] min-h-0 flex-col gap-2 overflow-hidden">
+      <div className="panel shrink-0 overflow-hidden px-3 py-2">
+        <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex min-w-0 flex-col gap-2 md:flex-row md:items-center">
+            <div className="min-w-0 md:w-72">
+              <div className="text-xs text-ink-500">剧本工作台</div>
+              <h1 className="truncate text-lg font-semibold tracking-tight">
               {script?.title ?? "加载中"}
-            </h1>
-            <p className="mt-1 text-sm text-ink-400">
+              </h1>
+            </div>
+            <div className="whitespace-nowrap text-xs text-ink-400">
               {script?.scenes.length ?? 0} 场 · {script?.characters.length ?? 0} 个角色 · {script?.locations.length ?? 0} 个地点
-            </p>
+            </div>
+            <div className="flex flex-wrap gap-2 md:pl-2">
+              <ModeButton active={mode === "scene"} onClick={() => setMode("scene")}>
+                场景编辑
+              </ModeButton>
+              <ModeButton active={mode === "script"} onClick={() => setMode("script")}>
+                全剧资料
+              </ModeButton>
+              <ModeButton active={mode === "yaml"} onClick={() => setMode("yaml")}>
+                源码
+              </ModeButton>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button className="btn-ghost" onClick={doRepair} disabled={busy || saving || !yaml}>
+            <button className="btn-ghost px-3 py-1.5 text-xs" onClick={doRepair} disabled={busy || saving || !yaml}>
               自动修复
             </button>
             <button
-              className="btn-primary"
+              className="btn-primary px-3 py-1.5 text-xs"
               onClick={mode === "yaml" ? saveYamlVersion : saveStructuredVersion}
               disabled={busy || saving || (!script && mode !== "yaml")}
             >
               {saving ? "保存中..." : "保存版本"}
             </button>
-            <a className="btn-ghost" href={`/api/projects/${projectId}/script.md`} download>
+            <a className="btn-ghost px-3 py-1.5 text-xs" href={`/api/projects/${projectId}/script.md`} download>
               导出文稿
             </a>
-            <a className="btn-ghost" href={`/api/projects/${projectId}/script.yaml`} download>
+            <a className="btn-ghost px-3 py-1.5 text-xs" href={`/api/projects/${projectId}/script.yaml`} download>
               导出源码
             </a>
-            <a className="btn-ghost" href={`/api/projects/${projectId}/script.json`} download>
+            <a className="btn-ghost px-3 py-1.5 text-xs" href={`/api/projects/${projectId}/script.json`} download>
               导出数据
             </a>
           </div>
         </div>
-
-        <div className="flex flex-wrap gap-2 px-4 py-2.5">
-          <ModeButton active={mode === "scene"} onClick={() => setMode("scene")}>
-            场景编辑
-          </ModeButton>
-          <ModeButton active={mode === "script"} onClick={() => setMode("script")}>
-            全剧资料
-          </ModeButton>
-          <ModeButton active={mode === "yaml"} onClick={() => setMode("yaml")}>
-            源码
-          </ModeButton>
-        </div>
       </div>
 
       {notice && (
-        <div className="shrink-0 rounded border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+        <div className="shrink-0 rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
           {notice}
         </div>
       )}
