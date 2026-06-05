@@ -4,7 +4,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-
 # Common Chinese/English chapter heading patterns
 # Order matters: more specific patterns (h2, "第一章") come first.
 CHAPTER_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -74,7 +73,9 @@ def split_chapters(raw_text: str, min_chapters: int = 3) -> list[ChapterSplit]:
     h2_or_chapter = [(i, t) for i, lvl, t in candidates if lvl <= 1]
 
     if not h2_or_chapter:
-        # h1 only: treat each h1 as a chapter (no doc title separation)
+        # h1 only: treat each h1 as a chapter (no doc title separation).
+        # If headings exist but are fewer than required, reject instead of
+        # falling back and silently inventing extra chapters from body length.
         if h1_count:
             chapters = []
             for j, (line_idx, _, title) in enumerate([c for c in candidates if c[1] == 2]):
@@ -88,7 +89,9 @@ def split_chapters(raw_text: str, min_chapters: int = 3) -> list[ChapterSplit]:
                     ChapterSplit(chapter_id=f"chapter_{j + 1:03d}", title=title, content=body)
                 )
             if len(chapters) >= min_chapters:
+                _ensure_non_empty_chapters(chapters)
                 return chapters
+            raise ValueError(f"need at least {min_chapters} chapters, got {len(chapters)}")
         return _split_by_length(text, min_chapters)
 
     # Drop a leading h1 (document title) if it appears before the first h2/chapter
@@ -111,9 +114,16 @@ def split_chapters(raw_text: str, min_chapters: int = 3) -> list[ChapterSplit]:
         )
 
     if len(chapters) < min_chapters:
-        return _split_by_length(text, min_chapters)
+        raise ValueError(f"need at least {min_chapters} chapters, got {len(chapters)}")
 
+    _ensure_non_empty_chapters(chapters)
     return chapters
+
+
+def _ensure_non_empty_chapters(chapters: list[ChapterSplit]) -> None:
+    for ch in chapters:
+        if not ch.content.strip():
+            raise ValueError(f"chapter {ch.chapter_id} has no content")
 
 
 def _split_by_length(text: str, n: int) -> list[ChapterSplit]:

@@ -6,7 +6,6 @@ from typing import Any
 
 from ruamel.yaml import YAML
 
-
 _yaml = YAML(typ="rt")
 _yaml.indent(mapping=2, sequence=4, offset=2)
 _yaml.preserve_quotes = True

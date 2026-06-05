@@ -130,9 +130,11 @@ BCP-47 编码（如 `zh-CN` / `en-US`），影响后续台词语言校验与导�
 - `dialogue.speaker` 必须命中 `characters[].id`
 - `scenes[].id` 全剧唯一
 - `characters[].id` 全剧唯一
+- `locations[].id` 全剧唯一
+- `source.chapter_ids[]` 全剧唯一
 - `chapter_refs[]` 必须命中 `source.chapter_ids`
 
-校验失败时返回结构化错误（带 `path` + `message`），供前端定位到 Monaco 编辑器的行号。
+校验失败时返回结构化错误（带 `path` + `message`），供前端编辑器和校验面板展示。
 
 ## 演进原则
 

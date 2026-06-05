@@ -5,7 +5,7 @@
 ```
 ┌────────────────────────────────────────────┐
 │  Web (Next.js 14, App Router)              │
-│  - 页面、组件、Monaco、React Flow          │
+│  - 页面、组件、YAML 编辑与校验面板         │
 │  - rewrites 代理 /api/* → FastAPI          │
 └────────────────────────────────────────────┘
                    │  HTTP/JSON
@@ -37,12 +37,12 @@
 
 ```python
 class LLMProvider(Protocol):
-    async def generate_structured(
+    def generate_structured(
         self,
         prompt: str,
         schema: dict,
         *,
-        stage: PipelineStage,
+        stage: Stage,
     ) -> dict: ...
 ```
 
@@ -53,13 +53,14 @@ class LLMProvider(Protocol):
 ## 数据流
 
 1. 用户 POST `/api/projects` → 创建 project + chapters
-2. POST `/api/projects/{id}/generate` → 创建 run，丢进后台任务
-3. GET `/api/runs/{id}` → 轮询进度
-4. 完成后 GET `/api/projects/{id}/script.yaml`
+2. 可选：前端从 `/settings` 读取浏览器本地模型设置，生成请求通过 header 携带 `X-LLM-Provider`、`X-OpenAI-API-Key`、`X-OpenAI-Base-URL`、`X-OpenAI-Model`
+3. POST `/api/projects/{id}/generate` → 创建 run，丢进后台任务
+4. 后台任务用本次请求的临时 key 构造 provider；key 不进入 DB artifacts
+5. GET `/api/runs/{id}` → 轮询进度
+6. 完成后 GET `/api/projects/{id}/script.yaml`
 
 ## 目录约定
 
-- 章节原文：DB `chapters.content`
-- 清洗后段落：`storage/chunks/{project_id}/{chapter_id}.txt`
-- 任意阶段产物：DB `generation_runs.artifacts` (JSON 字符串)
+- 章节原文：DB `chapters.content`，同一项目内使用 `chapter_001` 这类稳定 id；数据库用 `(project_id, id)` 复合主键避免跨项目冲突。
+- 任意阶段产物：DB `generation_runs.artifacts` (JSON)
 - 最终 YAML：DB `script_versions.yaml_content`

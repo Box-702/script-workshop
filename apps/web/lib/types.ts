@@ -1,5 +1,32 @@
 export type AdaptationType = "series" | "film" | "short_drama" | "stage" | "other";
 
+export type Language =
+  | "auto"
+  | "zh-CN"
+  | "zh-TW"
+  | "en-US"
+  | "ja-JP"
+  | "ko-KR"
+  | "ru-RU"
+  | "ar-SA"
+  | "es-ES"
+  | "fr-FR"
+  | "de-DE";
+
+export const LANGUAGE_OPTIONS: Array<{ value: Language; label: string }> = [
+  { value: "auto", label: "自动检测（推荐）" },
+  { value: "zh-CN", label: "中文（简体）" },
+  { value: "zh-TW", label: "中文（繁體）" },
+  { value: "en-US", label: "English" },
+  { value: "ja-JP", label: "日本語" },
+  { value: "ko-KR", label: "한국어" },
+  { value: "ru-RU", label: "Русский" },
+  { value: "ar-SA", label: "العربية" },
+  { value: "es-ES", label: "Español" },
+  { value: "fr-FR", label: "Français" },
+  { value: "de-DE", label: "Deutsch" },
+];
+
 export interface ChapterOut {
   id: string;
   title: string;

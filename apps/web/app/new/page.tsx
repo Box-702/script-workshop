@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { api } from "@/lib/api";
-import type { AdaptationType } from "@/lib/types";
+import { hasUsableLlmSettings, loadLlmSettings } from "@/lib/llm-settings";
+import { LANGUAGE_OPTIONS, type AdaptationType, type Language } from "@/lib/types";
 
 const SAMPLE_NOVEL = `# 示例小说：雨夜来客
 
@@ -51,20 +53,76 @@ export default function NewProjectPage() {
   const [title, setTitle] = useState("雨夜来客");
   const [text, setText] = useState("");
   const [adaptation, setAdaptation] = useState<AdaptationType>("short_drama");
+  const [language, setLanguage] = useState<Language>("auto");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [hasKey, setHasKey] = useState(false);
+
+  useEffect(() => {
+    setHasKey(hasUsableLlmSettings());
+  }, []);
+
+  const characterCount = text.trim().length;
+  const chapterMarkerCount = (
+    text.match(/(^|\n)\s*(#{1,6}\s*)?(第[一二三四五六七八九十百千万0-9]+章|Chapter\s+\d+)/gi) ?? []
+  ).length;
+
+  function loadSample() {
+    setTitle("雨夜来客");
+    setText(SAMPLE_NOVEL);
+    setUploadedFileName(null);
+    setError(null);
+  }
+
+  async function uploadNovelFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const input = e.currentTarget;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    const fileName = file.name;
+    if (!/\.(txt|md)$/i.test(fileName)) {
+      setError("请上传 .txt 或 .md 文件。");
+      input.value = "";
+      return;
+    }
+
+    try {
+      const fileText = await file.text();
+      if (!fileText.trim()) {
+        throw new Error("文件内容为空，请换一个包含小说正文的文件。");
+      }
+
+      setText(fileText);
+      setUploadedFileName(fileName);
+      if (!title.trim() || title === "雨夜来客") {
+        setTitle(fileName.replace(/\.(txt|md)$/i, ""));
+      }
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      input.value = "";
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    const llm = loadLlmSettings();
+    if (!hasUsableLlmSettings(llm)) {
+      setError("尚未配置 API 密钥，请先到“模型设置”填写。");
+      return;
+    }
     setBusy(true);
     try {
       const res = await api.createProject({
         title,
         raw_text: text,
         adaptation_type: adaptation,
+        language: language === "auto" ? undefined : language,
       });
-      const run = await api.generate(res.project_id);
+      const run = await api.generate(res.project_id, llm);
       router.push(`/runs/${run.run_id}`);
     } catch (e) {
       setError((e as Error).message);
@@ -78,7 +136,7 @@ export default function NewProjectPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">创建项目</h1>
         <p className="mt-1 text-sm text-ink-400">
-          输入 3 章以上小说文本，系统会自动识别章节并启动 AI pipeline。
+          粘贴或上传 3 章以上小说文本，系统会自动识别章节并启动 AI 生成流程。
         </p>
       </div>
 
@@ -112,27 +170,64 @@ export default function NewProjectPage() {
         </div>
 
         <div>
+          <label className="label" htmlFor="language">输出语言</label>
+          <select
+            id="language"
+            className="input"
+            value={language}
+            onChange={(e) => setLanguage(e.target.value as Language)}
+          >
+            {LANGUAGE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-ink-400">
+            “自动检测”会按小说文本的字符分布判断。手动选择可覆盖检测结果。
+          </p>
+        </div>
+
+        <div>
           <div className="flex items-center justify-between">
             <label className="label" htmlFor="text">小说文本</label>
-            <button
-              type="button"
-              className="text-xs text-accent-400 hover:text-accent-500"
-              onClick={() => setText(SAMPLE_NOVEL)}
-            >
-              载入示例
-            </button>
+            <div className="flex items-center gap-2">
+              <label className="btn-ghost cursor-pointer px-3 py-1.5 text-xs" htmlFor="novel-file">
+                上传 .md / .txt
+              </label>
+              <input
+                id="novel-file"
+                className="sr-only"
+                type="file"
+                accept=".md,.txt,text/markdown,text/plain"
+                onChange={uploadNovelFile}
+              />
+              <button
+                type="button"
+                className="btn-ghost px-3 py-1.5 text-xs"
+                onClick={loadSample}
+              >
+                载入示例
+              </button>
+            </div>
           </div>
           <textarea
             id="text"
             className="input min-h-[320px] font-mono text-xs leading-relaxed"
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="粘贴小说正文，或点击“载入示例”……"
+            placeholder="粘贴小说正文，或上传 .md / .txt 文件。"
             required
           />
-          <p className="mt-1 text-xs text-ink-400">
-            提示：使用 “第一章 标题” 或 “## 标题” 标记章节边界。
-          </p>
+          <div className="mt-2 flex flex-col gap-1 text-xs text-ink-400 sm:flex-row sm:items-center sm:justify-between">
+            <p>提示：使用 “第一章 标题” 或 “## 标题” 标记章节边界。</p>
+            <p>
+              {uploadedFileName ? `已载入：${uploadedFileName} · ` : ""}
+              {characterCount > 0
+                ? `${characterCount} 字 · 约 ${chapterMarkerCount} 处章节标记`
+                : "等待输入小说正文"}
+            </p>
+          </div>
         </div>
 
         {error && (
@@ -141,8 +236,16 @@ export default function NewProjectPage() {
           </div>
         )}
 
+        {!hasKey && (
+          <div className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
+            检测到浏览器尚未保存 API 密钥。请先前往{" "}
+            <Link href="/settings" className="underline">模型设置</Link>
+            ，填写后再回来生成。
+          </div>
+        )}
+
         <div className="flex justify-end">
-          <button type="submit" className="btn-primary" disabled={busy || !text}>
+          <button type="submit" className="btn-primary" disabled={busy || !text || !hasKey}>
             {busy ? "提交中…" : "创建并启动生成"}
           </button>
         </div>

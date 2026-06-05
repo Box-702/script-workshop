@@ -11,7 +11,6 @@ from jsonschema import Draft202012Validator
 
 from .schemas import ValidationError
 
-
 SCHEMA_PATH = Path(__file__).resolve().parents[3] / "schema" / "script.schema.json"
 
 
@@ -37,9 +36,16 @@ def validate_script(data: dict[str, Any]) -> list[ValidationError]:
     # Cross-reference checks
     try:
         script = data.get("script", {})
-        chapter_ids = set(script.get("source", {}).get("chapter_ids", []))
-        char_ids = {c["id"] for c in script.get("characters", [])}
-        loc_ids = {loc["id"] for loc in script.get("locations", [])}
+        chapter_id_list = script.get("source", {}).get("chapter_ids", [])
+        character_id_list = [
+            c.get("id") for c in script.get("characters", []) if isinstance(c, dict)
+        ]
+        location_id_list = [
+            loc.get("id") for loc in script.get("locations", []) if isinstance(loc, dict)
+        ]
+        chapter_ids = set(chapter_id_list)
+        char_ids = set(character_id_list)
+        loc_ids = set(location_id_list)
         scene_ids: list[str] = []
         for i, scene in enumerate(script.get("scenes", [])):
             sid = scene.get("id", f"<scene[{i}]>")
@@ -85,9 +91,21 @@ def validate_script(data: dict[str, Any]) -> list[ValidationError]:
                 ValidationError(path="script.scenes", message="scene ids must be unique")
             )
         # character id uniqueness
-        if len(char_ids) != len(set(char_ids)):
+        if len(character_id_list) != len(char_ids):
             errors.append(
                 ValidationError(path="script.characters", message="character ids must be unique")
+            )
+        # location id uniqueness
+        if len(location_id_list) != len(loc_ids):
+            errors.append(
+                ValidationError(path="script.locations", message="location ids must be unique")
+            )
+        # source chapter ids should also be unique for traceability.
+        if len(chapter_id_list) != len(chapter_ids):
+            errors.append(
+                ValidationError(
+                    path="script.source.chapter_ids", message="chapter ids must be unique"
+                )
             )
     except Exception as e:  # noqa: BLE001
         errors.append(ValidationError(path="<root>", message=f"validation crashed: {e}"))

@@ -5,6 +5,7 @@ node_modules/
 
 # Build outputs
 .next/
+.next-dev/
 out/
 dist/
 build/
@@ -29,6 +30,7 @@ env/
 apps/api/.pytest_cache/
 apps/api/apps/api/
 .codegraph/
+.claude/
 
 # Env
 .env

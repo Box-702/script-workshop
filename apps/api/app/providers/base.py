@@ -1,11 +1,11 @@
 """LLM provider interface."""
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Protocol, runtime_checkable
-from enum import Enum
 
 
-class Stage(str, Enum):
+class Stage(StrEnum):
     SUMMARY = "summary"
     BIBLE = "bible"
     CHARACTERS = "characters"
@@ -26,20 +26,8 @@ class LLMProvider(Protocol):
 
 
 def get_provider() -> LLMProvider:
-    """Factory: pick provider by env."""
+    """Factory: only OpenAI is supported. Mock fallback removed per project decision."""
     from ..config import get_settings
+    from .openai_provider import OpenAIProvider
 
-    settings = get_settings()
-    name = (settings.llm_provider or "openai").lower()
-    if name == "openai":
-        from .openai_provider import OpenAIProvider
-
-        return OpenAIProvider(settings)
-    if name == "mock":
-        from .mock_provider import MockProvider
-
-        return MockProvider()
-    # graceful fallback
-    from .mock_provider import MockProvider
-
-    return MockProvider()
+    return OpenAIProvider(get_settings())

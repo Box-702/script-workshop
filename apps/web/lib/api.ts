@@ -4,6 +4,8 @@ import type {
   RunOut,
   ValidateResponse,
 } from "./types";
+import type { LlmSettings } from "./llm-settings";
+import { llmSettingsHeaders } from "./llm-settings";
 
 async function jfetch<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -22,12 +24,16 @@ export const api = {
     title: string;
     raw_text: string;
     adaptation_type: string;
+    language?: string;
   }) => jfetch<ProjectCreateResponse>("/api/projects", { method: "POST", body: JSON.stringify(body) }),
 
-  generate: (projectId: string) =>
+  generate: (projectId: string, llmSettings?: LlmSettings) =>
     jfetch<{ run_id: string; status: string }>(
       `/api/projects/${projectId}/generate`,
-      { method: "POST" },
+      {
+        method: "POST",
+        headers: llmSettings ? llmSettingsHeaders(llmSettings) : undefined,
+      },
     ),
 
   getRun: (runId: string) => jfetch<RunOut>(`/api/runs/${runId}`),

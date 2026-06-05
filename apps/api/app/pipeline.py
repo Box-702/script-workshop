@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from .chunking import ChapterSplit
 from .providers.base import LLMProvider, Stage, get_provider
+from .runlog import StageTimer
 from .schemas import (
     Adaptation,
     AdaptationNotes,
@@ -48,7 +50,11 @@ class PipelineCallbacks:
 
 
 def _stage_summary(provider: LLMProvider, chapter: ChapterSplit) -> dict[str, Any]:
-    prompt = f"CHAPTER ID: {chapter.chapter_id}\nCHAPTER TITLE: {chapter.title}\n\nCHAPTER CONTENT:\n{chapter.content}"
+    prompt = (
+        f"CHAPTER ID: {chapter.chapter_id}\n"
+        f"CHAPTER TITLE: {chapter.title}\n\n"
+        f"CHAPTER CONTENT:\n{chapter.content}"
+    )
     schema = {
         "type": "object",
         "properties": {
@@ -239,16 +245,21 @@ def run_pipeline(
     adaptation_type: str,
     on_progress: PipelineCallbacks | None = None,
     provider: LLMProvider | None = None,
+    language: str = "zh-CN",
+    run_id: str = "",
 ) -> tuple[ScriptDocument, dict[str, Any]]:
     provider = provider or get_provider()
     cb = on_progress or PipelineCallbacks()
     artifacts: dict[str, Any] = {}
 
-    # Stage 1: chapter summaries
+    # Stage 1: chapter summaries (parallel; one OpenAI call per chapter)
     cb.update("chapter_summary", 10)
+    with StageTimer(run_id, "chapter_summary"):
+        max_workers = min(4, max(1, len(chapters)))
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            summary_results = list(ex.map(lambda c: _stage_summary(provider, c), chapters))
     summaries: list[dict] = []
-    for i, ch in enumerate(chapters):
-        s = _stage_summary(provider, ch)
+    for ch, s in zip(chapters, summary_results):
         s.setdefault("chapter_id", ch.chapter_id)
         s.setdefault("summary", ch.title)
         summaries.append(s)
@@ -256,12 +267,14 @@ def run_pipeline(
 
     # Stage 2: story bible
     cb.update("story_bible", 25)
-    bible = _stage_bible(provider, summaries)
+    with StageTimer(run_id, "story_bible"):
+        bible = _stage_bible(provider, summaries)
     artifacts["bible"] = bible
 
     # Stage 3: characters
     cb.update("character_extraction", 40)
-    chars_data = _stage_characters(provider, bible, summaries)
+    with StageTimer(run_id, "character_extraction"):
+        chars_data = _stage_characters(provider, bible, summaries)
     characters_raw = chars_data.get("characters") or bible.get("characters") or []
     characters: list[Character] = []
     seen_ids: set[str] = set()
@@ -302,22 +315,22 @@ def run_pipeline(
 
     # Stage 4: scene plan
     cb.update("scene_planning", 55)
-    plan = _stage_scene_plan(provider, bible, [c.model_dump() for c in characters], chapters)
-    scene_entries = plan.get("scenes") or []
+    with StageTimer(run_id, "scene_planning"):
+        plan = _stage_scene_plan(provider, bible, [c.model_dump() for c in characters], chapters)
+        scene_entries = plan.get("scenes") or []
     artifacts["scene_plan"] = scene_entries
 
-    # Stage 5: per-scene dialogue generation
+    # Stage 5: per-scene dialogue generation (parallel; one OpenAI call per scene)
     chapter_texts = {c.chapter_id: c.content for c in chapters}
-    scenes: list[Scene] = []
     char_id_set = {c.id for c in characters}
     loc_id_set = {loc.id for loc in locations}
+    scene_count = max(1, len(scene_entries))
+    cb.update("script_generation", 60)
 
-    for i, entry in enumerate(scene_entries):
-        cb.update(f"script_generation ({i + 1}/{max(1, len(scene_entries))})", 60 + i)
+    def _gen_one(entry: dict) -> Scene:
         out = _stage_dialogue(
             provider, entry, summaries, [c.model_dump() for c in characters], chapter_texts
         )
-        # normalize references
         char_list = entry.get("characters") or []
         char_list = [c for c in char_list if c in char_id_set] or [c.id for c in characters[:1]]
         loc_id = entry.get("location_id") or (
@@ -330,7 +343,6 @@ def run_pipeline(
         for line in out.get("dialogue", []) or []:
             sp = line.get("speaker")
             if sp not in char_id_set:
-                # try first char as fallback
                 sp = char_list[0]
             dialogue.append(
                 DialogueLine(
@@ -341,54 +353,67 @@ def run_pipeline(
                 )
             )
 
-        scenes.append(
-            Scene(
-                id=entry.get("id") or f"scene_{i + 1:03d}",
-                title=entry.get("title") or f"第 {i + 1} 场",
-                chapter_refs=entry.get("chapter_refs") or [chapters[0].chapter_id],
-                location_id=loc_id,
-                time=entry.get("time"),
-                characters=char_list,
-                purpose=entry.get("purpose") or "推进情节。",
-                conflict=entry.get("conflict") or "角色面对压力。",
-                entry_state=entry.get("entry_state"),
-                exit_state=entry.get("exit_state"),
-                action=out.get("action") or [],
-                dialogue=dialogue,
-                adaptation_notes=AdaptationNotes(
-                    reason="AI 自动生成", fidelity="compressed"
-                ),
-            )
+        return Scene(
+            id=entry.get("id") or f"scene_{len(scenes_to_results) + 1:03d}",
+            title=entry.get("title") or f"第 {len(scenes_to_results) + 1} 场",
+            chapter_refs=entry.get("chapter_refs") or [chapters[0].chapter_id],
+            location_id=loc_id,
+            time=entry.get("time"),
+            characters=char_list,
+            purpose=entry.get("purpose") or "推进情节。",
+            conflict=entry.get("conflict") or "角色面对压力。",
+            entry_state=entry.get("entry_state"),
+            exit_state=entry.get("exit_state"),
+            action=out.get("action") or [],
+            dialogue=dialogue,
+            adaptation_notes=AdaptationNotes(
+                reason="AI 自动生成", fidelity="compressed"
+            ),
         )
+
+    scenes_to_results: list[Scene] = []
+    # Cap concurrency to avoid hammering the rate limit (typical OpenAI: 3-5 in flight).
+    dialogue_workers = min(4, max(1, len(scene_entries)))
+    with ThreadPoolExecutor(max_workers=dialogue_workers) as ex:
+        futures = [ex.submit(_gen_one, entry) for entry in scene_entries]
+        for done_idx, fut in enumerate(futures):
+            scenes_to_results.append(fut.result())
+            # Persist progress after each scene completes (best-effort granularity)
+            progress = 60 + int(((done_idx + 1) / scene_count) * 30)
+            cb.update(
+                f"script_generation ({done_idx + 1}/{scene_count})", progress
+            )
+    scenes = scenes_to_results
     if not scenes:
         raise RuntimeError("scene plan produced zero scenes")
     artifacts["scenes"] = [s.model_dump() for s in scenes]
 
     # Stage 6: assemble + validate
     cb.update("validation", 90)
-    script = Script(
-        title=title or bible.get("title") or "未命名故事",
-        version="1.0",
-        language="zh-CN",
-        adaptation=Adaptation(
-            type=adaptation_type,  # type: ignore[arg-type]
-            target_format="横屏 3 分钟短剧",
-            tone="suspense",
-        ),
-        source=Source(
-            chapter_count=len(chapters),
-            chapter_ids=[c.chapter_id for c in chapters],
-        ),
-        logline=bible.get("logline") or "主角面对核心冲突。",
-        themes=bible.get("themes") or [],
-        characters=characters,
-        locations=locations,
-        scenes=scenes,
-    )
-    doc = ScriptDocument(script=script)
+    with StageTimer(run_id, "assembly"):
+        script = Script(
+            title=title or bible.get("title") or "未命名故事",
+            version="1.0",
+            language=language or "zh-CN",
+            adaptation=Adaptation(
+                type=adaptation_type,  # type: ignore[arg-type]
+                target_format="横屏 3 分钟短剧",
+                tone="suspense",
+            ),
+            source=Source(
+                chapter_count=len(chapters),
+                chapter_ids=[c.chapter_id for c in chapters],
+            ),
+            logline=bible.get("logline") or "主角面对核心冲突。",
+            themes=bible.get("themes") or [],
+            characters=characters,
+            locations=locations,
+            scenes=scenes,
+        )
+        doc = ScriptDocument(script=script)
 
-    errors = validate_script(doc.model_dump(exclude_none=True))
-    artifacts["validation_errors"] = [e.model_dump() for e in errors]
+        errors = validate_script(doc.model_dump(exclude_none=True))
+        artifacts["validation_errors"] = [e.model_dump() for e in errors]
     cb.update("done", 100)
     return doc, artifacts
 

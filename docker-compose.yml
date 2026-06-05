@@ -1,8 +1,12 @@
 services:
   api:
-    build: ./apps/api
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
     container_name: scriptforge-api
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     ports:
       - "8000:8000"
     volumes:
@@ -11,7 +15,9 @@ services:
     restart: unless-stopped
 
   web:
-    build: ./apps/web
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
     container_name: scriptforge-web
     environment:
       - BACKEND_URL=http://api:8000

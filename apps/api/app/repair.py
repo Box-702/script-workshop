@@ -8,8 +8,6 @@ Goals:
 """
 from __future__ import annotations
 
-from typing import Any
-
 from .validation import validate_script
 from .yaml_io import from_yaml, to_yaml
 
@@ -38,7 +36,7 @@ def _nearest(target: str, pool: set[str]) -> str | None:
         p_root = _root(p)
         # longest common prefix of roots
         n = 0
-        for a, b in zip(t_root, p_root):
+        for a, b in zip(t_root, p_root, strict=False):
             if a != b:
                 break
             n += 1
@@ -48,18 +46,14 @@ def _nearest(target: str, pool: set[str]) -> str | None:
 
 
 def repair_yaml(yaml_text: str) -> tuple[str, list[str]]:
-    data = from_yaml(yaml_text) or {}
+    try:
+        data = from_yaml(yaml_text) or {}
+    except Exception as e:  # noqa: BLE001
+        return yaml_text, [f"YAML parse error; nothing repaired: {e}"]
     if not isinstance(data, dict):
         return yaml_text, ["payload is not a mapping; nothing repaired"]
 
     changes: list[str] = []
-
-    def _walk(node: Any, path: str) -> Any:
-        if isinstance(node, dict):
-            return {k: _walk(v, f"{path}.{k}" if path else k) for k, v in node.items()}
-        if isinstance(node, list):
-            return [_walk(v, f"{path}[{i}]") for i, v in enumerate(node)]
-        return node
 
     # Pre-pass: collect character & location ids
     script = data.get("script", {}) if isinstance(data.get("script"), dict) else {}
