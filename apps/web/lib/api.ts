@@ -142,6 +142,9 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  listAgentRuns: (projectId: string, limit = 20) =>
+    jfetch<AgentRunSummary[]>(`/api/projects/${projectId}/agent-runs?limit=${limit}`),
+
   acceptAgentRun: (runId: string, patchIndexes?: number[]) =>
     jfetch<ScriptVersionDetail>(`/api/agent-runs/${runId}/accept`, {
       method: "POST",

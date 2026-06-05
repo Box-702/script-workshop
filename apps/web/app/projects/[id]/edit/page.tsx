@@ -33,6 +33,7 @@ export default function EditPage() {
   const [agentInstruction, setAgentInstruction] = useState("");
   const [agentScope, setAgentScope] = useState<"current_scene" | "whole_script">("current_scene");
   const [agentRun, setAgentRun] = useState<AgentRunSummary | null>(null);
+  const [agentRuns, setAgentRuns] = useState<AgentRunSummary[]>([]);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -63,11 +64,18 @@ export default function EditPage() {
     setVersions(next);
   }, [projectId]);
 
+  const loadAgentRuns = useCallback(async () => {
+    const next = await api.listAgentRuns(projectId, 10);
+    setAgentRuns(next);
+    return next;
+  }, [projectId]);
+
   const loadScript = useCallback(async () => {
-    const [yamlText, jsonDoc] = await Promise.all([
+    const [yamlText, jsonDoc, , nextAgentRuns] = await Promise.all([
       api.getYaml(projectId),
       api.getScriptJson(projectId),
       loadVersions(),
+      loadAgentRuns(),
     ]);
     setYaml(yamlText);
     setScript(jsonDoc.script);
@@ -76,9 +84,10 @@ export default function EditPage() {
         ? prev
         : jsonDoc.script.scenes[0]?.id || "",
     );
+    setAgentRun((current) => current ?? nextAgentRuns.find((run) => run.status === "waiting_review") ?? null);
     const validation = await api.validate(yamlText);
     setErrors(validation.errors);
-  }, [projectId, loadVersions]);
+  }, [projectId, loadVersions, loadAgentRuns]);
 
   useEffect(() => {
     loadScript().catch((e) => setLoadErr((e as Error).message));
@@ -194,6 +203,7 @@ export default function EditPage() {
             : script?.scenes.map((scene) => scene.id) ?? [],
       }, loadLlmSettings());
       setAgentRun(run);
+      await loadAgentRuns();
       setNotice("已生成改编建议，等待确认。");
     } catch (e) {
       setErrors([{ path: "<agent>", message: (e as Error).message, severity: "error" }]);
@@ -212,6 +222,8 @@ export default function EditPage() {
       setAgentRun(null);
       setAgentInstruction("");
       await loadScript();
+      await loadAgentRuns();
+      setAgentRun(null);
       setNotice("已接受 AI 改编，并保存为新版本。");
     } catch (e) {
       setErrors([{ path: "<agent>", message: (e as Error).message, severity: "error" }]);
@@ -227,6 +239,7 @@ export default function EditPage() {
     try {
       const rejected = await api.rejectAgentRun(agentRun.id);
       setAgentRun(rejected);
+      await loadAgentRuns();
       setNotice("已放弃 AI 改编建议，当前剧本未改变。");
     } catch (e) {
       setErrors([{ path: "<agent>", message: (e as Error).message, severity: "error" }]);
@@ -242,6 +255,7 @@ export default function EditPage() {
     try {
       const retried = await api.retryAgentRun(agentRun.id, loadLlmSettings());
       setAgentRun(retried);
+      await loadAgentRuns();
       setNotice("已重新生成改编建议，等待确认。");
     } catch (e) {
       setErrors([{ path: "<agent>", message: (e as Error).message, severity: "error" }]);
@@ -346,10 +360,12 @@ export default function EditPage() {
             agentInstruction={agentInstruction}
             agentScope={agentScope}
             agentRun={agentRun}
+            agentRuns={agentRuns}
             scriptReady={Boolean(script)}
             selectedScene={selectedScene}
             setAgentInstruction={setAgentInstruction}
             setAgentScope={setAgentScope}
+            setAgentRun={setAgentRun}
             createAgentSuggestion={createAgentSuggestion}
             acceptAgentSuggestion={acceptAgentSuggestion}
             rejectAgentSuggestion={rejectAgentSuggestion}
@@ -801,10 +817,12 @@ function AgentPanel({
   agentInstruction,
   agentScope,
   agentRun,
+  agentRuns,
   scriptReady,
   selectedScene,
   setAgentInstruction,
   setAgentScope,
+  setAgentRun,
   createAgentSuggestion,
   acceptAgentSuggestion,
   rejectAgentSuggestion,
@@ -815,10 +833,12 @@ function AgentPanel({
   agentInstruction: string;
   agentScope: "current_scene" | "whole_script";
   agentRun: AgentRunSummary | null;
+  agentRuns: AgentRunSummary[];
   scriptReady: boolean;
   selectedScene: ScriptScene | null;
   setAgentInstruction: (value: string) => void;
   setAgentScope: (value: "current_scene" | "whole_script") => void;
+  setAgentRun: (value: AgentRunSummary) => void;
   createAgentSuggestion: () => void;
   acceptAgentSuggestion: (patchIndexes?: number[]) => void;
   rejectAgentSuggestion: () => void;
@@ -886,6 +906,39 @@ function AgentPanel({
       >
         {agentBusy ? "生成中..." : "生成建议"}
       </button>
+      {agentRuns.length > 0 && (
+        <div className="rounded-md border border-ink-600/40 bg-ink-950/40 p-2">
+          <div className="mb-2 flex items-center justify-between text-xs">
+            <span className="text-ink-500">最近建议</span>
+            <span className="text-ink-600">{agentRuns.length}</span>
+          </div>
+          <ul className="space-y-1">
+            {agentRuns.slice(0, 5).map((run) => (
+              <li key={run.id}>
+                <button
+                  type="button"
+                  className={`w-full rounded px-2 py-1.5 text-left text-xs transition-colors ${
+                    run.id === agentRun?.id
+                      ? "bg-accent-500/10 text-ink-50"
+                      : "text-ink-400 hover:bg-ink-800 hover:text-ink-100"
+                  }`}
+                  onClick={() => setAgentRun(run)}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate">{run.user_prompt}</span>
+                    <span className="shrink-0 text-[10px] text-ink-500">
+                      {formatAgentStatus(run.status)}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-ink-600">
+                    {formatDate(run.created_at)}
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {agentRun && (
         <div className="space-y-4 rounded border border-white/10 bg-ink-900/60 p-3 text-xs">
           <div className="flex items-start justify-between gap-3">
@@ -1114,6 +1167,10 @@ function formatAgentStatus(value: string) {
       failed: "失败",
     }[value] ?? value
   );
+}
+
+function formatDate(value: string) {
+  return new Date(value).toLocaleString();
 }
 
 function formatAgentModel(value: string | null) {

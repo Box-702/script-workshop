@@ -116,6 +116,22 @@ def adapt_project(
     )
 
 
+@router.get("/projects/{project_id}/agent-runs", response_model=list[AgentRunOut])
+def list_project_agent_runs(
+    project_id: str, db: DbSession, limit: int = 20
+) -> list[AgentRunOut]:
+    get_project_or_404(db, project_id)
+    safe_limit = max(1, min(limit, 100))
+    runs = (
+        db.query(dbm.AgentRun)
+        .filter_by(project_id=project_id)
+        .order_by(dbm.AgentRun.created_at.desc())
+        .limit(safe_limit)
+        .all()
+    )
+    return [_agent_run_out(run) for run in runs]
+
+
 @router.get("/agent-runs/{run_id}", response_model=AgentRunOut)
 def get_agent_run(run_id: str, db: DbSession) -> AgentRunOut:
     return _agent_run_out(get_agent_run_or_404(db, run_id))

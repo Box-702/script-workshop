@@ -914,7 +914,7 @@ apps/api/app/
 7. 接 Supabase Auth，给后端加 `get_current_user`。
 8. 把数据库 URL 改为同时支持 Supabase Postgres。
 9. 已完成：新增 `edit_events`，记录手动保存和历史恢复。
-10. 已完成：新增 Agent API 和 Agent Panel，支持模型生成结构化 patch、本地 fallback 建议、重新生成建议、确认全部或部分建议后保存版本。
+10. 已完成：新增 Agent API 和 Agent Panel，支持模型生成结构化 patch、本地 fallback 建议、最近建议恢复、重新生成建议、确认全部或部分建议后保存版本。
 11. 已完成：加入 diff review、结构化 patch 预览和局部接受。
 12. 完成 Vercel、Render、Supabase 部署文档和环境变量模板。
 

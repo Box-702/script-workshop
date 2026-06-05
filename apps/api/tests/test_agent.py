@@ -334,6 +334,31 @@ def test_agent_routes_create_get_and_accept_run():
     assert accepted.json()["source_type"] == "agent_adaptation"
 
 
+def test_agent_routes_list_project_runs():
+    db = _session()
+    project = Project(id="proj_test", title="Test", adaptation_type="short_drama")
+    db.add(project)
+    db.commit()
+    create_version_from_yaml(db, project, VALID_SCRIPT_YAML)
+    client = _client(db)
+
+    first = client.post(
+        f"/api/projects/{project.id}/agent/adapt",
+        json={"instruction": "第一条", "scene_ids": ["scene_001"]},
+    ).json()
+    second = client.post(
+        f"/api/projects/{project.id}/agent/adapt",
+        json={"instruction": "第二条", "scene_ids": ["scene_001"]},
+    ).json()
+
+    listed = client.get(f"/api/projects/{project.id}/agent-runs")
+
+    assert listed.status_code == 200
+    ids = [item["id"] for item in listed.json()]
+    assert second["id"] in ids
+    assert first["id"] in ids
+
+
 def test_agent_route_reject_run():
     db = _session()
     project = Project(id="proj_test", title="Test", adaptation_type="short_drama")
