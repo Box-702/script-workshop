@@ -1,0 +1,52 @@
+import type {
+  ProjectCreateResponse,
+  RepairResponse,
+  RunOut,
+  ValidateResponse,
+} from "./types";
+
+async function jfetch<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, {
+    ...init,
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+  return (await res.json()) as T;
+}
+
+export const api = {
+  createProject: (body: {
+    title: string;
+    raw_text: string;
+    adaptation_type: string;
+  }) => jfetch<ProjectCreateResponse>("/api/projects", { method: "POST", body: JSON.stringify(body) }),
+
+  generate: (projectId: string) =>
+    jfetch<{ run_id: string; status: string }>(
+      `/api/projects/${projectId}/generate`,
+      { method: "POST" },
+    ),
+
+  getRun: (runId: string) => jfetch<RunOut>(`/api/runs/${runId}`),
+
+  getYaml: (projectId: string) =>
+    fetch(`/api/projects/${projectId}/script.yaml`).then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.text();
+    }),
+
+  validate: (yaml: string) =>
+    jfetch<ValidateResponse>("/api/validate", {
+      method: "POST",
+      body: JSON.stringify({ yaml }),
+    }),
+
+  repair: (yaml: string) =>
+    jfetch<RepairResponse>("/api/repair", {
+      method: "POST",
+      body: JSON.stringify({ yaml, errors: [] }),
+    }),
+};

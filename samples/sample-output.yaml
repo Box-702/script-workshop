@@ -1,0 +1,124 @@
+script:
+  title: "雨夜来客"
+  version: "1.0"
+  language: "zh-CN"
+  adaptation:
+    type: "short_drama"
+    target_format: "横屏 3 分钟短剧"
+    tone: "suspense"
+  source:
+    chapter_count: 3
+    chapter_ids:
+      - "chapter_001"
+      - "chapter_002"
+      - "chapter_003"
+  logline: "一名年轻医生在雨夜救下神秘来客，却被卷入一场关于身份与记忆的阴谋。"
+  themes:
+    - "信任"
+    - "身份"
+    - "自我救赎"
+  characters:
+    - id: "char_linyu"
+      name: "林屿"
+      role: "protagonist"
+      goal: "查明神秘来客的真实身份"
+      motivation: "弥补过去一次误诊造成的遗憾"
+      personality: "克制、敏锐、谨慎"
+      arc: "从逃避责任到主动面对真相"
+      speech_style: "简短、理性、偶尔带有冷幽默"
+    - id: "char_woman"
+      name: "神秘来客"
+      role: "antagonist"
+      goal: "找回自己消失的身份"
+      motivation: "三个月前被清空的记忆迫使她回到原点"
+      personality: "警觉、寡言、神秘"
+      arc: "从失忆到逐渐拼回真相"
+      speech_style: "停顿多、句短、字字斟酌"
+  locations:
+    - id: "loc_clinic"
+      name: "旧城区诊所"
+      description: "狭窄、潮湿、灯光昏黄的小诊所"
+  scenes:
+    - id: "scene_001"
+      title: "雨夜敲门"
+      chapter_refs:
+        - "chapter_001"
+      location_id: "loc_clinic"
+      time: "深夜"
+      characters:
+        - "char_linyu"
+        - "char_woman"
+      purpose: "建立主角职业状态并引出核心事件"
+      conflict: "林屿想关门休息，但陌生伤者急需救治"
+      entry_state: "林屿准备打烊"
+      exit_state: "林屿决定收留伤者"
+      action:
+        - "雨水敲打卷帘门，诊所内只剩一盏台灯。"
+        - "林屿拉开卷帘门，一个浑身湿透的女人倒进他怀里。"
+      dialogue:
+        - speaker: "char_linyu"
+          line: "今天已经停诊了。"
+          emotion: "疲惫"
+          subtext: "他不想再卷入任何麻烦。"
+        - speaker: "char_woman"
+          line: "（没有回答，只是倒进诊所。）"
+          emotion: "虚弱"
+          subtext: "她已经无力解释自己。"
+      adaptation_notes:
+        reason: "原文大段心理描写被压缩为动作与一句对白，以增强画面感。"
+        fidelity: "compressed"
+    - id: "scene_002"
+      title: "失忆的来客"
+      chapter_refs:
+        - "chapter_002"
+      location_id: "loc_clinic"
+      time: "次日下午"
+      characters:
+        - "char_linyu"
+        - "char_woman"
+      purpose: "通过林屿的推断揭示来客身份异常"
+      conflict: "失忆者拒绝透露身份，而物证指向一个医疗系统"
+      entry_state: "女人刚刚醒来"
+      exit_state: "林屿怀疑她来自某个组织"
+      action:
+        - "林屿将名片、钥匙、被水泡过的合照摊在桌上。"
+      dialogue:
+        - speaker: "char_linyu"
+          line: "你身上有刀伤，但伤口包扎得很专业。"
+          emotion: "冷静"
+          subtext: "他在试探对方的来路。"
+        - speaker: "char_woman"
+          line: "也许吧。"
+          emotion: "回避"
+          subtext: "她选择沉默以换取喘息。"
+      adaptation_notes:
+        reason: "删除小说中关于名片公司背景的铺陈，保留核心冲突。"
+        fidelity: "compressed"
+    - id: "scene_003"
+      title: "旧城诊所的夜晚"
+      chapter_refs:
+        - "chapter_003"
+      location_id: "loc_clinic"
+      time: "深夜"
+      characters:
+        - "char_linyu"
+        - "char_woman"
+      purpose: "为后续剧情埋下关键数字伏笔"
+      conflict: "来客承认自己正在寻找消失的自己"
+      entry_state: "来客沉默守夜"
+      exit_state: "眉骨下的数字成为新线索"
+      action:
+        - "来客第一次正视林屿。"
+        - "合照在台灯下被重新摊开。"
+      dialogue:
+        - speaker: "char_woman"
+          line: "我来找一个人，他三个月前从这座城市消失。"
+          emotion: "克制"
+          subtext: "她无法直接承认，那个人就是自己。"
+        - speaker: "char_linyu"
+          line: "（没有回答，只是把合照又拿出来。）"
+          emotion: "警觉"
+          subtext: "他意识到，这张照片里也许有他自己。"
+      adaptation_notes:
+        reason: "将原文中叙述性伏笔压缩为一句动作暗示。"
+        fidelity: "reordered"

@@ -1,0 +1,71 @@
+# Node
+node_modules/
+.pnpm-store/
+.pnp.*
+
+# Build outputs
+.next/
+out/
+dist/
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.eggs/
+*.egg-info/
+.uv-cache/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Local data
+data/
+*.db
+*.sqlite
+*.sqlite3
+storage/
+
+# Next.js
+next-env.d.ts
+.turbo/
+*.tsbuildinfo
+
+# Generated
+apps/api/data/
+apps/api/storage/
+apps/web/.next/cache/

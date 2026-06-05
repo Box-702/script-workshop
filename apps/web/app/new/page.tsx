@@ -1,0 +1,152 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { api } from "@/lib/api";
+import type { AdaptationType } from "@/lib/types";
+
+const SAMPLE_NOVEL = `# 示例小说：雨夜来客
+
+## 第一章 雨夜敲门
+
+林屿关上诊所的灯，刚想熄掉门廊的最后一盏台灯，卷帘门外传来一阵急促的敲击声。
+
+他犹豫了三秒，雨水正顺着门缝渗进来。
+
+"今天已经停诊了。"他隔着门说。
+
+门外的人没有回答，只是又敲了三下。林屿叹了口气，拉起卷帘门。
+
+站在门外的女人浑身湿透，黑色大衣下渗出暗红色的液体。她什么也没说，径直倒进林屿怀里。
+
+## 第二章 失忆的来客
+
+女人醒来时，已经是第二天下午。
+
+"你是谁？"林屿问。
+
+"我不记得。"她盯着天花板，眼神发空。
+
+林屿翻了翻她身上的物件——一张没写姓名的名片、一枚旧式钥匙、还有一张被水泡得模糊的合照。
+
+"你身上有刀伤，但伤口包扎得很专业，"林屿说，"你来自一个有医疗条件的地方。"
+
+女人闭上眼："也许吧。"
+
+## 第三章 旧城诊所的夜晚
+
+那一夜，诊所门外又响起雨声。
+
+女人坐在窗边，第一次开口讲了一段话：
+
+"我来找一个人，他三个月前从这座城市消失。"
+
+林屿抬起头："谁？"
+
+"我自己。"
+`;
+
+export default function NewProjectPage() {
+  const router = useRouter();
+  const [title, setTitle] = useState("雨夜来客");
+  const [text, setText] = useState("");
+  const [adaptation, setAdaptation] = useState<AdaptationType>("short_drama");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await api.createProject({
+        title,
+        raw_text: text,
+        adaptation_type: adaptation,
+      });
+      const run = await api.generate(res.project_id);
+      router.push(`/runs/${run.run_id}`);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">创建项目</h1>
+        <p className="mt-1 text-sm text-ink-400">
+          输入 3 章以上小说文本，系统会自动识别章节并启动 AI pipeline。
+        </p>
+      </div>
+
+      <div className="card space-y-4">
+        <div>
+          <label className="label" htmlFor="title">项目名</label>
+          <input
+            id="title"
+            className="input"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="例如：雨夜来客"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="label" htmlFor="adaptation">改编类型</label>
+          <select
+            id="adaptation"
+            className="input"
+            value={adaptation}
+            onChange={(e) => setAdaptation(e.target.value as AdaptationType)}
+          >
+            <option value="short_drama">短剧</option>
+            <option value="series">连续剧</option>
+            <option value="film">电影</option>
+            <option value="stage">舞台剧</option>
+            <option value="other">其他</option>
+          </select>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between">
+            <label className="label" htmlFor="text">小说文本</label>
+            <button
+              type="button"
+              className="text-xs text-accent-400 hover:text-accent-500"
+              onClick={() => setText(SAMPLE_NOVEL)}
+            >
+              载入示例
+            </button>
+          </div>
+          <textarea
+            id="text"
+            className="input min-h-[320px] font-mono text-xs leading-relaxed"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="粘贴小说正文，或点击“载入示例”……"
+            required
+          />
+          <p className="mt-1 text-xs text-ink-400">
+            提示：使用 “第一章 标题” 或 “## 标题” 标记章节边界。
+          </p>
+        </div>
+
+        {error && (
+          <div className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+            {error}
+          </div>
+        )}
+
+        <div className="flex justify-end">
+          <button type="submit" className="btn-primary" disabled={busy || !text}>
+            {busy ? "提交中…" : "创建并启动生成"}
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+}
