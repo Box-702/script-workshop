@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { AuthRequiredMessage, isAuthRequiredMessage } from "@/components/AuthRequiredMessage";
 import { api } from "@/lib/api";
 import type { ProjectSummary } from "@/lib/types";
 
@@ -43,11 +44,13 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      {error && (
+      {isAuthRequiredMessage(error) ? (
+        <AuthRequiredMessage />
+      ) : error ? (
         <div className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
           加载失败：{error}
         </div>
-      )}
+      ) : null}
 
       {loading ? (
         <div className="card text-sm text-ink-400">加载中...</div>

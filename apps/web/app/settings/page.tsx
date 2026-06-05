@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AuthRequiredMessage, isAuthRequiredMessage } from "@/components/AuthRequiredMessage";
 import { api } from "@/lib/api";
 import {
   getAuthUser,
@@ -138,11 +139,13 @@ export default function SettingsPage() {
           {notice}
         </div>
       )}
-      {error && (
+      {isAuthRequiredMessage(error) ? (
+        <AuthRequiredMessage />
+      ) : error ? (
         <div className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
           {error}
         </div>
-      )}
+      ) : null}
 
       <AuthPanel />
 

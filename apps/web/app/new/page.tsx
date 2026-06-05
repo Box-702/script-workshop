@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { AuthRequiredMessage, isAuthRequiredMessage } from "@/components/AuthRequiredMessage";
 import { api } from "@/lib/api";
 import { hasUsableLlmSettings, loadLlmSettings } from "@/lib/llm-settings";
 import { LANGUAGE_OPTIONS, type AdaptationType, type Language } from "@/lib/types";
@@ -256,11 +257,13 @@ export default function NewProjectPage() {
           </div>
         </div>
 
-        {error && (
-          <div className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
-            {error}
-          </div>
-        )}
+      {isAuthRequiredMessage(error) ? (
+        <AuthRequiredMessage />
+      ) : error ? (
+        <div className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+          {error}
+        </div>
+      ) : null}
 
         {!keyLoading && !hasKey && (
           <div className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">

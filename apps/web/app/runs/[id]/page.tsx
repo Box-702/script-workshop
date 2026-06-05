@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { AuthRequiredMessage, isAuthRequiredMessage } from "@/components/AuthRequiredMessage";
 import { api } from "@/lib/api";
 import type { RunOut } from "@/lib/types";
 
@@ -122,6 +123,7 @@ export default function RunPage() {
   }, [params.id]);
 
   if (error) {
+    if (isAuthRequiredMessage(error)) return <AuthRequiredMessage />;
     return (
       <div className="card border-red-500/40 text-red-200">
         加载失败：{error}

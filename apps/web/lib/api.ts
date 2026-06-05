@@ -14,13 +14,25 @@ import type {
   ValidateResponse,
 } from "./types";
 import type { LlmSettings } from "./llm-settings";
-import { getAccessToken } from "./auth";
+import { getAccessToken, isSupabaseConfigured } from "./auth";
 import { llmSettingsHeaders } from "./llm-settings";
+
+export const AUTH_REQUIRED_MESSAGE = "请先登录后继续。";
+
+export class AuthRequiredError extends Error {
+  constructor() {
+    super(AUTH_REQUIRED_MESSAGE);
+    this.name = "AuthRequiredError";
+  }
+}
 
 async function requestHeaders(initHeaders?: HeadersInit) {
   const headers = new Headers(initHeaders);
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const token = await getAccessToken();
+  if (isSupabaseConfigured() && !token) {
+    throw new AuthRequiredError();
+  }
   if (token) headers.set("Authorization", `Bearer ${token}`);
   return headers;
 }
@@ -31,6 +43,7 @@ async function jfetch<T>(url: string, init?: RequestInit): Promise<T> {
     headers: await requestHeaders(init?.headers),
   });
   if (!res.ok) {
+    if (res.status === 401) throw new AuthRequiredError();
     const text = await res.text();
     let message = text;
     try {
@@ -51,7 +64,10 @@ async function tfetch(url: string, init?: RequestInit): Promise<string> {
     ...init,
     headers: await requestHeaders(init?.headers),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    if (res.status === 401) throw new AuthRequiredError();
+    throw new Error(`HTTP ${res.status}`);
+  }
   return res.text();
 }
 

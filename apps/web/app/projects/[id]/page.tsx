@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { AuthRequiredMessage, isAuthRequiredMessage } from "@/components/AuthRequiredMessage";
 import { ExportMenu } from "@/components/ExportMenu";
 import { api } from "@/lib/api";
 import { loadLlmSettings } from "@/lib/llm-settings";
@@ -46,6 +47,7 @@ export default function ProjectDetailPage() {
   }
 
   if (!project) {
+    if (isAuthRequiredMessage(error)) return <AuthRequiredMessage />;
     return (
       <div className="card border-red-500/40 text-red-200">
         {error ? `加载失败：${error}` : "项目不存在"}
@@ -87,11 +89,13 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      {error && (
+      {isAuthRequiredMessage(error) ? (
+        <AuthRequiredMessage />
+      ) : error ? (
         <div className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
           {error}
         </div>
-      )}
+      ) : null}
 
       <section className="grid gap-3 md:grid-cols-4">
         <InfoCard label="状态" value={formatStatus(displayProjectStatus(project))} />

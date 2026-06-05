@@ -966,6 +966,7 @@ AI Agent 改编不必放进第一版上线，但数据库和版本系统必须�
 - 已完成项目、版本、导出、编辑记录、Agent run 和模型 key 的 owner/user 过滤。
 - 已完成后端 `AUTH_MODE=supabase` 验证入口：通过 Supabase Auth user endpoint 校验 Bearer access token 并提取用户 id。
 - 已完成前端 Supabase 客户端、登录状态显示、邮箱 magic link 入口和 API Authorization header 注入。
+- 已完成未登录状态的统一提示：生产 Auth 模式下引导用户去设置页登录，不再显示裸 HTTP 401。
 - 接入 Supabase Auth，前端保存登录态。
 - 完善登录/退出/会话刷新 UX，并在受保护页面提供更明确的登录引导。
 - 数据库从本地 SQLite 兼容迁移到 Supabase Postgres；本地开发仍保留 SQLite。

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import { AuthRequiredMessage, isAuthRequiredMessage } from "@/components/AuthRequiredMessage";
 import { ExportMenu } from "@/components/ExportMenu";
 import { api } from "@/lib/api";
 import { loadLlmSettings } from "@/lib/llm-settings";
@@ -273,6 +274,7 @@ export default function EditPage() {
   }
 
   if (loadErr) {
+    if (isAuthRequiredMessage(loadErr)) return <AuthRequiredMessage />;
     return <div className="card border-red-500/40 text-red-200">加载剧本失败：{loadErr}</div>;
   }
 
