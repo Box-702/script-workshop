@@ -9,6 +9,7 @@ from .. import db as dbm
 from ..ids import gen_id
 from ..validation import validate_script
 from ..yaml_io import from_yaml
+from .edit_events import record_edit_event
 
 
 def get_project_or_404(db: Session, project_id: str) -> dbm.Project:
@@ -81,10 +82,18 @@ def create_version_from_yaml(
     parent_version_id: str | None = None,
 ) -> dbm.ScriptVersion:
     data, errors = parse_version_yaml(yaml_content)
+    parent_version_id = parent_version_id or project.current_version_id
+    before_version = (
+        db.query(dbm.ScriptVersion)
+        .filter_by(project_id=project.id, id=parent_version_id)
+        .first()
+        if parent_version_id
+        else None
+    )
     version = dbm.ScriptVersion(
         id=gen_id("ver"),
         project_id=project.id,
-        parent_version_id=parent_version_id or project.current_version_id,
+        parent_version_id=parent_version_id,
         source_type=source_type,
         label=label,
         notes=notes,
@@ -94,6 +103,19 @@ def create_version_from_yaml(
         validation_errors=errors,
     )
     db.add(version)
+    record_edit_event(
+        db,
+        project=project,
+        version=version,
+        edit_type="manual_save",
+        before_snapshot=before_version.json_content if before_version else None,
+        after_snapshot=data,
+        patch={
+            "source_type": source_type,
+            "validation_status": "valid" if not errors else "invalid",
+        },
+        note=notes or label,
+    )
     project.status = "ready" if not errors else "needs_review"
     project.current_version_id = version.id
     db.commit()
@@ -104,6 +126,7 @@ def create_version_from_yaml(
 def restore_version(
     db: Session, project: dbm.Project, version: dbm.ScriptVersion
 ) -> dbm.ScriptVersion:
+    before_version = latest_version(db, project.id)
     restored = dbm.ScriptVersion(
         id=gen_id("ver"),
         project_id=project.id,
@@ -117,6 +140,16 @@ def restore_version(
         validation_errors=version.validation_errors,
     )
     db.add(restored)
+    record_edit_event(
+        db,
+        project=project,
+        version=restored,
+        edit_type="restore",
+        before_snapshot=before_version.json_content if before_version else None,
+        after_snapshot=restored.json_content,
+        patch={"restored_from_version_id": version.id},
+        note=restored.notes,
+    )
     project.status = "ready" if restored.validation_status == "valid" else "needs_review"
     project.current_version_id = restored.id
     db.commit()

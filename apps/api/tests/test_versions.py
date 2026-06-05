@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.db import Base, Project
+from app.db import Base, EditEvent, Project
 from app.services.versions import create_version_from_yaml, restore_version
 
 VALID_SCRIPT_YAML = """
@@ -74,6 +74,13 @@ def test_create_version_from_yaml_persists_valid_snapshot():
     assert project.status == "ready"
     assert project.current_version_id == version.id
 
+    event = db.query(EditEvent).filter_by(version_id=version.id).one()
+    assert event.edit_type == "manual_save"
+    assert event.target_path == "script"
+    assert event.before_snapshot is None
+    assert event.after_snapshot["script"]["title"] == "Smoke Script"
+    assert event.note == "Saved by user."
+
 
 def test_create_version_from_yaml_keeps_parseable_invalid_snapshot():
     db = _session()
@@ -104,3 +111,9 @@ def test_restore_version_creates_new_latest_snapshot():
     assert restored.yaml_content == original.yaml_content
     assert restored.validation_status == original.validation_status
     assert project.current_version_id == restored.id
+
+    event = db.query(EditEvent).filter_by(version_id=restored.id).one()
+    assert event.edit_type == "restore"
+    assert event.before_snapshot == original.json_content
+    assert event.after_snapshot == restored.json_content
+    assert event.patch == {"restored_from_version_id": original.id}

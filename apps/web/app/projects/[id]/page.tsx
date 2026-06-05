@@ -5,21 +5,24 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { loadLlmSettings } from "@/lib/llm-settings";
-import type { ProjectDetail } from "@/lib/types";
+import type { EditEventSummary, ProjectDetail } from "@/lib/types";
 
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const projectId = params.id;
   const [project, setProject] = useState<ProjectDetail | null>(null);
+  const [edits, setEdits] = useState<EditEventSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api
-      .getProject(projectId)
-      .then(setProject)
+    Promise.all([api.getProject(projectId), api.listEditEvents(projectId, 5)])
+      .then(([projectDetail, editEvents]) => {
+        setProject(projectDetail);
+        setEdits(editEvents);
+      })
       .catch((e) => setError((e as Error).message))
       .finally(() => setLoading(false));
   }, [projectId]);
@@ -155,6 +158,30 @@ export default function ProjectDetailPage() {
               <p className="mt-3 text-sm text-ink-400">暂无生成任务。</p>
             )}
           </div>
+
+          <div className="card">
+            <h2 className="text-base font-semibold">修改记录</h2>
+            {edits.length > 0 ? (
+              <ul className="mt-3 space-y-3 text-sm">
+                {edits.map((event) => (
+                  <li key={event.id} className="border-t border-white/10 pt-3 first:border-t-0 first:pt-0">
+                    <div className="flex items-center justify-between gap-3">
+                      <span>{formatEditType(event.edit_type)}</span>
+                      <span className="text-xs text-ink-500">{formatDate(event.created_at)}</span>
+                    </div>
+                    <div className="mt-1 font-mono text-xs text-ink-500">
+                      {event.version_id ?? event.target_path}
+                    </div>
+                    {event.note && (
+                      <div className="mt-1 line-clamp-2 text-xs text-ink-400">{event.note}</div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-3 text-sm text-ink-400">暂无修改记录。</p>
+            )}
+          </div>
         </aside>
       </section>
     </div>
@@ -200,6 +227,18 @@ function formatSource(value: string) {
       generation: "AI 生成",
       manual: "手动保存",
       restore: "历史恢复",
+      repair: "自动修复",
+      import: "导入",
+    }[value] ?? value
+  );
+}
+
+function formatEditType(value: string) {
+  return (
+    {
+      manual_save: "手动保存",
+      restore: "历史恢复",
+      ai_patch: "AI 改编",
       repair: "自动修复",
       import: "导入",
     }[value] ?? value

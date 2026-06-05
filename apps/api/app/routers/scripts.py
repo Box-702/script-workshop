@@ -8,6 +8,7 @@ from fastapi.responses import PlainTextResponse
 
 from .. import db as dbm
 from ..schemas import (
+    EditEventOut,
     ScriptVersionDetail,
     ScriptVersionOut,
     ScriptVersionSaveRequest,
@@ -45,6 +46,23 @@ def _version_detail(version: dbm.ScriptVersion) -> ScriptVersionDetail:
     )
 
 
+def _edit_event_out(event: dbm.EditEvent) -> EditEventOut:
+    return EditEventOut(
+        id=event.id,
+        project_id=event.project_id,
+        version_id=event.version_id,
+        actor_type=event.actor_type,
+        actor_id=event.actor_id,
+        edit_type=event.edit_type,
+        target_path=event.target_path,
+        before_snapshot=event.before_snapshot,
+        after_snapshot=event.after_snapshot,
+        patch=event.patch,
+        note=event.note,
+        created_at=event.created_at.isoformat(),
+    )
+
+
 @router.get("/projects/{project_id}/script.yaml")
 def get_latest_yaml(project_id: str, db: DbSession) -> Any:
     get_project_or_404(db, project_id)
@@ -64,6 +82,20 @@ def list_versions(project_id: str, db: DbSession) -> list[ScriptVersionOut]:
         .all()
     )
     return [_version_out(version) for version in versions]
+
+
+@router.get("/projects/{project_id}/edits", response_model=list[EditEventOut])
+def list_edit_events(project_id: str, db: DbSession, limit: int = 50) -> list[EditEventOut]:
+    get_project_or_404(db, project_id)
+    safe_limit = max(1, min(limit, 200))
+    events = (
+        db.query(dbm.EditEvent)
+        .filter_by(project_id=project_id)
+        .order_by(dbm.EditEvent.created_at.desc())
+        .limit(safe_limit)
+        .all()
+    )
+    return [_edit_event_out(event) for event in events]
 
 
 @router.post("/projects/{project_id}/versions", response_model=ScriptVersionDetail)

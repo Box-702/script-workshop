@@ -263,6 +263,21 @@ class ScriptVersionDetail(ScriptVersionOut):
     yaml_content: str
 
 
+class EditEventOut(BaseModel):
+    id: str
+    project_id: str
+    version_id: str | None = None
+    actor_type: str
+    actor_id: str
+    edit_type: str
+    target_path: str
+    before_snapshot: dict | list | None = None
+    after_snapshot: dict | list | None = None
+    patch: dict | list | None = None
+    note: str | None = None
+    created_at: str
+
+
 class ProjectRunSummary(BaseModel):
     id: str
     status: RunStatus

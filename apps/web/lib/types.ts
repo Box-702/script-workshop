@@ -85,6 +85,21 @@ export interface ScriptVersionDetail extends ScriptVersionSummary {
   yaml_content: string;
 }
 
+export interface EditEventSummary {
+  id: string;
+  project_id: string;
+  version_id: string | null;
+  actor_type: string;
+  actor_id: string;
+  edit_type: string;
+  target_path: string;
+  before_snapshot: unknown;
+  after_snapshot: unknown;
+  patch: unknown;
+  note: string | null;
+  created_at: string;
+}
+
 export interface ProjectRunSummary {
   id: string;
   status: RunStatus;

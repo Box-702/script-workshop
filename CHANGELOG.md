@@ -9,6 +9,7 @@ All notable changes to Script Workshop are documented here.
 - Settings now supports cloud-saved model keys while keeping browser-local BYOK mode.
 - Project generation can use a saved active model key when no request header key is present.
 - New project creation now accepts either a browser-local key or a cloud-saved active key.
+- Added edit event persistence for manual saves and restores, plus a project edit history endpoint.
 
 ### Fixed
 - Removed stale documentation that described no-key generation as an offline mock path.

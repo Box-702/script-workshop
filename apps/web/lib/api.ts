@@ -1,4 +1,5 @@
 import type {
+  EditEventSummary,
   ModelKeySummary,
   ModelKeyTestResponse,
   ProjectDetail,
@@ -83,6 +84,9 @@ export const api = {
 
   listVersions: (projectId: string) =>
     jfetch<ScriptVersionSummary[]>(`/api/projects/${projectId}/versions`),
+
+  listEditEvents: (projectId: string, limit = 50) =>
+    jfetch<EditEventSummary[]>(`/api/projects/${projectId}/edits?limit=${limit}`),
 
   saveVersion: (
     projectId: string,

@@ -42,6 +42,9 @@ class Project(Base):
     versions: Mapped[list[ScriptVersion]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
+    edit_events: Mapped[list[EditEvent]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
 
 
 class Chapter(Base):
@@ -110,6 +113,29 @@ class ScriptVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     project: Mapped[Project] = relationship(back_populates="versions")
+    edit_events: Mapped[list[EditEvent]] = relationship(back_populates="version")
+
+
+class EditEvent(Base):
+    __tablename__ = "edit_events"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    version_id: Mapped[str | None] = mapped_column(
+        ForeignKey("script_versions.id"), nullable=True, index=True
+    )
+    actor_type: Mapped[str] = mapped_column(String(32), default="user")
+    actor_id: Mapped[str] = mapped_column(String(64), default="local_user", index=True)
+    edit_type: Mapped[str] = mapped_column(String(64), default="manual_save")
+    target_path: Mapped[str] = mapped_column(String(255), default="script")
+    before_snapshot: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)
+    after_snapshot: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)
+    patch: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    project: Mapped[Project] = relationship(back_populates="edit_events")
+    version: Mapped[ScriptVersion | None] = relationship(back_populates="edit_events")
 
 
 def resolve_database_url(url: str) -> str:
