@@ -25,9 +25,9 @@ Script Workshop 不再只是一次性生成 YAML 的工具，而是一个面向�
 - 前端：Next.js App Router、TypeScript、Tailwind。
 - 后端：FastAPI、Pydantic v2、SQLAlchemy、Alembic、SQLite。
 - AI 流程：章节切分、章节摘要、故事圣经、角色抽取、场景规划、逐场生成、Schema 校验、YAML 输出。
-- 数据表：`projects`、`chapters`、`generation_runs`、`script_versions`、`user_model_keys`。
+- 数据表：`projects`、`chapters`、`generation_runs`、`script_versions`、`user_model_keys`、`edit_events`、`agent_runs`。
 - 基础页面：项目看板、项目详情、新建项目、运行进度、YAML 编辑、模型设置。
-- 基础接口：创建项目、启动生成、查询 run、获取 YAML、校验 YAML、修复 YAML、版本保存/恢复、编辑记录查询、模型 key 保存/测试/撤销。
+- 基础接口：创建项目、启动生成、查询 run、获取 YAML、校验 YAML、修复 YAML、版本保存/恢复、编辑记录查询、Agent 改编建议/接受、模型 key 保存/测试/撤销。
 
 这些能力证明核心链路已经通了。全栈版要做的是把它从“本地单用户 MVP”扩展成“云端多用户剧本 IDE”。
 
@@ -914,8 +914,8 @@ apps/api/app/
 7. 接 Supabase Auth，给后端加 `get_current_user`。
 8. 把数据库 URL 改为同时支持 Supabase Postgres。
 9. 已完成：新增 `edit_events`，记录手动保存和历史恢复。
-10. 新增 Agent API 和最小可用 Agent Panel。
-11. 加入 diff review。
+10. 已完成：新增 Agent API 和最小可用 Agent Panel，支持建议确认后保存版本。
+11. 加入 diff review 和更完整的结构化 patch 预览。
 12. 完成 Vercel、Render、Supabase 部署文档和环境变量模板。
 
 ## 19. 最小可上线版本定义

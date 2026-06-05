@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
-import type { ScriptVersionSummary, ValidationError } from "@/lib/types";
+import type { AgentRunSummary, ScriptVersionSummary, ValidationError } from "@/lib/types";
 
 export default function EditPage() {
   const params = useParams<{ id: string }>();
@@ -14,6 +14,10 @@ export default function EditPage() {
   const [versions, setVersions] = useState<ScriptVersionSummary[]>([]);
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [agentBusy, setAgentBusy] = useState(false);
+  const [agentInstruction, setAgentInstruction] = useState("");
+  const [agentSceneIds, setAgentSceneIds] = useState("");
+  const [agentRun, setAgentRun] = useState<AgentRunSummary | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -103,6 +107,47 @@ export default function EditPage() {
     }
   }
 
+  async function createAgentSuggestion() {
+    if (!agentInstruction.trim()) return;
+    setAgentBusy(true);
+    setNotice(null);
+    try {
+      const sceneIds = agentSceneIds
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      const run = await api.createAgentRun(projectId, {
+        instruction: agentInstruction,
+        scene_ids: sceneIds,
+      });
+      setAgentRun(run);
+      setNotice("已生成改编建议，等待确认。");
+    } catch (e) {
+      setErrors([{ path: "<agent>", message: (e as Error).message, severity: "error" }]);
+    } finally {
+      setAgentBusy(false);
+    }
+  }
+
+  async function acceptAgentSuggestion() {
+    if (!agentRun) return;
+    setAgentBusy(true);
+    setNotice(null);
+    try {
+      const version = await api.acceptAgentRun(agentRun.id);
+      setYaml(version.yaml_content);
+      setAgentRun(null);
+      setAgentInstruction("");
+      await loadVersions();
+      await revalidate(version.yaml_content);
+      setNotice("已接受 AI 改编，并保存为新版本。");
+    } catch (e) {
+      setErrors([{ path: "<agent>", message: (e as Error).message, severity: "error" }]);
+    } finally {
+      setAgentBusy(false);
+    }
+  }
+
   if (loadErr) {
     return <div className="card border-red-500/40 text-red-200">加载 YAML 失败：{loadErr}</div>;
   }
@@ -143,6 +188,60 @@ export default function EditPage() {
           spellCheck={false}
         />
         <aside className="space-y-4">
+          <div className="card space-y-3">
+            <div className="label">AI 改编助手</div>
+            <textarea
+              className="input min-h-[96px] text-sm"
+              value={agentInstruction}
+              onChange={(e) => setAgentInstruction(e.target.value)}
+              placeholder="例如：把第一场改得更悬疑，减少解释性对白。"
+            />
+            <input
+              className="input font-mono text-xs"
+              value={agentSceneIds}
+              onChange={(e) => setAgentSceneIds(e.target.value)}
+              placeholder="scene_001, scene_002"
+            />
+            <div className="flex gap-2">
+              <button
+                className="btn-ghost flex-1"
+                onClick={createAgentSuggestion}
+                disabled={agentBusy || saving || !agentInstruction.trim()}
+              >
+                {agentBusy ? "生成中..." : "生成建议"}
+              </button>
+              <button
+                className="btn-primary flex-1"
+                onClick={acceptAgentSuggestion}
+                disabled={agentBusy || saving || !agentRun}
+              >
+                接受
+              </button>
+            </div>
+            {agentRun && (
+              <div className="space-y-3 rounded border border-white/10 bg-white/[0.02] p-3 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span>{formatAgentStatus(agentRun.status)}</span>
+                  <span className="font-mono text-ink-500">{agentRun.model}</span>
+                </div>
+                {agentRun.plan && (
+                  <ul className="space-y-1 text-ink-300">
+                    {agentRun.plan.map((item, index) => (
+                      <li key={index}>{String(item)}</li>
+                    ))}
+                  </ul>
+                )}
+                {agentRun.patch && (
+                  <ul className="space-y-1 font-mono text-ink-500">
+                    {agentRun.patch.map((item, index) => (
+                      <li key={index}>{formatPatchLine(item)}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="card">
             <div className="label">校验</div>
             {busy ? (
@@ -237,4 +336,21 @@ function formatSource(value: string) {
       import: "导入",
     }[value] ?? value
   );
+}
+
+function formatAgentStatus(value: string) {
+  return (
+    {
+      waiting_review: "待确认",
+      accepted: "已接受",
+      rejected: "已拒绝",
+      failed: "失败",
+    }[value] ?? value
+  );
+}
+
+function formatPatchLine(value: unknown) {
+  if (!value || typeof value !== "object") return String(value);
+  const patch = value as { op?: string; path?: string };
+  return `${patch.op ?? "patch"} ${patch.path ?? ""}`.trim();
 }

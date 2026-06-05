@@ -45,6 +45,9 @@ class Project(Base):
     edit_events: Mapped[list[EditEvent]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
+    agent_runs: Mapped[list[AgentRun]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
 
 
 class Chapter(Base):
@@ -136,6 +139,30 @@ class EditEvent(Base):
 
     project: Mapped[Project] = relationship(back_populates="edit_events")
     version: Mapped[ScriptVersion | None] = relationship(back_populates="edit_events")
+
+
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    base_version_id: Mapped[str] = mapped_column(ForeignKey("script_versions.id"), index=True)
+    result_version_id: Mapped[str | None] = mapped_column(
+        ForeignKey("script_versions.id"), nullable=True, index=True
+    )
+    user_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    selected_context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    plan: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    patch: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="waiting_review")
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    project: Mapped[Project] = relationship(back_populates="agent_runs")
 
 
 def resolve_database_url(url: str) -> str:

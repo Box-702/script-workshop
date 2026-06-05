@@ -100,6 +100,22 @@ export interface EditEventSummary {
   created_at: string;
 }
 
+export interface AgentRunSummary {
+  id: string;
+  project_id: string;
+  base_version_id: string;
+  result_version_id: string | null;
+  user_prompt: string;
+  selected_context: Record<string, unknown> | null;
+  plan: unknown[] | null;
+  patch: unknown[] | null;
+  status: string;
+  model: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ProjectRunSummary {
   id: string;
   status: RunStatus;

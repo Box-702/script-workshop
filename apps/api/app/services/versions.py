@@ -80,6 +80,9 @@ def create_version_from_yaml(
     label: str | None = None,
     notes: str | None = None,
     parent_version_id: str | None = None,
+    edit_type: str = "manual_save",
+    edit_patch: Any = None,
+    actor_type: str = "user",
 ) -> dbm.ScriptVersion:
     data, errors = parse_version_yaml(yaml_content)
     parent_version_id = parent_version_id or project.current_version_id
@@ -107,14 +110,16 @@ def create_version_from_yaml(
         db,
         project=project,
         version=version,
-        edit_type="manual_save",
+        edit_type=edit_type,
         before_snapshot=before_version.json_content if before_version else None,
         after_snapshot=data,
-        patch={
+        patch=edit_patch
+        or {
             "source_type": source_type,
             "validation_status": "valid" if not errors else "invalid",
         },
         note=notes or label,
+        actor_type=actor_type,
     )
     project.status = "ready" if not errors else "needs_review"
     project.current_version_id = version.id

@@ -278,6 +278,28 @@ class EditEventOut(BaseModel):
     created_at: str
 
 
+class AgentAdaptRequest(BaseModel):
+    instruction: str = Field(min_length=1)
+    base_version_id: str | None = None
+    scene_ids: list[str] = Field(default_factory=list)
+
+
+class AgentRunOut(BaseModel):
+    id: str
+    project_id: str
+    base_version_id: str
+    result_version_id: str | None = None
+    user_prompt: str
+    selected_context: dict | None = None
+    plan: list | None = None
+    patch: list | None = None
+    status: str
+    model: str | None = None
+    error_message: str | None = None
+    created_at: str
+    updated_at: str
+
+
 class ProjectRunSummary(BaseModel):
     id: str
     status: RunStatus

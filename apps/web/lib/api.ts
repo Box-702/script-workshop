@@ -1,4 +1,5 @@
 import type {
+  AgentRunSummary,
   EditEventSummary,
   ModelKeySummary,
   ModelKeyTestResponse,
@@ -103,6 +104,20 @@ export const api = {
       `/api/projects/${projectId}/versions/${versionId}/restore`,
       { method: "POST" },
     ),
+
+  createAgentRun: (
+    projectId: string,
+    body: { instruction: string; base_version_id?: string; scene_ids?: string[] },
+  ) =>
+    jfetch<AgentRunSummary>(`/api/projects/${projectId}/agent/adapt`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  acceptAgentRun: (runId: string) =>
+    jfetch<ScriptVersionDetail>(`/api/agent-runs/${runId}/accept`, {
+      method: "POST",
+    }),
 
   validate: (yaml: string) =>
     jfetch<ValidateResponse>("/api/validate", {
