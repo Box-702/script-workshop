@@ -13,6 +13,26 @@ from app.services.agent import accept_agent_run, create_agent_run, reject_agent_
 from app.services.versions import create_version_from_yaml
 
 
+MULTI_SCENE_SCRIPT_YAML = (
+    VALID_SCRIPT_YAML
+    + """    - id: scene_002
+      title: Choice
+      chapter_refs:
+        - chapter_002
+      location_id: loc_clinic
+      characters:
+        - char_doctor
+      purpose: Force the doctor to choose.
+      conflict: The patient refuses to explain the danger.
+      action:
+        - The doctor locks the cabinet.
+      dialogue:
+        - speaker: char_doctor
+          line: Tell me what happened first.
+"""
+)
+
+
 def _session():
     engine = create_engine(
         "sqlite://",
@@ -67,6 +87,30 @@ def test_create_agent_run_builds_review_patch():
             "after": "AI 改编需求：把第一场改得更悬疑",
         }
     ]
+
+
+def test_create_agent_run_can_target_multiple_selected_scenes():
+    db = _session()
+    project = Project(id="proj_test", title="Test", adaptation_type="short_drama")
+    db.add(project)
+    db.commit()
+    create_version_from_yaml(db, project, MULTI_SCENE_SCRIPT_YAML)
+
+    run = create_agent_run(
+        db,
+        project,
+        payload=AgentAdaptRequest(
+            instruction="统一强化悬念",
+            scene_ids=["scene_001", "scene_002"],
+        ),
+    )
+
+    assert run.selected_context == {"scene_ids": ["scene_001", "scene_002"]}
+    assert [item["path"] for item in run.patch] == [
+        "/script/scenes/0/adaptation_notes/reason",
+        "/script/scenes/1/adaptation_notes/reason",
+    ]
+    assert [item["scene_id"] for item in run.patch] == ["scene_001", "scene_002"]
 
 
 def test_accept_agent_run_creates_version_and_edit_event():

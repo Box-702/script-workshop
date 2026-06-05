@@ -478,12 +478,11 @@ POST /api/agent-runs/{agent_run_id}/retry
 {
   "base_version_id": "ver_001",
   "instruction": "把第一场改成更强的短剧开场，前三秒必须有悬念，但不要改变人物关系。",
-  "selection": {
-    "scene_ids": ["scene_001"]
-  },
-  "mode": "patch_with_review"
+  "scene_ids": ["scene_001"]
 }
 ```
+
+当前前端提供“当前场景 / 全剧”范围选择。“全剧”会把当前版本内所有 `scene_ids` 显式传给后端，避免空数组被解释成默认场景。
 
 Agent 返回：
 
@@ -654,7 +653,7 @@ Agent 不应把全项目所有内容都塞进模型。Context Builder 按范围�
 
 - `/new`：继续作为创建项目入口。
 - `/runs/[id]`：继续展示生成进度。
-- `/projects/[id]/edit`：从 YAML textarea 升级为 IDE。
+- `/projects/[id]/edit`：结构化场景/全剧编辑为主，YAML 源码模式作为高级入口保留。
 - `/settings`：从 localStorage key 升级为登录后的模型 key 管理。
 
 ### 13.2 新增页面
@@ -756,7 +755,7 @@ apps/api/app/
 
 - YAML：保留结构化资产。
 - JSON：给开发者或下游工具。
-- Markdown：可读剧本文本。
+- Markdown：面向编剧和改编者的可读剧本文本，弱化内部 id，使用中文栏目和角色/地点名。
 - Fountain：对接专业剧本工具。
 - DOCX/PDF：后续实现，用于交付和打印。
 
@@ -786,7 +785,7 @@ apps/api/app/
 - 新增 user_model_keys 加密保存。
 - 项目列表和项目详情页。
 - script_versions 支持 current version。
-- YAML 编辑保存到后端。
+- 结构化剧本编辑保存到后端，YAML 作为高级源码模式保留。
 - Vercel + Render + Supabase 部署文档。
 
 验收：
@@ -794,7 +793,7 @@ apps/api/app/
 - 新用户能注册登录。
 - 保存 API key 后刷新页面仍可使用。
 - 生成后的剧本能持久保存。
-- 手动改 YAML 并保存后，重新打开仍是新版本。
+- 通过结构化编辑或 YAML 源码模式保存后，重新打开仍是新版本。
 
 ### 阶段 2：剧本 IDE 版
 
@@ -804,7 +803,7 @@ apps/api/app/
 
 - IDE 三栏布局。
 - 资源树：章节、角色、地点、场景、版本。
-- 场景结构化编辑。
+- 场景结构化编辑和全剧摘要编辑。
 - 校验面板。
 - 版本时间线。
 - JSON/YAML diff。
@@ -816,6 +815,7 @@ apps/api/app/
 - 每次正式保存都有版本记录。
 - 能查看两个版本差异。
 - 能从旧版本恢复。
+- 导出的 Markdown 能作为可读剧本文本交给编剧或改编者。
 
 ### 阶段 3：AI Agent 改编版
 
@@ -927,9 +927,9 @@ apps/api/app/
 - 用户创建项目。
 - 用户生成剧本。
 - 用户再次登录后能看到项目和剧本。
-- 用户能手动编辑 YAML 并保存新版本。
+- 用户能通过结构化编辑器保存新版本，并可在高级源码模式手动编辑 YAML。
 - 用户能查看版本列表和恢复版本。
-- 用户能导出 YAML/Markdown。
+- 用户能导出 YAML/Markdown/JSON。
 
 AI Agent 改编不必放进第一版上线，但数据库和版本系统必须提前为它留好位置。
 

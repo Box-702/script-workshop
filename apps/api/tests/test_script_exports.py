@@ -51,8 +51,11 @@ def test_latest_script_json_and_markdown_exports():
     assert markdown_response.status_code == 200
     assert markdown_response.headers["content-type"].startswith("text/markdown")
     assert "# Smoke Script" in markdown_response.text
-    assert "## Scenes" in markdown_response.text
-    assert "**Doctor**: We are closed." in markdown_response.text
+    assert "## 场景" in markdown_response.text
+    assert "### 第 1 场：Knock" in markdown_response.text
+    assert "**场景信息：** Clinic" in markdown_response.text
+    assert "**Doctor**：We are closed." in markdown_response.text
+    assert "## Scenes" not in markdown_response.text
 
 
 def test_version_markdown_export_uses_requested_version():

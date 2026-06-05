@@ -57,7 +57,11 @@ export default function EditPage() {
     ]);
     setYaml(yamlText);
     setScript(jsonDoc.script);
-    setSelectedSceneId((prev) => prev || jsonDoc.script.scenes[0]?.id || "");
+    setSelectedSceneId((prev) =>
+      jsonDoc.script.scenes.some((scene) => scene.id === prev)
+        ? prev
+        : jsonDoc.script.scenes[0]?.id || "",
+    );
     const validation = await api.validate(yamlText);
     setErrors(validation.errors);
   }, [projectId, loadVersions]);
@@ -121,9 +125,7 @@ export default function EditPage() {
         label: "结构化保存",
         notes: "用户从剧本编辑界面保存。",
       });
-      setYaml(saved.yaml_content);
-      await loadVersions();
-      await revalidate(saved.yaml_content);
+      await loadScript();
       setNotice(saved.validation_status === "valid" ? "已保存为新版本。" : "已保存，但仍有结构问题需要处理。");
     } catch (e) {
       setErrors([{ path: "<root>", message: (e as Error).message, severity: "error" }]);
@@ -166,13 +168,16 @@ export default function EditPage() {
   }
 
   async function createAgentSuggestion() {
-    if (!agentInstruction.trim()) return;
+    if (!agentInstruction.trim() || !script) return;
     setAgentBusy(true);
     setNotice(null);
     try {
       const run = await api.createAgentRun(projectId, {
         instruction: agentInstruction,
-        scene_ids: agentScope === "current_scene" && selectedScene ? [selectedScene.id] : [],
+        scene_ids:
+          agentScope === "current_scene" && selectedScene
+            ? [selectedScene.id]
+            : script?.scenes.map((scene) => scene.id) ?? [],
       });
       setAgentRun(run);
       setNotice("已生成改编建议，等待确认。");
@@ -303,6 +308,7 @@ export default function EditPage() {
             agentInstruction={agentInstruction}
             agentScope={agentScope}
             agentRun={agentRun}
+            scriptReady={Boolean(script)}
             selectedScene={selectedScene}
             setAgentInstruction={setAgentInstruction}
             setAgentScope={setAgentScope}
@@ -708,6 +714,7 @@ function AgentPanel({
   agentInstruction,
   agentScope,
   agentRun,
+  scriptReady,
   selectedScene,
   setAgentInstruction,
   setAgentScope,
@@ -720,6 +727,7 @@ function AgentPanel({
   agentInstruction: string;
   agentScope: "current_scene" | "whole_script";
   agentRun: AgentRunSummary | null;
+  scriptReady: boolean;
   selectedScene: ScriptScene | null;
   setAgentInstruction: (value: string) => void;
   setAgentScope: (value: "current_scene" | "whole_script") => void;
@@ -766,7 +774,7 @@ function AgentPanel({
       <button
         className="btn-ghost w-full"
         onClick={createAgentSuggestion}
-        disabled={agentBusy || saving || !agentInstruction.trim() || (agentScope === "current_scene" && !selectedScene)}
+        disabled={agentBusy || saving || !scriptReady || !agentInstruction.trim() || (agentScope === "current_scene" && !selectedScene)}
       >
         {agentBusy ? "生成中..." : "生成建议"}
       </button>

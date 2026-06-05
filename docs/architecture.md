@@ -5,7 +5,7 @@
 ```
 ┌────────────────────────────────────────────┐
 │  Web (Next.js 14, App Router)              │
-│  - 页面、组件、YAML 编辑与校验面板         │
+│  - 页面、组件、结构化编辑、源码模式与校验面板 │
 │  - rewrites 代理 /api/* → FastAPI          │
 └────────────────────────────────────────────┘
                    │  HTTP/JSON
@@ -13,7 +13,7 @@
 ┌────────────────────────────────────────────┐
 │  API (FastAPI)                             │
 │  - routers: projects / scripts / keys      │
-│  - services: 版本、模型 key、pipeline      │
+│  - services: 版本、导出、模型 key、pipeline │
 │  - providers: LLM 抽象                     │
 │  - schemas: Pydantic v2 模型               │
 │  - db: SQLAlchemy + Alembic + SQLite       │
@@ -58,11 +58,14 @@ class LLMProvider(Protocol):
 4. 如果请求头没有 key，后端读取 active 的 `user_model_keys`，解密后构造 provider
 5. GET `/api/runs/{id}` → 轮询进度
 6. 完成后写入 `script_versions`，项目 `current_version_id` 指向最新版本
+7. 编辑页默认读取 `/script.json` 渲染结构化表单；YAML 仅作为高级源码模式和导出格式保留
+8. 导出接口提供 YAML、JSON、Markdown，其中 Markdown 面向编剧/改编者阅读稿
 
 ## 目录约定
 
 - 章节原文：DB `chapters.content`，同一项目内使用 `chapter_001` 这类稳定 id；数据库用 `(project_id, id)` 复合主键避免跨项目冲突。
 - 任意阶段产物：DB `generation_runs.artifacts` (JSON)
-- 最终 YAML：DB `script_versions.yaml_content`
+- 最终剧本：DB `script_versions.json_content` 保存规范 JSON，`script_versions.yaml_content` 保存可导出的 YAML
+- 可读导出：`services.exports` 将当前或历史版本转换为 JSON/Markdown 文本
 - 模型 key：DB `user_model_keys.encrypted_api_key`，只展示 `key_last4`
 - 手动保存和历史恢复：通过 `script_versions` 生成新快照

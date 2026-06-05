@@ -1,12 +1,12 @@
 # 剧本工坊
 
-> AI 小说转剧本工作台 — 把 3 章以上的小说自动改编为可编辑、可校验、可追溯的 YAML 剧本初稿。
+> AI 小说转剧本工作台 — 把 3 章以上的小说自动改编为可编辑、可校验、可追溯的结构化剧本初稿。
 
 详细设计：[DESIGN.md](./DESIGN.md) · 架构说明：[docs/architecture.md](./docs/architecture.md) · Schema：[docs/yaml-schema.md](./docs/yaml-schema.md)
 
 ## 技术栈
 
-- **前端** `apps/web`：Next.js 14 (App Router) + TypeScript + Tailwind。当前使用项目看板、项目详情、运行进度、YAML 编辑器和模型设置页承载 MVP。
+- **前端** `apps/web`：Next.js 14 (App Router) + TypeScript + Tailwind。当前使用项目看板、项目详情、运行进度、结构化剧本编辑器、YAML 源码模式和模型设置页承载 MVP。
 - **后端** `apps/api`：FastAPI + Python 3.11+ + Pydantic v2 + SQLAlchemy + Alembic + SQLite。
 - **AI 层**：OpenAI 兼容 Provider。支持浏览器临时传 key，也支持后端加密保存用户模型 key。
 
@@ -112,8 +112,8 @@ IDE 集成终端里推荐用更短的启动脚本：
 |---|---|
 | 3 章以上小说 | 项目创建页支持粘贴文本、载入示例、上传 `.txt` / `.md`，并校验 ≥ 3 章 |
 | 自动转结构化剧本 | 8 阶段 AI 生成流程 |
-| YAML 格式 | 后端先生成 JSON 强校验，再 ruamel.yaml 输出 |
-| 可编辑、可打磨 | YAML textarea 编辑器 + 实时校验 + 一键修复 |
+| YAML 格式 | 后端先生成 JSON 强校验，再 ruamel.yaml 输出；源码模式保留 YAML 直接编辑 |
+| 可编辑、可打磨 | 默认场景/全剧结构化编辑 + YAML 源码模式 + 实时校验 + 一键修复 |
 | 自定义 YAML Schema | `schema/script.schema.json` + `docs/yaml-schema.md` |
 | Schema 设计原因 | 文档逐字段说明 |
 
@@ -123,10 +123,11 @@ Day 1（2026-06-05）已完成：
 
 - 脚手架与端到端生成链路。
 - 章节校验、跨项目章节存储、运行进度持久化。
-- 项目看板、项目详情、YAML 编辑保存、剧本版本列表和恢复。
+- 项目看板、项目详情、结构化剧本编辑、YAML 源码保存、剧本版本列表和恢复。
 - 编辑记录保存和项目详情页最近修改记录。
-- AI 改编助手最小闭环：生成建议、确认接受、保存为新版本。
+- AI 改编助手最小闭环：当前场景/全剧范围、生成建议、确认接受、放弃建议、保存为新版本。
 - 模型 key 后端加密保存、本地浏览器保存、测试和撤销。
+- 最新/历史版本支持 YAML、Markdown 和 JSON 导出；Markdown 导出面向编剧阅读稿。
 - Docker 构建上下文、Alembic 迁移和基础文档同步。
 
-下一阶段重点：`edit_events`、AI Agent 改编 API、Diff Review UI、Supabase Auth/Postgres 和免费部署文档。
+下一阶段重点：角色/地点的完整结构化增删改、版本 diff 可视化、Supabase Auth/Postgres 和免费部署文档。

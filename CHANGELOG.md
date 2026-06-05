@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Script Workshop are documented here.
+All notable changes to 剧本工坊 are documented here.
 
 ## Unreleased
 ### Added
@@ -15,6 +15,10 @@ All notable changes to Script Workshop are documented here.
 - Added JSON and Markdown script exports for latest and historical script versions.
 
 ### Fixed
+- Fixed whole-script Agent scope so the web editor sends every current scene id instead of an empty scene selection.
+- Reloaded the canonical script snapshot after structured editor saves so UI state matches backend normalization and validation.
+- Kept the selected scene id in sync after loading, restoring, or saving versions whose scene ids changed.
+- Made Markdown exports read like a writer-facing script draft with Chinese sections, resolved role/location names, and filtered empty action/dialogue lines.
 - Separated Next.js dev and production build directories to prevent stale chunk errors after switching between `next dev` and `next build`.
 - Added API key sanity checks and clearer generation failure messages for invalid or expired model keys.
 - Removed stale documentation that described no-key generation as an offline mock path.
