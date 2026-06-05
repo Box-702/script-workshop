@@ -237,6 +237,15 @@ def get_project(project_id: str, db: DbSession) -> ProjectDetail:
     return _project_detail(db, project)
 
 
+@router.delete("/projects/{project_id}", status_code=204)
+def delete_project(project_id: str, db: DbSession) -> None:
+    project = db.get(dbm.Project, project_id)
+    if not project:
+        raise HTTPException(404, "project not found")
+    db.delete(project)
+    db.commit()
+
+
 @router.post("/projects/{project_id}/generate", response_model=GenerateAccepted)
 def generate(
     project_id: str,

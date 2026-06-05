@@ -52,6 +52,10 @@ export default function ProjectDetailPage() {
     );
   }
 
+  const generationLabel = shouldRegenerate(project)
+    ? "重新生成"
+    : "生成剧本";
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -69,7 +73,7 @@ export default function ProjectDetailPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <button className="btn-ghost" onClick={startGeneration} disabled={busy}>
-            {busy ? "启动中..." : project.version_count > 0 ? "重新生成" : "生成剧本"}
+            {busy ? "启动中..." : generationLabel}
           </button>
           {project.version_count > 0 && (
             <>
@@ -97,7 +101,7 @@ export default function ProjectDetailPage() {
       )}
 
       <section className="grid gap-3 md:grid-cols-4">
-        <InfoCard label="状态" value={formatStatus(project.status)} />
+        <InfoCard label="状态" value={formatStatus(displayProjectStatus(project))} />
         <InfoCard label="章节" value={project.chapter_count} />
         <InfoCard label="版本" value={project.version_count} />
         <InfoCard
@@ -200,6 +204,23 @@ function InfoCard({ label, value }: { label: string; value: string | number }) {
       <div className="mt-2 text-lg font-semibold">{value}</div>
     </div>
   );
+}
+
+function shouldRegenerate(project: ProjectDetail) {
+  return (
+    project.version_count > 0 ||
+    project.status === "failed" ||
+    project.latest_run?.status === "failed" ||
+    project.latest_run?.status === "done"
+  );
+}
+
+function displayProjectStatus(project: ProjectDetail) {
+  if (project.latest_run?.status === "failed") return "failed";
+  if (project.latest_run?.status === "queued" || project.latest_run?.status === "running") {
+    return "generating";
+  }
+  return project.status;
 }
 
 function formatStatus(value: string) {

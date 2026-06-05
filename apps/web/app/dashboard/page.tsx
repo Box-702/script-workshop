@@ -18,6 +18,18 @@ export default function DashboardPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  async function deleteProject(project: ProjectSummary) {
+    const ok = window.confirm(`确定删除《${project.title}》吗？项目章节、生成记录和剧本版本都会一并删除。`);
+    if (!ok) return;
+    setError(null);
+    try {
+      await api.deleteProject(project.id);
+      setProjects((current) => current.filter((item) => item.id !== project.id));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -59,7 +71,7 @@ export default function DashboardPage() {
             <div>操作</div>
           </div>
           {projects.map((project) => (
-            <ProjectCard key={project.id} project={project} />
+            <ProjectCard key={project.id} project={project} deleteProject={deleteProject} />
           ))}
         </div>
       )}
@@ -67,7 +79,13 @@ export default function DashboardPage() {
   );
 }
 
-function ProjectCard({ project }: { project: ProjectSummary }) {
+function ProjectCard({
+  project,
+  deleteProject,
+}: {
+  project: ProjectSummary;
+  deleteProject: (project: ProjectSummary) => void;
+}) {
   return (
     <div className="grid gap-3 border-b border-ink-600/30 px-4 py-4 last:border-b-0 lg:grid-cols-[minmax(0,1.5fr)_120px_100px_100px_220px] lg:items-center">
       <div className="min-w-0">
@@ -82,13 +100,13 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
             {formatAdaptation(project.adaptation_type)} · 更新于 {formatDate(project.updated_at)}
           </div>
           <div className="lg:hidden">
-            <StatusPill value={project.status} />
+            <StatusPill value={displayProjectStatus(project)} />
           </div>
         </div>
       </div>
 
       <div className="hidden lg:block">
-        <StatusPill value={project.status} />
+        <StatusPill value={displayProjectStatus(project)} />
       </div>
       <Metric label="章节" value={project.chapter_count} />
       <Metric label="版本" value={project.version_count} />
@@ -109,6 +127,13 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
             编辑
           </Link>
         )}
+        <button
+          type="button"
+          className="btn-ghost px-3 py-1.5 text-xs text-red-200 hover:bg-red-500/15"
+          onClick={() => deleteProject(project)}
+        >
+          删除
+        </button>
       </div>
     </div>
   );
@@ -129,6 +154,8 @@ function StatusPill({ value }: { value: string }) {
       ? "bg-emerald-500/15 text-emerald-300"
       : value === "generating"
         ? "bg-amber-500/15 text-amber-300"
+        : value === "failed"
+          ? "bg-red-500/15 text-red-300"
         : "bg-ink-700 text-ink-100";
   return (
     <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${color}`}>
@@ -147,6 +174,14 @@ function formatStatus(value: string) {
       failed: "失败",
     }[value] ?? value
   );
+}
+
+function displayProjectStatus(project: ProjectSummary) {
+  if (project.latest_run?.status === "failed") return "failed";
+  if (project.latest_run?.status === "queued" || project.latest_run?.status === "running") {
+    return "generating";
+  }
+  return project.status;
 }
 
 function formatAdaptation(value: string) {

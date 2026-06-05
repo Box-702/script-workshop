@@ -33,6 +33,7 @@ async function jfetch<T>(url: string, init?: RequestInit): Promise<T> {
     }
     throw new Error(message || `HTTP ${res.status}`);
   }
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
 
@@ -67,6 +68,9 @@ export const api = {
 
   getProject: (projectId: string) =>
     jfetch<ProjectDetail>(`/api/projects/${projectId}`),
+
+  deleteProject: (projectId: string) =>
+    jfetch<void>(`/api/projects/${projectId}`, { method: "DELETE" }),
 
   createProject: (body: {
     title: string;
