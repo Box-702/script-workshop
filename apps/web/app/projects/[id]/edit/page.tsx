@@ -44,6 +44,12 @@ export default function EditPage() {
     return map;
   }, [script]);
 
+  const locationNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const location of script?.locations ?? []) map[location.id] = location.name;
+    return map;
+  }, [script]);
+
   const loadVersions = useCallback(async () => {
     const next = await api.listVersions(projectId);
     setVersions(next);
@@ -227,33 +233,50 @@ export default function EditPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">剧本编辑</h1>
-          <p className="mt-1 text-sm text-ink-400">
-            {script?.title ?? "加载中"} · {script?.scenes.length ?? 0} 场 · {script?.characters.length ?? 0} 个角色
-          </p>
+      <div className="panel overflow-hidden">
+        <div className="flex flex-col gap-3 border-b border-ink-600/30 px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0">
+            <div className="text-sm text-ink-400">剧本工作台</div>
+            <h1 className="mt-1 truncate text-2xl font-semibold tracking-tight">
+              {script?.title ?? "加载中"}
+            </h1>
+            <p className="mt-1 text-sm text-ink-400">
+              {script?.scenes.length ?? 0} 场 · {script?.characters.length ?? 0} 个角色 · {script?.locations.length ?? 0} 个地点
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn-ghost" onClick={doRepair} disabled={busy || saving || !yaml}>
+              自动修复
+            </button>
+            <button
+              className="btn-primary"
+              onClick={mode === "yaml" ? saveYamlVersion : saveStructuredVersion}
+              disabled={busy || saving || (!script && mode !== "yaml")}
+            >
+              {saving ? "保存中..." : "保存版本"}
+            </button>
+            <a className="btn-ghost" href={`/api/projects/${projectId}/script.md`} download>
+              导出文稿
+            </a>
+            <a className="btn-ghost" href={`/api/projects/${projectId}/script.yaml`} download>
+              导出源码
+            </a>
+            <a className="btn-ghost" href={`/api/projects/${projectId}/script.json`} download>
+              导出数据
+            </a>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button className="btn-ghost" onClick={doRepair} disabled={busy || saving || !yaml}>
-            自动修复
-          </button>
-          <button
-            className="btn-primary"
-            onClick={mode === "yaml" ? saveYamlVersion : saveStructuredVersion}
-            disabled={busy || saving || (!script && mode !== "yaml")}
-          >
-            {saving ? "保存中..." : "保存版本"}
-          </button>
-          <a className="btn-ghost" href={`/api/projects/${projectId}/script.yaml`} download>
-            YAML
-          </a>
-          <a className="btn-ghost" href={`/api/projects/${projectId}/script.md`} download>
-            Markdown
-          </a>
-          <a className="btn-ghost" href={`/api/projects/${projectId}/script.json`} download>
-            JSON
-          </a>
+
+        <div className="flex flex-wrap gap-2 px-4 py-3">
+          <ModeButton active={mode === "scene"} onClick={() => setMode("scene")}>
+            场景编辑
+          </ModeButton>
+          <ModeButton active={mode === "script"} onClick={() => setMode("script")}>
+            全剧资料
+          </ModeButton>
+          <ModeButton active={mode === "yaml"} onClick={() => setMode("yaml")}>
+            源码
+          </ModeButton>
         </div>
       </div>
 
@@ -263,27 +286,25 @@ export default function EditPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2 border-b border-white/10 pb-2">
-        <ModeButton active={mode === "scene"} onClick={() => setMode("scene")}>
-          场景
-        </ModeButton>
-        <ModeButton active={mode === "script"} onClick={() => setMode("script")}>
-          全剧
-        </ModeButton>
-        <ModeButton active={mode === "yaml"} onClick={() => setMode("yaml")}>
-          源码
-        </ModeButton>
-      </div>
+      <div className="grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)_360px]">
+        <aside className="space-y-4">
+          {script && (
+            <ResourcePanel
+              script={script}
+              locationNames={locationNames}
+              selectedSceneId={selectedSceneId}
+              setSelectedSceneId={setSelectedSceneId}
+            />
+          )}
+        </aside>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
-        <main>
+        <main className="min-w-0">
           {mode === "scene" && script && selectedScene && (
             <SceneEditor
               script={script}
               scene={selectedScene}
               characterNames={characterNames}
-              selectedSceneId={selectedSceneId}
-              setSelectedSceneId={setSelectedSceneId}
+              locationNames={locationNames}
               updateScene={updateScene}
             />
           )}
@@ -292,7 +313,7 @@ export default function EditPage() {
           )}
           {mode === "yaml" && (
             <textarea
-              className="input min-h-[680px] font-mono text-xs leading-relaxed"
+              className="input min-h-[720px] font-mono text-xs leading-relaxed"
               value={yaml}
               onChange={(e) => updateYaml(e.target.value)}
               spellCheck={false}
@@ -358,49 +379,96 @@ function ModeButton({
   );
 }
 
-function SceneEditor({
+function ResourcePanel({
   script,
-  scene,
-  characterNames,
+  locationNames,
   selectedSceneId,
   setSelectedSceneId,
-  updateScene,
 }: {
   script: ScriptDocument;
-  scene: ScriptScene;
-  characterNames: Record<string, string>;
+  locationNames: Record<string, string>;
   selectedSceneId: string;
   setSelectedSceneId: (id: string) => void;
-  updateScene: (sceneId: string, patch: (scene: ScriptScene) => ScriptScene) => void;
 }) {
   return (
-    <div className="grid gap-4 xl:grid-cols-[260px_1fr]">
-      <aside className="rounded-lg border border-ink-600/30 bg-ink-800/30 p-3">
-        <div className="mb-3 text-xs font-medium uppercase text-ink-500">场景</div>
+    <div className="panel overflow-hidden">
+      <div className="panel-header">
+        <div className="text-sm font-medium text-ink-100">资源</div>
+      </div>
+      <div className="border-b border-ink-600/30 px-4 py-3">
+        <div className="grid grid-cols-3 gap-2 text-center text-xs">
+          <ResourceMetric label="场景" value={script.scenes.length} />
+          <ResourceMetric label="角色" value={script.characters.length} />
+          <ResourceMetric label="地点" value={script.locations.length} />
+        </div>
+      </div>
+      <div className="max-h-[calc(100vh-250px)] overflow-auto p-3">
+        <div className="mb-2 text-xs font-medium text-ink-500">场景目录</div>
         <ul className="space-y-2">
           {script.scenes.map((item, index) => (
             <li key={item.id}>
               <button
                 type="button"
-                className={`w-full rounded-md border px-3 py-2 text-left text-sm ${
+                className={`w-full rounded-md border px-3 py-2 text-left text-sm transition-colors ${
                   item.id === selectedSceneId
                     ? "border-accent-500/70 bg-accent-500/10 text-ink-50"
-                    : "border-white/10 bg-white/[0.02] text-ink-300 hover:bg-white/[0.05]"
+                    : "border-ink-600/30 bg-ink-900/50 text-ink-300 hover:border-ink-500 hover:bg-ink-800"
                 }`}
                 onClick={() => setSelectedSceneId(item.id)}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium">{item.title}</span>
-                  <span className="font-mono text-[11px] text-ink-500">{index + 1}</span>
+                  <span className="font-medium">{sceneDisplayTitle(item, index)}</span>
+                  <span className="text-[11px] text-ink-500">{index + 1}</span>
                 </div>
-                <div className="mt-1 truncate font-mono text-[11px] text-ink-500">{item.id}</div>
+                <div className="mt-1 truncate text-xs text-ink-400">
+                  {sceneMeta(item, locationNames)}
+                </div>
+                {item.purpose && (
+                  <div className="mt-2 line-clamp-2 text-xs leading-5 text-ink-500">
+                    {item.purpose}
+                  </div>
+                )}
               </button>
             </li>
           ))}
         </ul>
-      </aside>
+      </div>
+    </div>
+  );
+}
 
-      <section className="rounded-lg border border-ink-600/30 bg-ink-800/30 p-5">
+function ResourceMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md bg-ink-900/70 px-2 py-2">
+      <div className="text-sm font-semibold text-ink-100">{value}</div>
+      <div className="mt-0.5 text-ink-500">{label}</div>
+    </div>
+  );
+}
+
+function SceneEditor({
+  script,
+  scene,
+  characterNames,
+  locationNames,
+  updateScene,
+}: {
+  script: ScriptDocument;
+  scene: ScriptScene;
+  characterNames: Record<string, string>;
+  locationNames: Record<string, string>;
+  updateScene: (sceneId: string, patch: (scene: ScriptScene) => ScriptScene) => void;
+}) {
+  return (
+      <section className="panel p-5">
+        <div className="mb-5 flex flex-col gap-2 border-b border-ink-600/30 pb-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="text-xs text-ink-500">当前场景</div>
+            <h2 className="mt-1 text-xl font-semibold text-ink-50">{scene.title}</h2>
+            <p className="mt-1 text-sm text-ink-400">{sceneMeta(scene, locationNames)}</p>
+          </div>
+          <div className="text-sm text-ink-500">{script.scenes.length} 场</div>
+        </div>
         <div className="grid gap-4 md:grid-cols-[1fr_180px]">
           <Field
             label="场景标题"
@@ -448,7 +516,7 @@ function SceneEditor({
           <div className="flex flex-wrap gap-2">
             {scene.characters.map((id) => (
               <span key={id} className="rounded bg-ink-900 px-2 py-1 text-xs text-ink-300">
-                {characterNames[id] ?? id}
+                {characterNames[id] ?? "未命名角色"}
               </span>
             ))}
           </div>
@@ -457,7 +525,6 @@ function SceneEditor({
         <ActionEditor scene={scene} updateScene={updateScene} />
         <DialogueEditor scene={scene} characterNames={characterNames} updateScene={updateScene} />
       </section>
-    </div>
   );
 }
 
@@ -508,10 +575,7 @@ function ScriptOverview({
           <ul className="space-y-2">
             {script.characters.map((character) => (
               <li key={character.id} className="rounded border border-white/10 bg-white/[0.02] p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="font-medium">{character.name}</div>
-                  <div className="font-mono text-xs text-ink-500">{character.id}</div>
-                </div>
+                <div className="font-medium">{character.name}</div>
                 <div className="mt-2 text-sm text-ink-400">{character.goal || character.motivation || character.arc}</div>
               </li>
             ))}
@@ -522,10 +586,7 @@ function ScriptOverview({
           <ul className="space-y-2">
             {script.locations.map((location) => (
               <li key={location.id} className="rounded border border-white/10 bg-white/[0.02] p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="font-medium">{location.name}</div>
-                  <div className="font-mono text-xs text-ink-500">{location.id}</div>
-                </div>
+                <div className="font-medium">{location.name}</div>
                 {location.description && <div className="mt-2 text-sm text-ink-400">{location.description}</div>}
               </li>
             ))}
@@ -631,7 +692,7 @@ function DialogueEditor({
               >
                 {scene.characters.map((id) => (
                   <option key={id} value={id}>
-                    {characterNames[id] ?? id}
+                    {characterNames[id] ?? "未命名角色"}
                   </option>
                 ))}
               </select>
@@ -783,10 +844,10 @@ function AgentPanel({
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="font-medium text-ink-100">{formatAgentStatus(agentRun.status)}</div>
-              <div className="mt-1 font-mono text-ink-500">{agentRun.id}</div>
+              <div className="mt-1 text-ink-500">改编建议已生成</div>
             </div>
             <span className="rounded bg-ink-800 px-2 py-1 font-mono text-ink-400">
-              {agentRun.model}
+              AI 助手
             </span>
           </div>
           {agentRun.plan && (
@@ -804,12 +865,11 @@ function AgentPanel({
               {agentRun.patch.map((item, index) => (
                 <li key={index} className="rounded border border-white/10 bg-white/[0.02] p-2">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-ink-200">{item.scene_title || item.scene_id || `变更 ${index + 1}`}</span>
+                    <span className="text-ink-200">{item.scene_title || `变更 ${index + 1}`}</span>
                     <span className="rounded bg-ink-800 px-1.5 py-0.5 font-mono text-[10px] uppercase text-ink-400">
-                      {item.op ?? "patch"}
+                      修改
                     </span>
                   </div>
-                  <div className="mt-1 font-mono text-[11px] text-ink-500">{item.path ?? ""}</div>
                   <PatchValue label="修改前" value={item.before} />
                   <PatchValue label="修改后" value={item.after ?? item.value} />
                 </li>
@@ -844,7 +904,7 @@ function ValidationPanel({ busy, errors }: { busy: boolean; errors: ValidationEr
         <ul className="space-y-1 text-xs">
           {errors.map((e, i) => (
             <li key={i} className="font-mono text-red-300">
-              <span className="text-ink-400">{e.path}</span> - {e.message}
+              <span className="text-ink-400">结构字段</span> - {e.message}
             </li>
           ))}
         </ul>
@@ -874,11 +934,11 @@ function VersionPanel({
               <div className="flex items-center justify-between gap-2">
                 <span className="font-mono text-ink-200">{index === 0 ? "当前" : `历史 ${index}`}</span>
                 <span className={version.validation_status === "valid" ? "text-emerald-300" : "text-amber-300"}>
-                  {version.validation_status}
+                  {formatValidation(version.validation_status)}
                 </span>
               </div>
               <div className="mt-2 space-y-1 text-ink-400">
-                <div>{version.label || formatSource(version.source_type)}</div>
+                <div>{formatVersionLabel(version.label, version.source_type)}</div>
                 <div>来源：{formatSource(version.source_type)}</div>
                 {version.notes && <div>备注：{version.notes}</div>}
                 <div className="font-mono">{new Date(version.created_at).toLocaleString()}</div>
@@ -900,6 +960,19 @@ function VersionPanel({
   );
 }
 
+function sceneDisplayTitle(scene: ScriptScene, index: number) {
+  const title = scene.title.trim();
+  if (!title) return `第 ${index + 1} 场`;
+  if (title.startsWith("第") && title.includes("场")) return title;
+  return title;
+}
+
+function sceneMeta(scene: ScriptScene, locationNames: Record<string, string>) {
+  const location = locationNames[scene.location_id];
+  const parts = [location, scene.time].filter(Boolean);
+  return parts.length > 0 ? parts.join(" / ") : "未设置地点和时间";
+}
+
 function formatSource(value: string) {
   return (
     {
@@ -908,6 +981,20 @@ function formatSource(value: string) {
       restore: "历史恢复",
       repair: "自动修复",
       import: "导入",
+    }[value] ?? value
+  );
+}
+
+function formatVersionLabel(label: string | null, sourceType: string) {
+  if (label === "AI generated draft") return "AI 生成初稿";
+  return label || formatSource(sourceType);
+}
+
+function formatValidation(value: string) {
+  return (
+    {
+      valid: "通过",
+      invalid: "待处理",
     }[value] ?? value
   );
 }

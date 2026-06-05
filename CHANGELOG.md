@@ -15,6 +15,7 @@ All notable changes to 剧本工坊 are documented here.
 - Added JSON and Markdown script exports for latest and historical script versions.
 
 ### Fixed
+- Reworked the web workspace layout for wider editor pages, clearer project navigation, and fewer internal identifiers in the writing UI.
 - Fixed whole-script Agent scope so the web editor sends every current scene id instead of an empty scene selection.
 - Reloaded the canonical script snapshot after structured editor saves so UI state matches backend normalization and validation.
 - Kept the selected scene id in sync after loading, restoring, or saving versions whose scene ids changed.

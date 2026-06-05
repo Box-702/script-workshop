@@ -53,8 +53,8 @@ export default function ProjectDetailPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="mb-2">
             <Link href="/dashboard" className="text-sm text-ink-400">
@@ -63,7 +63,7 @@ export default function ProjectDetailPage() {
           </div>
           <h1 className="text-2xl font-semibold tracking-tight">{project.title}</h1>
           <p className="mt-1 text-sm text-ink-400">
-            {formatAdaptation(project.adaptation_type)} · {project.language} · 更新于{" "}
+            {formatAdaptation(project.adaptation_type)} · {formatLanguage(project.language)} · 更新于{" "}
             {formatDate(project.updated_at)}
           </p>
         </div>
@@ -77,13 +77,13 @@ export default function ProjectDetailPage() {
                 编辑
               </Link>
               <a className="btn-ghost" href={`/api/projects/${project.id}/script.yaml`} download>
-                YAML
+                导出源码
               </a>
               <a className="btn-ghost" href={`/api/projects/${project.id}/script.md`} download>
-                Markdown
+                导出文稿
               </a>
               <a className="btn-ghost" href={`/api/projects/${project.id}/script.json`} download>
-                JSON
+                导出数据
               </a>
             </>
           )}
@@ -96,31 +96,31 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      <section className="grid gap-4 md:grid-cols-4">
+      <section className="grid gap-3 md:grid-cols-4">
         <InfoCard label="状态" value={formatStatus(project.status)} />
         <InfoCard label="章节" value={project.chapter_count} />
         <InfoCard label="版本" value={project.version_count} />
         <InfoCard
           label="校验"
-          value={project.latest_version?.validation_status ?? "暂无版本"}
+          value={project.latest_version ? formatValidation(project.latest_version.validation_status) : "暂无版本"}
         />
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[1fr_360px]">
-        <div className="card">
-          <div className="mb-4 flex items-center justify-between">
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="panel overflow-hidden">
+          <div className="panel-header flex items-center justify-between">
             <h2 className="text-base font-semibold">章节</h2>
             <span className="text-xs text-ink-500">{project.chapter_count} 章</span>
           </div>
-          <ul className="space-y-2">
+          <ul className="divide-y divide-ink-600/30">
             {project.chapters.map((chapter) => (
               <li
                 key={chapter.id}
-                className="flex items-center justify-between gap-3 rounded border border-white/10 bg-white/[0.02] px-3 py-2"
+                className="flex items-center justify-between gap-3 px-4 py-3"
               >
                 <div>
                   <div className="text-sm text-ink-100">{chapter.title}</div>
-                  <div className="mt-1 font-mono text-xs text-ink-500">{chapter.id}</div>
+                  <div className="mt-1 text-xs text-ink-500">原文素材</div>
                 </div>
                 <span className="text-xs text-ink-400">{chapter.word_count} 字</span>
               </li>
@@ -129,54 +129,53 @@ export default function ProjectDetailPage() {
         </div>
 
         <aside className="space-y-4">
-          <div className="card">
+          <div className="panel">
+            <div className="panel-header">
             <h2 className="text-base font-semibold">最近版本</h2>
+            </div>
             {project.latest_version ? (
-              <div className="mt-3 space-y-2 text-sm">
-                <div className="font-mono text-xs text-ink-400">
-                  {project.latest_version.id}
-                </div>
-                <div>标签：{project.latest_version.label || formatSource(project.latest_version.source_type)}</div>
+              <div className="panel-body space-y-2 text-sm">
+                <div>标签：{formatVersionLabel(project.latest_version.label, project.latest_version.source_type)}</div>
                 <div>来源：{formatSource(project.latest_version.source_type)}</div>
-                <div>状态：{project.latest_version.validation_status}</div>
+                <div>状态：{formatValidation(project.latest_version.validation_status)}</div>
                 <div className="text-ink-400">
                   创建于 {formatDate(project.latest_version.created_at)}
                 </div>
               </div>
             ) : (
-              <p className="mt-3 text-sm text-ink-400">生成或保存后会出现版本。</p>
+              <p className="panel-body text-sm text-ink-400">生成或保存后会出现版本。</p>
             )}
           </div>
 
-          <div className="card">
+          <div className="panel">
+            <div className="panel-header">
             <h2 className="text-base font-semibold">最近任务</h2>
+            </div>
             {project.latest_run ? (
-              <div className="mt-3 space-y-2 text-sm">
-                <div className="font-mono text-xs text-ink-400">{project.latest_run.id}</div>
+              <div className="panel-body space-y-3 text-sm">
                 <div>
-                  {project.latest_run.status} · {project.latest_run.progress}%
+                  {formatRunStatus(project.latest_run.status)} · {project.latest_run.progress}%
                 </div>
                 <Link href={`/runs/${project.latest_run.id}`} className="btn-ghost mt-2 w-full">
                   查看进度
                 </Link>
               </div>
             ) : (
-              <p className="mt-3 text-sm text-ink-400">暂无生成任务。</p>
+              <p className="panel-body text-sm text-ink-400">暂无生成任务。</p>
             )}
           </div>
 
-          <div className="card">
+          <div className="panel">
+            <div className="panel-header">
             <h2 className="text-base font-semibold">修改记录</h2>
+            </div>
             {edits.length > 0 ? (
-              <ul className="mt-3 space-y-3 text-sm">
+              <ul className="panel-body space-y-3 text-sm">
                 {edits.map((event) => (
                   <li key={event.id} className="border-t border-white/10 pt-3 first:border-t-0 first:pt-0">
                     <div className="flex items-center justify-between gap-3">
                       <span>{formatEditType(event.edit_type)}</span>
                       <span className="text-xs text-ink-500">{formatDate(event.created_at)}</span>
-                    </div>
-                    <div className="mt-1 font-mono text-xs text-ink-500">
-                      {event.version_id ?? event.target_path}
                     </div>
                     {event.note && (
                       <div className="mt-1 line-clamp-2 text-xs text-ink-400">{event.note}</div>
@@ -185,7 +184,7 @@ export default function ProjectDetailPage() {
                 ))}
               </ul>
             ) : (
-              <p className="mt-3 text-sm text-ink-400">暂无修改记录。</p>
+              <p className="panel-body text-sm text-ink-400">暂无修改记录。</p>
             )}
           </div>
         </aside>
@@ -196,7 +195,7 @@ export default function ProjectDetailPage() {
 
 function InfoCard({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="card">
+    <div className="panel p-4">
       <div className="text-xs text-ink-500">{label}</div>
       <div className="mt-2 text-lg font-semibold">{value}</div>
     </div>
@@ -235,6 +234,44 @@ function formatSource(value: string) {
       restore: "历史恢复",
       repair: "自动修复",
       import: "导入",
+    }[value] ?? value
+  );
+}
+
+function formatVersionLabel(label: string | null, sourceType: string) {
+  if (label === "AI generated draft") return "AI 生成初稿";
+  return label || formatSource(sourceType);
+}
+
+function formatLanguage(value: string) {
+  return (
+    {
+      "zh-CN": "简体中文",
+      "zh-TW": "繁体中文",
+      "en-US": "英文",
+      "ja-JP": "日文",
+      "ko-KR": "韩文",
+      auto: "自动检测",
+    }[value] ?? value
+  );
+}
+
+function formatValidation(value: string) {
+  return (
+    {
+      valid: "校验通过",
+      invalid: "待处理",
+    }[value] ?? value
+  );
+}
+
+function formatRunStatus(value: string) {
+  return (
+    {
+      queued: "排队中",
+      running: "生成中",
+      done: "已完成",
+      failed: "失败",
     }[value] ?? value
   );
 }

@@ -19,11 +19,12 @@ export default function DashboardPage() {
   }, []);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">项目</h1>
-          <p className="mt-1 text-sm text-ink-400">管理剧本项目、生成结果和版本历史。</p>
+          <div className="text-sm text-ink-400">工作台</div>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight">项目看板</h1>
+          <p className="mt-1 text-sm text-ink-400">管理剧本项目、生成结果、版本历史和导出入口。</p>
         </div>
         <Link href="/new" className="btn-primary">
           新建项目
@@ -49,7 +50,14 @@ export default function DashboardPage() {
           </Link>
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="panel overflow-hidden">
+          <div className="grid grid-cols-[minmax(0,1.5fr)_120px_100px_100px_220px] gap-4 border-b border-ink-600/30 px-4 py-3 text-xs text-ink-500 max-lg:hidden">
+            <div>项目</div>
+            <div>状态</div>
+            <div>章节</div>
+            <div>版本</div>
+            <div>操作</div>
+          </div>
           {projects.map((project) => (
             <ProjectCard key={project.id} project={project} />
           ))}
@@ -61,48 +69,46 @@ export default function DashboardPage() {
 
 function ProjectCard({ project }: { project: ProjectSummary }) {
   return (
-    <div className="card space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
+    <div className="grid gap-3 border-b border-ink-600/30 px-4 py-4 last:border-b-0 lg:grid-cols-[minmax(0,1.5fr)_120px_100px_100px_220px] lg:items-center">
+      <div className="min-w-0">
+        <div className="flex items-start justify-between gap-3 lg:block">
           <Link
             href={`/projects/${project.id}`}
             className="text-lg font-semibold text-ink-50 hover:text-accent-400"
           >
             {project.title}
           </Link>
-          <div className="mt-1 text-xs text-ink-500">{project.id}</div>
+          <div className="mt-1 text-sm text-ink-400">
+            {formatAdaptation(project.adaptation_type)} · 更新于 {formatDate(project.updated_at)}
+          </div>
+          <div className="lg:hidden">
+            <StatusPill value={project.status} />
+          </div>
         </div>
+      </div>
+
+      <div className="hidden lg:block">
         <StatusPill value={project.status} />
       </div>
-
-      <div className="grid grid-cols-3 gap-3 text-sm">
-        <Metric label="章节" value={project.chapter_count} />
-        <Metric label="版本" value={project.version_count} />
-        <Metric label="类型" value={formatAdaptation(project.adaptation_type)} />
+      <Metric label="章节" value={project.chapter_count} />
+      <Metric label="版本" value={project.version_count} />
+      <div className="text-sm text-ink-400 max-lg:rounded-md max-lg:border max-lg:border-ink-600/30 max-lg:bg-ink-900/50 max-lg:p-3 lg:col-span-4 lg:col-start-1 lg:mt-[-10px]">
+        {project.latest_version
+          ? `当前版本：${formatVersionLabel(project.latest_version.label, project.latest_version.source_type)} · ${formatValidation(project.latest_version.validation_status)}`
+          : "暂无剧本版本"}
       </div>
-
-      {project.latest_version && (
-        <div className="rounded border border-white/10 bg-white/[0.02] px-3 py-2 text-xs text-ink-400">
-          当前版本：{project.latest_version.label || formatSource(project.latest_version.source_type)}
-          <span className="ml-2 text-ink-500">({project.latest_version.validation_status})</span>
-        </div>
-      )}
-
-      <div className="flex items-center justify-between gap-3 border-t border-ink-600/30 pt-4 text-xs text-ink-400">
-        <span>更新于 {formatDate(project.updated_at)}</span>
-        <div className="flex gap-2">
-          <Link href={`/projects/${project.id}`} className="btn-ghost px-3 py-1.5 text-xs">
-            详情
+      <div className="flex flex-wrap gap-2 lg:col-start-5 lg:row-start-1">
+        <Link href={`/projects/${project.id}`} className="btn-ghost px-3 py-1.5 text-xs">
+          详情
+        </Link>
+        {project.version_count > 0 && (
+          <Link
+            href={`/projects/${project.id}/edit`}
+            className="btn-primary px-3 py-1.5 text-xs"
+          >
+            编辑
           </Link>
-          {project.version_count > 0 && (
-            <Link
-              href={`/projects/${project.id}/edit`}
-              className="btn-primary px-3 py-1.5 text-xs"
-            >
-              编辑
-            </Link>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );
@@ -110,7 +116,7 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
 
 function Metric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div>
+    <div className="text-sm">
       <div className="text-xs text-ink-500">{label}</div>
       <div className="mt-1 font-medium text-ink-100">{value}</div>
     </div>
@@ -163,6 +169,20 @@ function formatSource(value: string) {
       restore: "历史恢复",
       repair: "自动修复",
       import: "导入",
+    }[value] ?? value
+  );
+}
+
+function formatVersionLabel(label: string | null, sourceType: string) {
+  if (label === "AI generated draft") return "AI 生成初稿";
+  return label || formatSource(sourceType);
+}
+
+function formatValidation(value: string) {
+  return (
+    {
+      valid: "校验通过",
+      invalid: "待处理",
     }[value] ?? value
   );
 }
