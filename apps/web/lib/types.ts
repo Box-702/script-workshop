@@ -80,3 +80,29 @@ export interface ScriptVersionSummary {
 export interface ScriptVersionDetail extends ScriptVersionSummary {
   yaml_content: string;
 }
+
+export interface ProjectRunSummary {
+  id: string;
+  status: RunStatus;
+  current_step: string;
+  progress: number;
+  created_at: string;
+}
+
+export interface ProjectSummary {
+  id: string;
+  title: string;
+  adaptation_type: AdaptationType;
+  language: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  chapter_count: number;
+  version_count: number;
+  latest_version: ScriptVersionSummary | null;
+  latest_run: ProjectRunSummary | null;
+}
+
+export interface ProjectDetail extends ProjectSummary {
+  chapters: ChapterOut[];
+}

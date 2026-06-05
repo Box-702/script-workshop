@@ -247,15 +247,42 @@ class ChapterOut(BaseModel):
     order_index: int
 
 
-class ProjectOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class ScriptVersionOut(BaseModel):
+    id: str
+    project_id: str
+    validation_status: str
+    validation_errors: list[dict] | None = None
+    created_at: str
 
+
+class ScriptVersionDetail(ScriptVersionOut):
+    yaml_content: str
+
+
+class ProjectRunSummary(BaseModel):
+    id: str
+    status: RunStatus
+    current_step: str
+    progress: int
+    created_at: str
+
+
+class ProjectOut(BaseModel):
     id: str
     title: str
     adaptation_type: str
+    language: str
     status: str
     created_at: str
-    chapter_count: int
+    updated_at: str
+    chapter_count: int = 0
+    version_count: int = 0
+    latest_version: ScriptVersionOut | None = None
+    latest_run: ProjectRunSummary | None = None
+
+
+class ProjectDetail(ProjectOut):
+    chapters: list[ChapterOut] = Field(default_factory=list)
 
 
 class ProjectCreateResponse(BaseModel):
@@ -307,18 +334,6 @@ class RepairResponse(BaseModel):
 
 class ScriptVersionSaveRequest(BaseModel):
     yaml: str = Field(min_length=1)
-
-
-class ScriptVersionOut(BaseModel):
-    id: str
-    project_id: str
-    validation_status: str
-    validation_errors: list[dict] | None = None
-    created_at: str
-
-
-class ScriptVersionDetail(ScriptVersionOut):
-    yaml_content: str
 
 
 # ===== Script domain models (mirror JSON Schema) =====

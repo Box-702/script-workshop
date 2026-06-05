@@ -1,5 +1,7 @@
 import type {
+  ProjectDetail,
   ProjectCreateResponse,
+  ProjectSummary,
   RepairResponse,
   RunOut,
   ScriptVersionDetail,
@@ -22,6 +24,11 @@ async function jfetch<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  listProjects: () => jfetch<ProjectSummary[]>("/api/projects"),
+
+  getProject: (projectId: string) =>
+    jfetch<ProjectDetail>(`/api/projects/${projectId}`),
+
   createProject: (body: {
     title: string;
     raw_text: string;

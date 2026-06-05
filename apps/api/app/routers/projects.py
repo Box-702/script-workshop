@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException
+from sqlalchemy.orm import Session
 
 from .. import db as dbm
 from ..chunking import split_chapters
@@ -21,7 +22,11 @@ from ..schemas import (
     GenerateAccepted,
     ProjectCreate,
     ProjectCreateResponse,
+    ProjectDetail,
+    ProjectOut,
+    ProjectRunSummary,
     RunOut,
+    ScriptVersionOut,
 )
 from .deps import DbSession
 
@@ -36,6 +41,78 @@ class LLMRunOptions:
     openai_base_url: str = ""
     openai_model: str = ""
     language: str = ""
+
+
+def _version_out(version: dbm.ScriptVersion | None) -> ScriptVersionOut | None:
+    if version is None:
+        return None
+    return ScriptVersionOut(
+        id=version.id,
+        project_id=version.project_id,
+        validation_status=version.validation_status,
+        validation_errors=version.validation_errors,
+        created_at=version.created_at.isoformat(),
+    )
+
+
+def _run_summary(run: dbm.GenerationRun | None) -> ProjectRunSummary | None:
+    if run is None:
+        return None
+    return ProjectRunSummary(
+        id=run.id,
+        status=run.status,
+        current_step=run.current_step,
+        progress=run.progress,
+        created_at=run.created_at.isoformat(),
+    )
+
+
+def _latest_version(db: Session, project_id: str) -> dbm.ScriptVersion | None:
+    return (
+        db.query(dbm.ScriptVersion)
+        .filter_by(project_id=project_id)
+        .order_by(dbm.ScriptVersion.created_at.desc())
+        .first()
+    )
+
+
+def _latest_run(db: Session, project_id: str) -> dbm.GenerationRun | None:
+    return (
+        db.query(dbm.GenerationRun)
+        .filter_by(project_id=project_id)
+        .order_by(dbm.GenerationRun.created_at.desc())
+        .first()
+    )
+
+
+def _project_out(db: Session, project: dbm.Project) -> ProjectOut:
+    return ProjectOut(
+        id=project.id,
+        title=project.title,
+        adaptation_type=project.adaptation_type,
+        language=project.language,
+        status=project.status,
+        created_at=project.created_at.isoformat(),
+        updated_at=project.updated_at.isoformat(),
+        chapter_count=len(project.chapters),
+        version_count=len(project.versions),
+        latest_version=_version_out(_latest_version(db, project.id)),
+        latest_run=_run_summary(_latest_run(db, project.id)),
+    )
+
+
+def _project_detail(db: Session, project: dbm.Project) -> ProjectDetail:
+    base = _project_out(db, project)
+    chapters = [
+        ChapterOut(
+            id=chapter.id,
+            title=chapter.title,
+            word_count=len(chapter.content),
+            order_index=chapter.order_index,
+        )
+        for chapter in sorted(project.chapters, key=lambda item: item.order_index)
+    ]
+    return ProjectDetail(**base.model_dump(), chapters=chapters)
 
 
 def _provider_from_options(options: LLMRunOptions) -> LLMProvider:
@@ -65,6 +142,12 @@ def _provider_from_options(options: LLMRunOptions) -> LLMProvider:
         model=options.openai_model or None,
         language=options.language or None,
     )
+
+
+@router.get("/projects", response_model=list[ProjectOut])
+def list_projects(db: DbSession) -> list[ProjectOut]:
+    projects = db.query(dbm.Project).order_by(dbm.Project.updated_at.desc()).all()
+    return [_project_out(db, project) for project in projects]
 
 
 @router.post("/projects", response_model=ProjectCreateResponse)
@@ -111,6 +194,14 @@ def create_project(payload: ProjectCreate, db: DbSession) -> Any:
             for ch in project.chapters
         ],
     )
+
+
+@router.get("/projects/{project_id}", response_model=ProjectDetail)
+def get_project(project_id: str, db: DbSession) -> ProjectDetail:
+    project = db.get(dbm.Project, project_id)
+    if not project:
+        raise HTTPException(404, "project not found")
+    return _project_detail(db, project)
 
 
 @router.post("/projects/{project_id}/generate", response_model=GenerateAccepted)
