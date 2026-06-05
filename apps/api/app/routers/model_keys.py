@@ -6,7 +6,6 @@ from fastapi import APIRouter
 from .. import db as dbm
 from ..schemas import ModelKeyCreate, ModelKeyOut, ModelKeyTestResponse
 from ..services.model_keys import (
-    LOCAL_USER_ID,
     create_model_key,
     decrypt_model_key,
     get_active_model_key,
@@ -14,7 +13,7 @@ from ..services.model_keys import (
     list_model_keys,
     revoke_model_key,
 )
-from .deps import DbSession
+from .deps import CurrentUser, DbSession
 
 router = APIRouter(prefix="/api", tags=["model-keys"])
 
@@ -33,15 +32,17 @@ def _key_out(key: dbm.UserModelKey) -> ModelKeyOut:
 
 
 @router.get("/user/model-keys", response_model=list[ModelKeyOut])
-def get_model_keys(db: DbSession) -> list[ModelKeyOut]:
-    return [_key_out(key) for key in list_model_keys(db, user_id=LOCAL_USER_ID)]
+def get_model_keys(db: DbSession, current_user: CurrentUser) -> list[ModelKeyOut]:
+    return [_key_out(key) for key in list_model_keys(db, user_id=current_user.id)]
 
 
 @router.post("/user/model-keys", response_model=ModelKeyOut)
-def save_model_key(payload: ModelKeyCreate, db: DbSession) -> ModelKeyOut:
+def save_model_key(
+    payload: ModelKeyCreate, db: DbSession, current_user: CurrentUser
+) -> ModelKeyOut:
     key = create_model_key(
         db,
-        user_id=LOCAL_USER_ID,
+        user_id=current_user.id,
         provider=payload.provider,
         api_key=payload.api_key,
         base_url=payload.base_url,
@@ -51,21 +52,25 @@ def save_model_key(payload: ModelKeyCreate, db: DbSession) -> ModelKeyOut:
 
 
 @router.get("/user/model-keys/active", response_model=ModelKeyOut | None)
-def get_active_key(db: DbSession) -> ModelKeyOut | None:
-    key = get_active_model_key(db, user_id=LOCAL_USER_ID)
+def get_active_key(db: DbSession, current_user: CurrentUser) -> ModelKeyOut | None:
+    key = get_active_model_key(db, user_id=current_user.id)
     return _key_out(key) if key else None
 
 
 @router.delete("/user/model-keys/{key_id}", response_model=ModelKeyTestResponse)
-def delete_model_key(key_id: str, db: DbSession) -> ModelKeyTestResponse:
-    revoke_model_key(db, key_id, user_id=LOCAL_USER_ID)
+def delete_model_key(
+    key_id: str, db: DbSession, current_user: CurrentUser
+) -> ModelKeyTestResponse:
+    revoke_model_key(db, key_id, user_id=current_user.id)
     return ModelKeyTestResponse(ok=True, message="model key revoked")
 
 
 @router.post("/user/model-keys/{key_id}/test", response_model=ModelKeyTestResponse)
-def test_model_key(key_id: str, db: DbSession) -> ModelKeyTestResponse:
+def test_model_key(
+    key_id: str, db: DbSession, current_user: CurrentUser
+) -> ModelKeyTestResponse:
     key = db.get(dbm.UserModelKey, key_id)
-    if not key or key.user_id != LOCAL_USER_ID or key.status != "active":
+    if not key or key.user_id != current_user.id or key.status != "active":
         return ModelKeyTestResponse(ok=False, message="model key not found")
     decrypted = decrypt_model_key(key)
     if not is_plausible_api_key(decrypted.api_key):

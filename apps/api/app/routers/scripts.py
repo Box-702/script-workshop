@@ -23,7 +23,7 @@ from ..services.versions import (
     restore_version,
 )
 from ..yaml_io import to_yaml
-from .deps import DbSession
+from .deps import CurrentUser, DbSession
 
 router = APIRouter(prefix="/api", tags=["scripts"])
 
@@ -67,8 +67,8 @@ def _edit_event_out(event: dbm.EditEvent) -> EditEventOut:
 
 
 @router.get("/projects/{project_id}/script.yaml")
-def get_latest_yaml(project_id: str, db: DbSession) -> Any:
-    get_project_or_404(db, project_id)
+def get_latest_yaml(project_id: str, db: DbSession, current_user: CurrentUser) -> Any:
+    get_project_or_404(db, project_id, user_id=current_user.id)
     version = latest_version(db, project_id)
     if not version:
         raise HTTPException(404, "no script version yet")
@@ -76,8 +76,8 @@ def get_latest_yaml(project_id: str, db: DbSession) -> Any:
 
 
 @router.get("/projects/{project_id}/script.json")
-def get_latest_json(project_id: str, db: DbSession) -> Any:
-    get_project_or_404(db, project_id)
+def get_latest_json(project_id: str, db: DbSession, current_user: CurrentUser) -> Any:
+    get_project_or_404(db, project_id, user_id=current_user.id)
     version = latest_version(db, project_id)
     if not version:
         raise HTTPException(404, "no script version yet")
@@ -85,8 +85,8 @@ def get_latest_json(project_id: str, db: DbSession) -> Any:
 
 
 @router.get("/projects/{project_id}/script.md")
-def get_latest_markdown(project_id: str, db: DbSession) -> Any:
-    get_project_or_404(db, project_id)
+def get_latest_markdown(project_id: str, db: DbSession, current_user: CurrentUser) -> Any:
+    get_project_or_404(db, project_id, user_id=current_user.id)
     version = latest_version(db, project_id)
     if not version:
         raise HTTPException(404, "no script version yet")
@@ -94,8 +94,10 @@ def get_latest_markdown(project_id: str, db: DbSession) -> Any:
 
 
 @router.get("/projects/{project_id}/versions", response_model=list[ScriptVersionOut])
-def list_versions(project_id: str, db: DbSession) -> list[ScriptVersionOut]:
-    get_project_or_404(db, project_id)
+def list_versions(
+    project_id: str, db: DbSession, current_user: CurrentUser
+) -> list[ScriptVersionOut]:
+    get_project_or_404(db, project_id, user_id=current_user.id)
     versions = (
         db.query(dbm.ScriptVersion)
         .filter_by(project_id=project_id)
@@ -106,8 +108,10 @@ def list_versions(project_id: str, db: DbSession) -> list[ScriptVersionOut]:
 
 
 @router.get("/projects/{project_id}/edits", response_model=list[EditEventOut])
-def list_edit_events(project_id: str, db: DbSession, limit: int = 50) -> list[EditEventOut]:
-    get_project_or_404(db, project_id)
+def list_edit_events(
+    project_id: str, db: DbSession, current_user: CurrentUser, limit: int = 50
+) -> list[EditEventOut]:
+    get_project_or_404(db, project_id, user_id=current_user.id)
     safe_limit = max(1, min(limit, 200))
     events = (
         db.query(dbm.EditEvent)
@@ -121,9 +125,12 @@ def list_edit_events(project_id: str, db: DbSession, limit: int = 50) -> list[Ed
 
 @router.post("/projects/{project_id}/versions", response_model=ScriptVersionDetail)
 def save_version(
-    project_id: str, payload: ScriptVersionSaveRequest, db: DbSession
+    project_id: str,
+    payload: ScriptVersionSaveRequest,
+    db: DbSession,
+    current_user: CurrentUser,
 ) -> ScriptVersionDetail:
-    project = get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id, user_id=current_user.id)
     version = create_version_from_yaml(
         db,
         project,
@@ -137,9 +144,12 @@ def save_version(
 
 @router.post("/projects/{project_id}/versions/json", response_model=ScriptVersionDetail)
 def save_version_json(
-    project_id: str, payload: ScriptVersionJsonSaveRequest, db: DbSession
+    project_id: str,
+    payload: ScriptVersionJsonSaveRequest,
+    db: DbSession,
+    current_user: CurrentUser,
 ) -> ScriptVersionDetail:
-    project = get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id, user_id=current_user.id)
     version = create_version_from_yaml(
         db,
         project,
@@ -157,30 +167,36 @@ def save_version_json(
     response_model=ScriptVersionDetail,
 )
 def get_version(
-    project_id: str, version_id: str, db: DbSession
+    project_id: str, version_id: str, db: DbSession, current_user: CurrentUser
 ) -> ScriptVersionDetail:
-    get_project_or_404(db, project_id)
+    get_project_or_404(db, project_id, user_id=current_user.id)
     version = get_version_or_404(db, project_id, version_id)
     return _version_detail(version)
 
 
 @router.get("/projects/{project_id}/versions/{version_id}/script.yaml")
-def get_version_yaml(project_id: str, version_id: str, db: DbSession) -> Any:
-    get_project_or_404(db, project_id)
+def get_version_yaml(
+    project_id: str, version_id: str, db: DbSession, current_user: CurrentUser
+) -> Any:
+    get_project_or_404(db, project_id, user_id=current_user.id)
     version = get_version_or_404(db, project_id, version_id)
     return PlainTextResponse(version.yaml_content, media_type="text/yaml")
 
 
 @router.get("/projects/{project_id}/versions/{version_id}/script.json")
-def get_version_json(project_id: str, version_id: str, db: DbSession) -> Any:
-    get_project_or_404(db, project_id)
+def get_version_json(
+    project_id: str, version_id: str, db: DbSession, current_user: CurrentUser
+) -> Any:
+    get_project_or_404(db, project_id, user_id=current_user.id)
     version = get_version_or_404(db, project_id, version_id)
     return Response(script_to_json_text(version.json_content), media_type="application/json")
 
 
 @router.get("/projects/{project_id}/versions/{version_id}/script.md")
-def get_version_markdown(project_id: str, version_id: str, db: DbSession) -> Any:
-    get_project_or_404(db, project_id)
+def get_version_markdown(
+    project_id: str, version_id: str, db: DbSession, current_user: CurrentUser
+) -> Any:
+    get_project_or_404(db, project_id, user_id=current_user.id)
     version = get_version_or_404(db, project_id, version_id)
     return PlainTextResponse(script_to_markdown(version.json_content), media_type="text/markdown")
 
@@ -190,9 +206,9 @@ def get_version_markdown(project_id: str, version_id: str, db: DbSession) -> Any
     response_model=ScriptVersionDetail,
 )
 def restore_script_version(
-    project_id: str, version_id: str, db: DbSession
+    project_id: str, version_id: str, db: DbSession, current_user: CurrentUser
 ) -> ScriptVersionDetail:
-    project = get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id, user_id=current_user.id)
     version = get_version_or_404(db, project_id, version_id)
     restored = restore_version(db, project, version)
     return _version_detail(restored)

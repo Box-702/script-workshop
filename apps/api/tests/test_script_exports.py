@@ -97,3 +97,28 @@ def test_save_structured_json_creates_version():
     assert "Structured Save" in saved.json()["yaml_content"]
     latest = client.get(f"/api/projects/{project.id}/script.json")
     assert latest.json()["script"]["title"] == "Structured Save"
+
+
+def test_script_routes_hide_other_users_projects():
+    db = _session()
+    project = Project(
+        id="proj_private",
+        owner_id="user_b",
+        title="Private",
+        adaptation_type="short_drama",
+    )
+    db.add(project)
+    db.commit()
+    version = create_version_from_yaml(db, project, VALID_SCRIPT_YAML)
+    client = _client(db)
+    headers = {"X-Dev-User-Id": "user_a"}
+
+    assert client.get(f"/api/projects/{project.id}/script.json", headers=headers).status_code == 404
+    assert client.get(f"/api/projects/{project.id}/versions", headers=headers).status_code == 404
+    assert (
+        client.get(
+            f"/api/projects/{project.id}/versions/{version.id}/script.md",
+            headers=headers,
+        ).status_code
+        == 404
+    )

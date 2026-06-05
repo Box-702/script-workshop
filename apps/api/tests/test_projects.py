@@ -185,3 +185,35 @@ def test_delete_project_removes_project_assets():
     assert db.query(GenerationRun).count() == 0
     assert db.query(ScriptVersion).count() == 0
     assert db.query(EditEvent).count() == 0
+
+
+def test_project_routes_are_scoped_to_current_user():
+    db = _session()
+    own = Project(
+        id="proj_own",
+        owner_id="user_a",
+        title="Own",
+        adaptation_type="short_drama",
+        language="en-US",
+    )
+    other = Project(
+        id="proj_other",
+        owner_id="user_b",
+        title="Other",
+        adaptation_type="short_drama",
+        language="en-US",
+    )
+    db.add_all([own, other])
+    db.commit()
+    client = _client(db)
+
+    listed = client.get("/api/projects", headers={"X-Dev-User-Id": "user_a"})
+
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()] == ["proj_own"]
+
+    own_detail = client.get("/api/projects/proj_own", headers={"X-Dev-User-Id": "user_a"})
+    other_detail = client.get("/api/projects/proj_other", headers={"X-Dev-User-Id": "user_a"})
+
+    assert own_detail.status_code == 200
+    assert other_detail.status_code == 404

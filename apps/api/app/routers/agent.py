@@ -22,7 +22,7 @@ from ..services.agent import (
     retry_agent_run,
 )
 from ..services.versions import get_project_or_404
-from .deps import DbSession
+from .deps import CurrentUser, DbSession
 from .projects import LLMRunOptions, _fill_options_from_saved_key, _provider_from_options
 
 router = APIRouter(prefix="/api", tags=["agent"])
@@ -70,6 +70,7 @@ def _agent_run_out(run: dbm.AgentRun) -> AgentRunOut:
 def _agent_provider_from_headers(
     db: DbSession,
     *,
+    user_id: str,
     language: str,
     llm_provider: str | None,
     openai_api_key: str | None,
@@ -83,7 +84,7 @@ def _agent_provider_from_headers(
         openai_model=openai_model or "",
         language=language,
     )
-    options = _fill_options_from_saved_key(db, options)
+    options = _fill_options_from_saved_key(db, options, user_id=user_id)
     if options.openai_api_key.strip() or get_settings().openai_api_key.strip():
         try:
             return _provider_from_options(options), None
@@ -92,19 +93,29 @@ def _agent_provider_from_headers(
     return None, "未配置模型 key，已使用本地改编建议。"
 
 
+def _agent_run_for_user_or_404(
+    db: DbSession, run_id: str, user_id: str
+) -> dbm.AgentRun:
+    run = get_agent_run_or_404(db, run_id)
+    get_project_or_404(db, run.project_id, user_id=user_id)
+    return run
+
+
 @router.post("/projects/{project_id}/agent/adapt", response_model=AgentRunOut)
 def adapt_project(
     project_id: str,
     payload: AgentAdaptRequest,
     db: DbSession,
+    current_user: CurrentUser,
     llm_provider: Annotated[str | None, Header(alias="X-LLM-Provider")] = None,
     openai_api_key: Annotated[str | None, Header(alias="X-OpenAI-API-Key")] = None,
     openai_base_url: Annotated[str | None, Header(alias="X-OpenAI-Base-URL")] = None,
     openai_model: Annotated[str | None, Header(alias="X-OpenAI-Model")] = None,
 ) -> AgentRunOut:
-    project = get_project_or_404(db, project_id)
+    project = get_project_or_404(db, project_id, user_id=current_user.id)
     provider, provider_error = _agent_provider_from_headers(
         db,
+        user_id=current_user.id,
         language=project.language or "",
         llm_provider=llm_provider,
         openai_api_key=openai_api_key,
@@ -118,9 +129,9 @@ def adapt_project(
 
 @router.get("/projects/{project_id}/agent-runs", response_model=list[AgentRunOut])
 def list_project_agent_runs(
-    project_id: str, db: DbSession, limit: int = 20
+    project_id: str, db: DbSession, current_user: CurrentUser, limit: int = 20
 ) -> list[AgentRunOut]:
-    get_project_or_404(db, project_id)
+    get_project_or_404(db, project_id, user_id=current_user.id)
     safe_limit = max(1, min(limit, 100))
     runs = (
         db.query(dbm.AgentRun)
@@ -133,40 +144,51 @@ def list_project_agent_runs(
 
 
 @router.get("/agent-runs/{run_id}", response_model=AgentRunOut)
-def get_agent_run(run_id: str, db: DbSession) -> AgentRunOut:
-    return _agent_run_out(get_agent_run_or_404(db, run_id))
+def get_agent_run(
+    run_id: str, db: DbSession, current_user: CurrentUser
+) -> AgentRunOut:
+    return _agent_run_out(_agent_run_for_user_or_404(db, run_id, current_user.id))
 
 
 @router.post("/agent-runs/{run_id}/accept", response_model=ScriptVersionDetail)
 def accept_agent_run_endpoint(
-    run_id: str, db: DbSession, payload: AgentAcceptRequest | None = None
+    run_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    payload: AgentAcceptRequest | None = None,
 ) -> ScriptVersionDetail:
     version = accept_agent_run(
         db,
-        get_agent_run_or_404(db, run_id),
+        _agent_run_for_user_or_404(db, run_id, current_user.id),
         patch_indexes=payload.patch_indexes if payload else None,
     )
     return _version_detail(version)
 
 
 @router.post("/agent-runs/{run_id}/reject", response_model=AgentRunOut)
-def reject_agent_run_endpoint(run_id: str, db: DbSession) -> AgentRunOut:
-    return _agent_run_out(reject_agent_run(db, get_agent_run_or_404(db, run_id)))
+def reject_agent_run_endpoint(
+    run_id: str, db: DbSession, current_user: CurrentUser
+) -> AgentRunOut:
+    return _agent_run_out(
+        reject_agent_run(db, _agent_run_for_user_or_404(db, run_id, current_user.id))
+    )
 
 
 @router.post("/agent-runs/{run_id}/retry", response_model=AgentRunOut)
 def retry_agent_run_endpoint(
     run_id: str,
     db: DbSession,
+    current_user: CurrentUser,
     llm_provider: Annotated[str | None, Header(alias="X-LLM-Provider")] = None,
     openai_api_key: Annotated[str | None, Header(alias="X-OpenAI-API-Key")] = None,
     openai_base_url: Annotated[str | None, Header(alias="X-OpenAI-Base-URL")] = None,
     openai_model: Annotated[str | None, Header(alias="X-OpenAI-Model")] = None,
 ) -> AgentRunOut:
-    run = get_agent_run_or_404(db, run_id)
-    project = get_project_or_404(db, run.project_id)
+    run = _agent_run_for_user_or_404(db, run_id, current_user.id)
+    project = get_project_or_404(db, run.project_id, user_id=current_user.id)
     provider, provider_error = _agent_provider_from_headers(
         db,
+        user_id=current_user.id,
         language=project.language or "",
         llm_provider=llm_provider,
         openai_api_key=openai_api_key,

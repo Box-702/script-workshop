@@ -12,9 +12,11 @@ from ..yaml_io import from_yaml
 from .edit_events import record_edit_event
 
 
-def get_project_or_404(db: Session, project_id: str) -> dbm.Project:
+def get_project_or_404(
+    db: Session, project_id: str, *, user_id: str | None = None
+) -> dbm.Project:
     project = db.get(dbm.Project, project_id)
-    if not project:
+    if not project or (user_id is not None and project.owner_id != user_id):
         raise HTTPException(404, "project not found")
     return project
 

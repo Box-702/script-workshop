@@ -105,6 +105,30 @@ def test_create_agent_run_builds_review_patch():
     ]
 
 
+def test_agent_routes_hide_other_users_runs():
+    db = _session()
+    project = Project(
+        id="proj_private",
+        owner_id="user_b",
+        title="Private",
+        adaptation_type="short_drama",
+    )
+    db.add(project)
+    db.commit()
+    create_version_from_yaml(db, project, VALID_SCRIPT_YAML)
+    run = create_agent_run(
+        db,
+        project,
+        payload=AgentAdaptRequest(instruction="减少解释性对白", scene_ids=[]),
+    )
+    client = _client(db)
+    headers = {"X-Dev-User-Id": "user_a"}
+
+    assert client.get(f"/api/agent-runs/{run.id}", headers=headers).status_code == 404
+    assert client.post(f"/api/agent-runs/{run.id}/accept", headers=headers).status_code == 404
+    assert client.get(f"/api/projects/{project.id}/agent-runs", headers=headers).status_code == 404
+
+
 def test_create_agent_run_can_target_multiple_selected_scenes():
     db = _session()
     project = Project(id="proj_test", title="Test", adaptation_type="short_drama")

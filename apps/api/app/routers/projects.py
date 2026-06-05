@@ -29,13 +29,12 @@ from ..schemas import (
     ScriptVersionOut,
 )
 from ..services.model_keys import (
-    LOCAL_USER_ID,
     decrypt_model_key,
     get_active_model_key,
     is_plausible_api_key,
 )
 from ..services.versions import latest_version
-from .deps import DbSession
+from .deps import CurrentUser, DbSession
 
 router = APIRouter(prefix="/api", tags=["projects"])
 log = logging.getLogger(__name__)
@@ -89,6 +88,15 @@ def _latest_run(db: Session, project_id: str) -> dbm.GenerationRun | None:
         .order_by(dbm.GenerationRun.created_at.desc())
         .first()
     )
+
+
+def get_project_for_user_or_404(
+    db: Session, project_id: str, user_id: str
+) -> dbm.Project:
+    project = db.get(dbm.Project, project_id)
+    if not project or project.owner_id != user_id:
+        raise HTTPException(404, "project not found")
+    return project
 
 
 def _project_out(db: Session, project: dbm.Project) -> ProjectOut:
@@ -160,10 +168,12 @@ def _provider_from_options(options: LLMRunOptions) -> LLMProvider:
     )
 
 
-def _fill_options_from_saved_key(db: Session, options: LLMRunOptions) -> LLMRunOptions:
+def _fill_options_from_saved_key(
+    db: Session, options: LLMRunOptions, *, user_id: str = "local_user"
+) -> LLMRunOptions:
     if options.openai_api_key.strip():
         return options
-    key = get_active_model_key(db, user_id=LOCAL_USER_ID, provider=options.provider)
+    key = get_active_model_key(db, user_id=user_id, provider=options.provider)
     if key is None:
         return options
     decrypted = decrypt_model_key(key)
@@ -177,13 +187,20 @@ def _fill_options_from_saved_key(db: Session, options: LLMRunOptions) -> LLMRunO
 
 
 @router.get("/projects", response_model=list[ProjectOut])
-def list_projects(db: DbSession) -> list[ProjectOut]:
-    projects = db.query(dbm.Project).order_by(dbm.Project.updated_at.desc()).all()
+def list_projects(db: DbSession, current_user: CurrentUser) -> list[ProjectOut]:
+    projects = (
+        db.query(dbm.Project)
+        .filter_by(owner_id=current_user.id)
+        .order_by(dbm.Project.updated_at.desc())
+        .all()
+    )
     return [_project_out(db, project) for project in projects]
 
 
 @router.post("/projects", response_model=ProjectCreateResponse)
-def create_project(payload: ProjectCreate, db: DbSession) -> Any:
+def create_project(
+    payload: ProjectCreate, db: DbSession, current_user: CurrentUser
+) -> Any:
     try:
         chapters = split_chapters(payload.raw_text, min_chapters=3)
     except ValueError as e:
@@ -196,7 +213,7 @@ def create_project(payload: ProjectCreate, db: DbSession) -> Any:
 
     project = dbm.Project(
         id=gen_id("proj"),
-        owner_id="local_user",
+        owner_id=current_user.id,
         title=payload.title,
         adaptation_type=payload.adaptation_type,
         language=payload.language or detect_language(payload.raw_text),
@@ -230,18 +247,16 @@ def create_project(payload: ProjectCreate, db: DbSession) -> Any:
 
 
 @router.get("/projects/{project_id}", response_model=ProjectDetail)
-def get_project(project_id: str, db: DbSession) -> ProjectDetail:
-    project = db.get(dbm.Project, project_id)
-    if not project:
-        raise HTTPException(404, "project not found")
+def get_project(
+    project_id: str, db: DbSession, current_user: CurrentUser
+) -> ProjectDetail:
+    project = get_project_for_user_or_404(db, project_id, current_user.id)
     return _project_detail(db, project)
 
 
 @router.delete("/projects/{project_id}", status_code=204)
-def delete_project(project_id: str, db: DbSession) -> None:
-    project = db.get(dbm.Project, project_id)
-    if not project:
-        raise HTTPException(404, "project not found")
+def delete_project(project_id: str, db: DbSession, current_user: CurrentUser) -> None:
+    project = get_project_for_user_or_404(db, project_id, current_user.id)
     db.delete(project)
     db.commit()
 
@@ -251,14 +266,13 @@ def generate(
     project_id: str,
     background: BackgroundTasks,
     db: DbSession,
+    current_user: CurrentUser,
     llm_provider: Annotated[str | None, Header(alias="X-LLM-Provider")] = None,
     openai_api_key: Annotated[str | None, Header(alias="X-OpenAI-API-Key")] = None,
     openai_base_url: Annotated[str | None, Header(alias="X-OpenAI-Base-URL")] = None,
     openai_model: Annotated[str | None, Header(alias="X-OpenAI-Model")] = None,
 ) -> Any:
-    project = db.get(dbm.Project, project_id)
-    if not project:
-        raise HTTPException(404, "project not found")
+    project = get_project_for_user_or_404(db, project_id, current_user.id)
     if not project.chapters:
         raise HTTPException(400, "project has no chapters")
 
@@ -269,7 +283,7 @@ def generate(
         openai_model=openai_model or "",
         language=project.language or "",
     )
-    options = _fill_options_from_saved_key(db, options)
+    options = _fill_options_from_saved_key(db, options, user_id=current_user.id)
     # Fail fast with a clean HTTP error so the UI can show it. Background task
     # will only run after we've already proved the provider can be built.
     _provider_from_options(options)
@@ -304,10 +318,11 @@ def generate(
 
 
 @router.get("/runs/{run_id}", response_model=RunOut)
-def get_run(run_id: str, db: DbSession) -> Any:
+def get_run(run_id: str, db: DbSession, current_user: CurrentUser) -> Any:
     run = db.get(dbm.GenerationRun, run_id)
     if not run:
         raise HTTPException(404, "run not found")
+    get_project_for_user_or_404(db, run.project_id, current_user.id)
     return RunOut(
         id=run.id,
         project_id=run.project_id,

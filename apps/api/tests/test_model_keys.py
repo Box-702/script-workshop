@@ -169,3 +169,44 @@ def test_model_key_api_lists_active_tests_and_revokes_key():
     listed = client.get("/api/user/model-keys")
     assert listed.status_code == 200
     assert listed.json()[0]["status"] == "revoked"
+
+
+def test_model_key_api_is_scoped_to_current_user():
+    db = _session()
+    create_model_key(
+        db,
+        user_id="user_a",
+        provider="openai",
+        api_key="sk-user-a-secret",
+        base_url="https://api.openai.com/v1",
+        model="gpt-4o-mini",
+    )
+    key_b = create_model_key(
+        db,
+        user_id="user_b",
+        provider="openai",
+        api_key="sk-user-b-secret",
+        base_url="https://example.test/v1",
+        model="gpt-4.1-mini",
+    )
+    client = _client(db)
+
+    listed = client.get("/api/user/model-keys", headers={"X-Dev-User-Id": "user_a"})
+    active = client.get("/api/user/model-keys/active", headers={"X-Dev-User-Id": "user_a"})
+    tested = client.post(
+        f"/api/user/model-keys/{key_b.id}/test",
+        headers={"X-Dev-User-Id": "user_a"},
+    )
+    revoked = client.delete(
+        f"/api/user/model-keys/{key_b.id}",
+        headers={"X-Dev-User-Id": "user_a"},
+    )
+
+    assert listed.status_code == 200
+    assert len(listed.json()) == 1
+    assert listed.json()[0]["key_last4"] == "cret"
+    assert active.status_code == 200
+    assert active.json()["base_url"] == "https://api.openai.com/v1"
+    assert tested.status_code == 200
+    assert tested.json()["ok"] is False
+    assert revoked.status_code == 404
