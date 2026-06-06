@@ -23,37 +23,13 @@
 
 它的核心能力包括：逐场编辑、AI 改编建议、命名快照、结构化 diff、一键回滚、YAML / JSON / Markdown 导出，以及基于 Supabase RLS 的多用户隔离。前端和后端分别作为独立子项目维护，支持本地开发和 Vercel + Render + Supabase 部署。
 
-当前生产环境：
+## 在线体验
 
-- 前端：<https://script-workshop-web.vercel.app>
-- 后端：<https://script-workshop-api.onrender.com>
-- 健康检查：<https://script-workshop-web.vercel.app/api/healthz>
-
----
-
-## 视觉预览
-
-三个核心界面都使用 CSS 变量驱动的 Studio / Paper 双主题系统，并带有轻量进入动画。当前仓库暂不提交二进制截图文件；公开演示前按 [docs/screenshots/RECORDING.md](./docs/screenshots/RECORDING.md) 生成截图和 GIF。
-
-### 主题切换 (Studio / Paper)
-
-切换时，颜色、阴影和边框通过 CSS 变量实时过渡。`[data-ui-style="studio"]` 和 `[data-ui-style="paper"]` 下各定义一套 `--ink-*` / `--accent-*` 变量，组件 class 统一读取变量。Paper 主题下 ink 色阶反转，低编号对应深色文字，以保持浅色主题下的文字对比度。
-
-截图目标：`docs/screenshots/theme-switch.gif`
-
-### 项目看板 (Dashboard)
-
-项目表行使用 stagger 错位进入动画。hover 时背景渐变并增加左侧 padding，让列表行的点击状态更明确。
-
-截图目标：`docs/screenshots/dashboard.png`
-
-### AI 改编助手
-
-AI 改编助手支持结构化 patch 预览、接受 / 拒绝变更、大字号对比预览，以及按角色展示的对话窗口。
-
-截图目标：`docs/screenshots/agent.png`
-
-截图脚本：`pnpm --dir apps/web build && pnpm --dir apps/web start`，然后按 `docs/screenshots/RECORDING.md` 里的步骤录屏。
+| 服务 | 地址 |
+|---|---|
+| 在线应用 | <https://script-workshop-web.vercel.app> |
+| 后端 API | <https://script-workshop-api.onrender.com> |
+| 健康检查 | <https://script-workshop-web.vercel.app/api/healthz> |
 
 ---
 
