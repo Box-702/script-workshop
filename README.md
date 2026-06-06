@@ -2,7 +2,7 @@
 
 > AI 小说转剧本工作台 — 把 3 章以上的小说自动改编为可编辑、可校验、可追溯的结构化剧本初稿。
 
-详细设计：[DESIGN.md](./DESIGN.md) · 架构说明：[docs/architecture.md](./docs/architecture.md) · Schema：[docs/yaml-schema.md](./docs/yaml-schema.md)
+详细设计：[DESIGN.md](./DESIGN.md) · 架构说明：[docs/architecture.md](./docs/architecture.md) · Schema：[docs/yaml-schema.md](./docs/yaml-schema.md) · 部署：[docs/deployment.md](./docs/deployment.md)
 
 ## 技术栈
 
@@ -131,4 +131,4 @@ Day 1（2026-06-05）已完成：
 - 结构化角色/地点增删改、场景引用维护，以及历史快照与当前快照的基础版本 diff 可视化。
 - Docker 构建上下文、Alembic 迁移和基础文档同步。
 
-下一阶段重点：真实 Supabase Auth/Postgres 端到端部署验收、Vercel/Render/Supabase 免费部署文档、版本 diff 风险提示与回滚前预览。
+下一阶段重点：使用真实 Supabase/Render/Vercel 项目做端到端部署验收、版本 diff 风险提示与回滚前预览。

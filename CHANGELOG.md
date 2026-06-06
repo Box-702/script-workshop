@@ -22,6 +22,7 @@ All notable changes to 剧本工坊 are documented here.
 - Replaced the text-based app mark with a minimal script-document icon and matching favicon.
 - Added JSON and Markdown script exports for latest and historical script versions.
 - Added a version diff endpoint and editor-side snapshot comparison panel for comparing historical snapshots against the current script version.
+- Added a Vercel + Render + Supabase deployment guide with production environment variables and an acceptance checklist.
 
 ### Fixed
 - Collapsed script export actions into a single format menu, fixed the editor toolbar dropdown so it is not clipped by the workspace header, and made the menu close when users click elsewhere.

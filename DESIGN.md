@@ -917,7 +917,7 @@ apps/api/app/
 10. 已完成：新增 Agent API 和 Agent Panel，支持改编重点/约束快捷输入、模型生成结构化 patch、本地 fallback 建议、最近建议恢复、重新生成建议、确认全部或部分建议后保存版本。
 11. 已完成：加入 Agent diff review、结构化 patch 预览和局部接受。
 12. 已完成：加入基础版本 diff 接口和编辑器快照对比面板，可将历史快照与当前快照按剧本、角色、地点和场景分组比较。
-13. 完成 Vercel、Render、Supabase 部署文档和环境变量模板。
+13. 已完成：补充 Vercel、Render、Supabase 免费部署文档、生产环境变量和上线验收清单。
 
 ## 19. 最小可上线版本定义
 
@@ -978,7 +978,7 @@ AI Agent 改编不必放进第一版上线，但数据库和版本系统必须�
 - 接入 Supabase Auth，前端保存登录态。
 - 使用真实 Supabase 项目做端到端登录验收，并按结果补充部署说明。
 - 数据库从本地 SQLite 兼容迁移到 Supabase Postgres；本地开发仍保留 SQLite。
-- 补充 Postgres 驱动依赖、生产环境变量说明和 Render/Vercel/Supabase 部署文档。
+- 已完成 Postgres 驱动依赖、生产环境变量说明和 Render/Vercel/Supabase 部署文档。
 - 梳理 CORS、错误清洗和 API key 加密配置，生产环境必须显式设置 `KEY_ENCRYPTION_KEY`。
 
 验收：
