@@ -297,13 +297,18 @@
 
   /* Project table */
   .project-table-head {
-    @apply grid grid-cols-[minmax(0,1.5fr)_120px_100px_100px_220px] gap-4 border-b border-ink-600/30 px-4 py-3 text-xs text-ink-500 max-lg:hidden
-           sticky top-0 z-10 backdrop-blur bg-ink-900/70;
+    @apply hidden
+           lg:grid lg:grid-cols-[minmax(0,1.5fr)_120px_100px_100px_220px] lg:gap-3
+           lg:border-b lg:border-ink-600/30 lg:px-4 lg:py-3
+           lg:text-xs lg:text-ink-500
+           lg:sticky lg:top-0 lg:z-10 lg:backdrop-blur lg:bg-ink-900/70;
   }
   .project-row {
     @apply grid gap-3 border-b border-ink-600/30 px-4 py-4
            transition-all duration-200 ease-out last:border-b-0
            hover:bg-ink-800/40 hover:pl-5
+           grid-cols-[1fr_auto]
+           sm:grid-cols-[minmax(0,1fr)_120px_100px]
            lg:grid-cols-[minmax(0,1.5fr)_120px_100px_100px_220px]
            lg:grid-rows-[auto_auto] lg:items-center;
   }

@@ -132,14 +132,18 @@ function ProjectCard({
       <div>
         <StatusPill value={displayProjectStatus(project)} />
       </div>
-      <Metric label="章节" value={project.chapter_count} />
-      <Metric label="版本" value={project.version_count} />
-      <div className="project-version-note">
+      <div className="hidden sm:block">
+        <Metric label="章节" value={project.chapter_count} />
+      </div>
+      <div className="hidden lg:block">
+        <Metric label="版本" value={project.version_count} />
+      </div>
+      <div className="project-version-note hidden lg:block">
         {project.latest_version
           ? `${formatVersionLabel(project.latest_version.label, project.latest_version.source_type)} · ${formatValidation(project.latest_version.validation_status)}`
           : "暂无版本"}
       </div>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="project-actions flex flex-wrap items-center gap-2">
         <Link href={`/projects/${project.id}`} className="btn-ghost px-3 py-1.5 text-xs">
           详情
         </Link>
