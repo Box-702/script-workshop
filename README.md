@@ -74,6 +74,32 @@ Windows 用户也可以分别用项目内的 PowerShell 脚本 (推荐 IDE 集�
 
 `dev-web.ps1` 会在启动前自动停掉本项目占用的 3000 端口旧进程,并清理陈旧 `.next` 缓存,避免热更新缓存错误。
 
+### 单独启动任一端
+
+前后端可完全独立启动,各自有自己的依赖、配置和部署管道:
+
+```bash
+# 仅前端 (cd apps/web && pnpm dev)
+pnpm --dir apps/web dev
+
+# 仅后端 (linux/macOS)
+bash apps/api/scripts/dev-api.sh
+
+# 仅后端 (Windows PowerShell)
+.\apps\api\scripts\dev-api.ps1
+```
+
+或者走各自原生的工具链:
+
+```bash
+# 前端
+cd apps/web && pnpm install && pnpm dev
+# 后端
+cd apps/api && pip install -e . && uvicorn app.main:app --reload
+```
+
+`Makefile` / `scripts/dev-*.ps1` 只是开发期并行启动的便利,**不**是部署前置。
+
 ## 常用命令
 
 | 命令 | 说明 |
@@ -119,10 +145,17 @@ Windows 用户也可以分别用项目内的 PowerShell 脚本 (推荐 IDE 集�
 
 ## 目录结构
 
+**前后端分别管理:** 每个子项目有自己的依赖清单、CHANGELOG、启动脚本和部署配置,见各自 README / 配置文件:
+
+- 前端 → `apps/web/` (Next.js) + `apps/web/CHANGELOG.md` + `vercel.json`
+- 后端 → `apps/api/` (FastAPI) + `apps/api/CHANGELOG.md` + `render.yaml`
+
+根 `CHANGELOG.md` 只记录跨端架构和 monorepo 级别的变更。
+
 ```
 script-workshop/
   apps/
-    web/                    # Next.js 前端
+    web/                    # Next.js 前端 (独立子项目)
       app/                  # 页面 (dashboard / projects / editor / settings / runs / new)
       components/           # AuthStatus / ExportMenu / StyleSwitcher / AuthRequiredMessage
       lib/                  # API 客户端 / LLM 设置 / 类型
@@ -135,10 +168,13 @@ script-workshop/
   docs/                     # 架构 / 部署 / Schema 文档
   schema/                   # JSON Schema (script.schema.json)
   samples/                  # 示例小说 + 示例输出
-  scripts/                  # dev-api.ps1 / dev-web.ps1 / clean.mjs
+  scripts/                  # dev-api.ps1 / dev-web.ps1 / clean.mjs (根级编排)
+  apps/api/scripts/         # dev-api.sh / dev-api.ps1 (后端独立启动)
   DESIGN.md                 # 总体设计
-  CHANGELOG.md              # 变更历史
-  Makefile                  # 一键启动
+  CHANGELOG.md              # 跨端变更
+  apps/web/CHANGELOG.md     # 前端变更
+  apps/api/CHANGELOG.md     # 后端变更
+  Makefile                  # 并行启动前后端 (开发期)
   docker-compose.yml        # 本地容器化
   render.yaml               # Render Blueprint (后端部署)
   vercel.json               # Vercel 项目配置 (前端部署)

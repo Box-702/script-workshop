@@ -1,70 +1,23 @@
 # Changelog
 
-All notable changes to 剧本工坊 are documented here.
+> Project-level changelog for **剧本工坊** (Script Workshop).
+> Per-module changes live in:
+>
+> - Web frontend → [`apps/web/CHANGELOG.md`](./apps/web/CHANGELOG.md)
+> - API backend → [`apps/api/CHANGELOG.md`](./apps/api/CHANGELOG.md)
+>
+> Frontend and backend are managed as **separate subprojects** under this
+> monorepo: each has its own dependency manifest, deployment configuration
+> (`apps/web/vercel.json` / `apps/api/render.yaml`), and changelog.
 
 ## Unreleased
 ### Added
-- Added a header UI style switcher with two themes: studio (dark) and paper (light). All ink and accent colors are now driven by CSS variables and follow the selected theme, including Tailwind utility classes.
-- Added a dedicated danger panel and "确认删除" flow on the dashboard so destructive actions show inline instead of a `window.confirm` dialog.
-### Fixed
-- Realigned the project detail info cards so labels and values share the same font size and vertical baseline, and made the status pill compact so it no longer pushes the row height.
-- Replaced hardcoded `border-white/10` and `bg-white/[0.02]` usages in the editor and project detail with theme-aware `surface-line` and `surface-soft` tokens so both UI styles render consistently.
-- Reworked paper-theme color tokens to invert the ink scale, so high-index numbers now mean "deeper text" and low-index numbers mean "background", restoring legibility in the light theme.
-- Added project dashboard, project detail pages, script version metadata, version restore, and current version tracking.
-- Added encrypted user model key storage with list, active lookup, test, and revoke endpoints.
-- Settings now supports cloud-saved model keys while keeping browser-local BYOK mode.
-- Project generation can use a saved active model key when no request header key is present.
-- New project creation now accepts either a browser-local key or a cloud-saved active key.
-- Added edit event persistence for manual saves and restores, plus a project edit history endpoint.
-- Added a minimal Agent adaptation flow that creates reviewable patches and saves accepted changes as new versions.
-- Added Agent diff review details with patch before/after previews and a reject flow that leaves the current version unchanged.
-- Added model-backed Agent adaptation patches for selected scenes, with local fallback suggestions when no model key is available.
-- Added partial Agent patch acceptance so users can save only selected adaptation changes.
-- Added Agent suggestion retry so users can regenerate a patch from the same prompt, base version, and scene scope.
-- Added Agent run history loading in the editor so pending suggestions survive page refreshes.
-- Improved the Agent panel with adaptation-focus presets, constraint chips, and readable action/dialogue patch previews.
-- Improved Agent review context with the original user request, normalized current-scene labels, duplicate-safe prompt chips, clear prompt reset, and character-name dialogue previews.
-- Added named script snapshots in the editor version panel with a direct rollback action.
-- Replaced the text-based app mark with a minimal script-document icon and matching favicon.
-- Added JSON and Markdown script exports for latest and historical script versions.
-- Added a version diff endpoint and editor-side snapshot comparison panel for comparing historical snapshots against the current script version.
 - Added a Vercel + Render + Supabase deployment guide with production environment variables and an acceptance checklist.
-- Added direct YAML/JSON script-source import so exported scripts can be restored as editable projects without starting AI generation.
+- Added `render.yaml` (Render Blueprint) and `vercel.json` to make one-click deploys for the API and web app independent of each other.
 
 ### Fixed
-- Collapsed script export actions into a single format menu, fixed the editor toolbar dropdown so it is not clipped by the workspace header, and made the menu close when users click elsewhere.
-- Fixed scene directory numbering so generated titles like "第 1 场" are renumbered by their actual scene order in the editor.
-- Added project deletion from the dashboard and changed failed or previously generated projects to show a regenerate action.
-- Reworked the web workspace layout for wider editor pages, clearer project navigation, and fewer internal identifiers in the writing UI.
-- Contained the script editor inside the viewport with independent scroll areas for resources, editing, and side panels, and fixed the dark background color banding during long-page scroll.
-- Compacted the script editor toolbar so the main editing canvas starts higher and has more vertical room.
-- Fixed whole-script Agent scope so the web editor sends every current scene id instead of an empty scene selection.
-- Fixed Agent acceptance refresh so accepting one suggestion does not immediately reopen another pending suggestion in the review card.
-- Increased Agent review typography and removed tiny monospace patch text so adaptation diffs stay readable.
-- Hid internal generation-run notes from script snapshot cards.
-- Added a close control to editor success notifications.
-- Hid the Agent instruction placeholder while the input is focused.
-- Reloaded the canonical script snapshot after structured editor saves so UI state matches backend normalization and validation.
-- Kept the selected scene id in sync after loading, restoring, or saving versions whose scene ids changed.
-- Made Markdown exports read like a writer-facing script draft with Chinese sections, resolved role/location names, and filtered empty action/dialogue lines.
-- Separated Next.js dev and production build directories to prevent stale chunk errors after switching between `next dev` and `next build`.
-- Added API key sanity checks and clearer generation failure messages for invalid or expired model keys.
-- Removed stale documentation that described no-key generation as an offline mock path.
-- Tightened explicit chapter parsing so inputs with fewer than 3 declared chapters are rejected instead of being silently split by length.
-- Changed chapter persistence to a `(project_id, id)` composite key so multiple projects can each use stable ids such as `chapter_001`.
-- Persisted generation run progress at each generation callback update and capped per-scene progress below validation.
-- Added duplicate id checks for characters, locations, and source chapter ids.
-- Made YAML repair return a clear no-op result for unparseable YAML instead of raising a server error.
-- Corrected Docker build contexts so API images include `schema/` and web images can use the monorepo pnpm lockfile.
-- Cleaned Alembic migration formatting so the full backend Ruff check passes.
 - Updated documentation to distinguish current MVP behavior from planned Monaco/visualization enhancements.
-- Replaced stale legacy UI references with the Script Workshop project name.
-
-### Added
-- Added a browser-side model settings entry for BYOK usage, including provider selection, OpenAI-compatible API key, base URL, and model.
-- Generation requests can now pass temporary LLM settings through headers; the backend uses them for the current background run without persisting API keys.
-- Project creation now supports local `.md` and `.txt` uploads in addition to pasted text and the built-in sample.
-- Home, settings, and generation progress pages now use Chinese-facing labels for the main workflow.
+- Corrected Docker build contexts so API images include `schema/` and web images can use the monorepo pnpm lockfile.
 
 ## [0.1.0] - 2026-06-05
 ### Added
