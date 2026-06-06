@@ -5,6 +5,7 @@
 @layer base {
   :root,
   [data-ui-style="studio"] {
+    /* Dark studio: low-index = light text, high-index = dark surface */
     --ink-50: 246 247 249;
     --ink-100: 236 238 242;
     --ink-200: 213 217 224;
@@ -21,31 +22,34 @@
     --surface-0: 15 18 24;
     --surface-1: 31 36 46;
     --surface-2: 47 53 64;
-    --line-soft: 255 255 255;
+    --line-rgb: 255 255 255;
     --line-alpha: 0.08;
+    --line-soft-alpha: 0.04;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.25);
     color-scheme: dark;
   }
 
   [data-ui-style="paper"] {
-    --ink-50: 252 251 247;
-    --ink-100: 244 242 234;
-    --ink-200: 226 221 207;
-    --ink-300: 196 188 168;
-    --ink-400: 140 132 110;
-    --ink-500: 96 89 70;
-    --ink-600: 64 58 44;
-    --ink-700: 42 38 28;
-    --ink-800: 28 25 18;
-    --ink-900: 22 19 14;
+    /* Paper: low-index = dark text, high-index = light surface (inverted) */
+    --ink-50: 28 25 18;
+    --ink-100: 42 38 28;
+    --ink-200: 64 58 44;
+    --ink-300: 96 89 70;
+    --ink-400: 120 110 85;
+    --ink-500: 140 132 110;
+    --ink-600: 170 162 140;
+    --ink-700: 200 192 168;
+    --ink-800: 226 221 207;
+    --ink-900: 248 245 236;
     --accent-400: 176 89 39;
     --accent-500: 152 71 22;
     --accent-600: 120 54 14;
     --surface-0: 248 245 236;
     --surface-1: 240 235 222;
     --surface-2: 228 221 204;
-    --line-soft: 60 50 30;
-    --line-alpha: 0.12;
+    --line-rgb: 60 50 30;
+    --line-alpha: 0.18;
+    --line-soft-alpha: 0.1;
     --shadow: 0 1px 2px rgb(60 50 30 / 0.08), 0 8px 24px rgb(60 50 30 / 0.1);
     color-scheme: light;
   }
@@ -53,8 +57,7 @@
   html {
     color-scheme: dark;
   }
-  [data-ui-style="paper"] html,
-  html:has([data-ui-style="paper"]) {
+  [data-ui-style="paper"] html {
     color-scheme: light;
   }
 
@@ -214,8 +217,20 @@
   .metric-value {
     @apply mt-1 font-medium text-ink-100;
   }
+  /* Status pill */
   .status-pill {
     @apply inline-flex items-center self-start rounded-full px-2 py-0.5 text-xs font-medium leading-none;
+  }
+
+  /* Themed surface tokens — replace hardcoded white/10 and white/[0.02] */
+  .surface-line {
+    border-color: rgb(var(--line-rgb) / var(--line-alpha));
+  }
+  .surface-line-soft {
+    border-color: rgb(var(--line-rgb) / var(--line-soft-alpha));
+  }
+  .surface-soft {
+    background: rgb(var(--line-rgb) / var(--line-soft-alpha));
   }
 
   /* Info cards (project detail summary) */

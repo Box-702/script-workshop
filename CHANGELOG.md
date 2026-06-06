@@ -4,6 +4,12 @@ All notable changes to 剧本工坊 are documented here.
 
 ## Unreleased
 ### Added
+- Added a header UI style switcher with two themes: studio (dark) and paper (light). All ink and accent colors are now driven by CSS variables and follow the selected theme, including Tailwind utility classes.
+- Added a dedicated danger panel and "确认删除" flow on the dashboard so destructive actions show inline instead of a `window.confirm` dialog.
+### Fixed
+- Realigned the project detail info cards so labels and values share the same font size and vertical baseline, and made the status pill compact so it no longer pushes the row height.
+- Replaced hardcoded `border-white/10` and `bg-white/[0.02]` usages in the editor and project detail with theme-aware `surface-line` and `surface-soft` tokens so both UI styles render consistently.
+- Reworked paper-theme color tokens to invert the ink scale, so high-index numbers now mean "deeper text" and low-index numbers mean "background", restoring legibility in the light theme.
 - Added project dashboard, project detail pages, script version metadata, version restore, and current version tracking.
 - Added encrypted user model key storage with list, active lookup, test, and revoke endpoints.
 - Settings now supports cloud-saved model keys while keeping browser-local BYOK mode.

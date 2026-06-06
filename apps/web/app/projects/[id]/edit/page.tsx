@@ -831,7 +831,7 @@ function ScriptOverview({
           </div>
           <ul className="space-y-2">
             {script.characters.map((character) => (
-              <li key={character.id} className="rounded border border-white/10 bg-white/[0.02] p-3">
+              <li key={character.id} className="rounded border surface-line surface-soft p-3">
                 <CharacterCard
                   character={character}
                   isReferenced={usedCharacterIds.has(character.id)}
@@ -852,7 +852,7 @@ function ScriptOverview({
           </div>
           <ul className="space-y-2">
             {script.locations.map((location) => (
-              <li key={location.id} className="rounded border border-white/10 bg-white/[0.02] p-3">
+              <li key={location.id} className="rounded border surface-line surface-soft p-3">
                 <LocationCard
                   location={location}
                   isReferenced={usedLocationIds.has(location.id)}
@@ -942,7 +942,7 @@ function CharacterCard({
           onChange={(value) => onChange({ speech_style: value || undefined })}
         />
       </div>
-      <div className="flex items-center justify-between gap-3 border-t border-white/10 pt-3">
+      <div className="flex items-center justify-between gap-3 border-t surface-line pt-3">
         <span className="text-xs text-ink-500">
           {isReferenced ? "已被场景或对白引用" : "未被引用"}
         </span>
@@ -982,7 +982,7 @@ function LocationCard({
         value={location.description ?? ""}
         onChange={(value) => onChange({ description: value || undefined })}
       />
-      <div className="flex items-center justify-between gap-3 border-t border-white/10 pt-3">
+      <div className="flex items-center justify-between gap-3 border-t surface-line pt-3">
         <span className="text-xs text-ink-500">
           {isReferenced ? "已被场景引用" : "未被引用"}
         </span>
@@ -1086,7 +1086,7 @@ function DialogueEditor({
       </div>
       <ul className="space-y-3">
         {scene.dialogue.map((line, index) => (
-          <li key={index} className="rounded border border-white/10 bg-white/[0.02] p-3">
+          <li key={index} className="rounded border surface-line surface-soft p-3">
             <div className="grid gap-3 md:grid-cols-[180px_1fr]">
               <select
                 className="input"
@@ -1384,7 +1384,7 @@ function AgentPanel({
         </div>
       )}
       {agentRun && (
-        <div className="space-y-4 rounded-md border border-white/10 bg-ink-900/70 p-3 text-sm">
+        <div className="space-y-4 rounded-md border surface-line bg-ink-900/70 p-3 text-sm">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="font-medium text-ink-100">{formatAgentStatus(agentRun.status)}</div>
@@ -1416,7 +1416,7 @@ function AgentPanel({
           {agentRun.patch && agentRun.patch.length > 0 && (
             <div className="space-y-2">
               {agentRun.status === "waiting_review" && patchCount > 1 && (
-                <div className="flex items-center justify-between border-t border-white/10 pt-3 text-[11px] text-ink-400">
+                <div className="flex items-center justify-between border-t surface-line pt-3 text-[11px] text-ink-400">
                   <span>
                     已选 {selectedPatchIndexes.length}/{patchCount} 项
                   </span>
@@ -1440,7 +1440,7 @@ function AgentPanel({
               )}
               <ul className="space-y-2">
               {agentRun.patch.map((item, index) => (
-                <li key={index} className="rounded-md border border-white/10 bg-white/[0.03] p-2.5">
+                <li key={index} className="rounded-md border surface-line surface-soft p-2.5">
                   <div className="flex items-center justify-between gap-2">
                     <label className="flex min-w-0 items-center gap-2 text-sm text-ink-100">
                       {agentRun.status === "waiting_review" && patchCount > 1 && (
@@ -1465,7 +1465,7 @@ function AgentPanel({
             </div>
           )}
           {agentRun.status === "waiting_review" && (
-            <div className="grid grid-cols-2 gap-2 border-t border-white/10 pt-3">
+            <div className="grid grid-cols-2 gap-2 border-t surface-line pt-3">
               <button
                 className="btn-primary col-span-2"
                 onClick={() =>
@@ -1564,7 +1564,7 @@ function VersionPanel({
       ) : (
         <ul className="space-y-2 text-sm">
           {versions.map((version, index) => (
-            <li key={version.id} className="rounded-md border border-white/10 bg-white/[0.02] p-2.5">
+            <li key={version.id} className="rounded-md border surface-line surface-soft p-2.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="min-w-0 truncate font-medium text-ink-100">
                   {formatVersionLabel(version.label, index)}
@@ -1638,7 +1638,7 @@ function DiffPanel({
       {busy && !diff ? (
         <div className="text-sm text-ink-400">正在对比快照...</div>
       ) : diff && diff.items.length === 0 ? (
-        <div className="rounded-md border border-white/10 bg-white/[0.02] p-3 text-sm text-ink-300">
+        <div className="rounded-md border surface-line surface-soft p-3 text-sm text-ink-300">
           没有发现内容差异。
         </div>
       ) : (
@@ -1651,7 +1651,7 @@ function DiffPanel({
               </div>
               <ul className="space-y-2">
                 {items.map((item) => (
-                  <li key={`${item.path}-${item.change_type}`} className="rounded-md border border-white/10 bg-white/[0.03] p-2.5">
+                  <li key={`${item.path}-${item.change_type}`} className="rounded-md border surface-line surface-soft p-2.5">
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0 truncate text-sm font-medium text-ink-100">{item.label}</div>
                       <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${diffBadgeClass(item.change_type)}`}>

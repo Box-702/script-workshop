@@ -210,7 +210,7 @@ export default function SettingsPage() {
           ) : (
             <ul className="space-y-2 text-sm">
               {keys.map((key) => (
-                <li key={key.id} className="rounded border border-white/10 bg-white/[0.02] p-3">
+                <li key={key.id} className="rounded border surface-line surface-soft p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <div className="font-medium">{key.provider}</div>

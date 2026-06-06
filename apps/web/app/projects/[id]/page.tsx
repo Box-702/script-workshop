@@ -173,7 +173,7 @@ export default function ProjectDetailPage() {
             {edits.length > 0 ? (
               <ul className="panel-body space-y-3 text-sm">
                 {edits.map((event) => (
-                  <li key={event.id} className="border-t border-white/10 pt-3 first:border-t-0 first:pt-0">
+                  <li key={event.id} className="border-t surface-line pt-3 first:border-t-0 first:pt-0">
                     <div className="flex items-center justify-between gap-3">
                       <span>{formatEditType(event.edit_type)}</span>
                       <span className="text-xs text-ink-500">{formatDate(event.created_at)}</span>

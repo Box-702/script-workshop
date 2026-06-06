@@ -75,3 +75,11 @@ class LLMProvider(Protocol):
 - 剧本源码导入：`script_versions.source_type = import`，用于恢复从 YAML/JSON 导出的剧本源码；章节表只保存占位来源，不代表小说原文已导入
 - AI 改编：`agent_runs` 保存用户指令、选中上下文、计划和 patch；接受全部或部分 patch 后写入 `script_versions` 与 `edit_events`，并记录 `accepted_patch_indexes` 便于追溯局部落版范围
 - 版本差异：`services.diff` 使用角色、地点和场景的稳定 id 匹配结构化实体，避免仅因数组顺序变化产生整组误报
+
+## 前端主题
+
+- 颜色全部走 CSS 变量（`apps/web/styles/globals.css`），Tailwind 配置（`apps/web/tailwind.config.mjs`）用 `rgb(var(--x) / <alpha-value>)` 读变量。
+- `StyleSwitcher` 组件通过给 `document.documentElement` 设置 `data-ui-style="studio" | "paper"` 触发两套变量定义，支持运行时切换。
+- 选择持久化在 `localStorage[script-workshop-ui-style]`，下次打开页面自动还原。
+- 自定义半透明工具类（`surface-line` / `surface-soft`）替代硬编码的 `border-white/10` / `bg-white/[0.02]`，避免 paper 主题下半透明白看不见。
+- paper 主题下 `ink` 阶反转（低编号 = 深色文字），保证浅色主题下高对比度。
