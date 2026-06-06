@@ -168,6 +168,8 @@ OpenAI 或兼容模型服务
 4. 用户确认章节切分结果。
 5. 启动生成。
 
+如果用户导入的是已导出的 YAML/JSON 剧本源码，则走独立“剧本源码导入”入口：后端直接创建项目和 `import` 快照，不启动 AI 生成，也不把源码当作小说原文重新切分。
+
 ### 6.3 生成初稿
 
 1. 后端创建 `generation_run`。
@@ -416,6 +418,7 @@ GET /api/projects
 GET /api/projects/{project_id}
 PATCH /api/projects/{project_id}
 DELETE /api/projects/{project_id}
+POST /api/projects/import-script
 ```
 
 ### 9.4 原文与章节

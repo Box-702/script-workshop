@@ -1,6 +1,7 @@
 """Project + run management endpoints."""
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from typing import Annotated, Any
@@ -25,6 +26,8 @@ from ..schemas import (
     ProjectDetail,
     ProjectOut,
     ProjectRunSummary,
+    ProjectScriptImportRequest,
+    ProjectScriptImportResponse,
     RunOut,
     ScriptVersionOut,
 )
@@ -33,7 +36,8 @@ from ..services.model_keys import (
     get_active_model_key,
     is_plausible_api_key,
 )
-from ..services.versions import latest_version
+from ..services.versions import create_version_from_yaml, latest_version, parse_version_yaml
+from ..yaml_io import to_yaml
 from .deps import CurrentUser, DbSession
 
 router = APIRouter(prefix="/api", tags=["projects"])
@@ -244,6 +248,91 @@ def create_project(
             for ch in project.chapters
         ],
     )
+
+
+@router.post("/projects/import-script", response_model=ProjectScriptImportResponse)
+def import_script_project(
+    payload: ProjectScriptImportRequest,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> ProjectScriptImportResponse:
+    yaml_content = _import_payload_to_yaml(payload)
+    data, errors = parse_version_yaml(yaml_content)
+    script = data.get("script") if isinstance(data, dict) else {}
+    if not isinstance(script, dict):
+        raise HTTPException(400, "script source must contain a script object")
+
+    project = dbm.Project(
+        id=gen_id("proj"),
+        owner_id=current_user.id,
+        title=(payload.title or script.get("title") or "导入剧本").strip(),
+        adaptation_type=_script_adaptation_type(script),
+        language=str(script.get("language") or "zh-CN"),
+        status="created",
+    )
+    db.add(project)
+    for idx, chapter_id in enumerate(_script_chapter_ids(script)):
+        db.add(
+            dbm.Chapter(
+                id=chapter_id,
+                project_id=project.id,
+                title=f"导入来源 {idx + 1}",
+                content="该项目由剧本源码导入，未包含小说原文。",
+                order_index=idx,
+            )
+        )
+    db.commit()
+    db.refresh(project)
+
+    version = create_version_from_yaml(
+        db,
+        project,
+        yaml_content,
+        source_type="import",
+        label=payload.label or "导入剧本源码",
+        notes="用户从剧本源码导入项目。",
+        edit_type="import",
+    )
+    return ProjectScriptImportResponse(
+        project_id=project.id,
+        version_id=version.id,
+        validation_status=version.validation_status,
+        validation_errors=errors,
+    )
+
+
+def _import_payload_to_yaml(payload: ProjectScriptImportRequest) -> str:
+    if payload.format == "yaml":
+        return payload.content
+    try:
+        data = json.loads(payload.content)
+    except json.JSONDecodeError as e:
+        raise HTTPException(400, f"JSON parse error: {e}") from e
+    if not isinstance(data, dict):
+        raise HTTPException(400, "JSON root must be an object")
+    if "script" not in data:
+        data = {"script": data}
+    return to_yaml(data)
+
+
+def _script_adaptation_type(script: dict[str, Any]) -> str:
+    adaptation = script.get("adaptation")
+    if isinstance(adaptation, dict):
+        value = str(adaptation.get("type") or "").strip()
+        if value:
+            return value
+    return "other"
+
+
+def _script_chapter_ids(script: dict[str, Any]) -> list[str]:
+    source = script.get("source")
+    if isinstance(source, dict):
+        raw_ids = source.get("chapter_ids")
+        if isinstance(raw_ids, list):
+            ids = [str(item).strip() for item in raw_ids if str(item).strip()]
+            if ids:
+                return list(dict.fromkeys(ids))
+    return ["chapter_001", "chapter_002", "chapter_003"]
 
 
 @router.get("/projects/{project_id}", response_model=ProjectDetail)

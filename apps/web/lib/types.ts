@@ -40,6 +40,13 @@ export interface ProjectCreateResponse {
   chapters: ChapterOut[];
 }
 
+export interface ProjectScriptImportResponse {
+  project_id: string;
+  version_id: string;
+  validation_status: string;
+  validation_errors: ValidationError[] | null;
+}
+
 export type RunStatus = "queued" | "running" | "done" | "failed";
 
 export interface RunOut {

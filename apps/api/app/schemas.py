@@ -238,6 +238,13 @@ class ProjectCreate(BaseModel):
     language: str | None = None
 
 
+class ProjectScriptImportRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=255)
+    content: str = Field(min_length=1)
+    format: Literal["yaml", "json"] = "yaml"
+    label: str | None = Field(default=None, max_length=255)
+
+
 class ChapterOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -353,6 +360,13 @@ class ProjectCreateResponse(BaseModel):
     project_id: str
     chapter_count: int
     chapters: list[ChapterOut]
+
+
+class ProjectScriptImportResponse(BaseModel):
+    project_id: str
+    version_id: str
+    validation_status: str
+    validation_errors: list[dict] | None = None
 
 
 class GenerateAccepted(BaseModel):

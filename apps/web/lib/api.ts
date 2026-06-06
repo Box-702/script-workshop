@@ -5,6 +5,7 @@ import type {
   ModelKeyTestResponse,
   ProjectDetail,
   ProjectCreateResponse,
+  ProjectScriptImportResponse,
   ProjectSummary,
   RepairResponse,
   RunOut,
@@ -113,6 +114,17 @@ export const api = {
     adaptation_type: string;
     language?: string;
   }) => jfetch<ProjectCreateResponse>("/api/projects", { method: "POST", body: JSON.stringify(body) }),
+
+  importScriptProject: (body: {
+    title?: string;
+    content: string;
+    format: "yaml" | "json";
+    label?: string;
+  }) =>
+    jfetch<ProjectScriptImportResponse>("/api/projects/import-script", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   generate: (projectId: string, llmSettings?: LlmSettings) =>
     jfetch<{ run_id: string; status: string }>(

@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+from test_versions import VALID_SCRIPT_YAML
 
 from app.db import Base, Chapter, EditEvent, GenerationRun, Project, ScriptVersion
 from app.routers import projects
@@ -217,3 +218,32 @@ def test_project_routes_are_scoped_to_current_user():
 
     assert own_detail.status_code == 200
     assert other_detail.status_code == 404
+
+
+def test_import_script_project_creates_snapshot_without_generation_run():
+    db = _session()
+    client = _client(db)
+
+    response = client.post(
+        "/api/projects/import-script",
+        json={"content": VALID_SCRIPT_YAML, "format": "yaml"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    project = db.get(Project, data["project_id"])
+    assert project is not None
+    assert project.title == "Smoke Script"
+    assert project.status == "ready"
+    assert project.current_version_id == data["version_id"]
+    assert len(project.chapters) == 3
+    assert db.query(GenerationRun).count() == 0
+
+    version = db.get(ScriptVersion, data["version_id"])
+    assert version is not None
+    assert version.source_type == "import"
+    assert version.label == "导入剧本源码"
+    assert version.json_content["script"]["title"] == "Smoke Script"
+
+    event = db.query(EditEvent).filter_by(version_id=version.id).one()
+    assert event.edit_type == "import"
