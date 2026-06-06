@@ -8,16 +8,21 @@
 >
 > Frontend and backend are managed as **separate subprojects** under this
 > monorepo: each has its own dependency manifest, deployment configuration
-> (`apps/web/vercel.json` / `apps/api/render.yaml`), and changelog.
+> (`vercel.json` / `render.yaml`), and changelog.
 
 ## Unreleased
 ### Added
 - Added a Vercel + Render + Supabase deployment guide with production environment variables and an acceptance checklist.
 - Added `render.yaml` (Render Blueprint) and `vercel.json` to make one-click deploys for the API and web app independent of each other.
+- Deployed production to Vercel + Render + Supabase:
+  - Frontend: `https://script-workshop-web.vercel.app`
+  - Backend: `https://script-workshop-api.onrender.com`
+  - Verified frontend homepage, backend `/api/healthz`, Vercel `/api/healthz` proxy, and unauthenticated `/api/projects` 401 behavior.
 
 ### Fixed
 - Updated documentation to distinguish current MVP behavior from planned Monaco/visualization enhancements.
 - Corrected Docker build contexts so API images include `schema/` and web images can use the monorepo pnpm lockfile.
+- Documented Vercel SSO deployment protection and `COMMIT_AUTHOR_REQUIRED` deployment blocking encountered during production setup.
 
 ## [0.1.0] - 2026-06-05
 ### Added

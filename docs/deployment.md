@@ -8,6 +8,24 @@
 - [Supabase Redirect URLs](https://supabase.com/docs/guides/auth/redirect-urls)
 - [Supabase Connecting to Postgres](https://supabase.com/docs/guides/database/connecting-to-postgres)
 
+## 当前生产环境
+
+已部署并验收于 2026-06-06：
+
+| 服务 | 地址 |
+|---|---|
+| 前端 (Vercel) | `https://script-workshop-web.vercel.app` |
+| 后端 (Render) | `https://script-workshop-api.onrender.com` |
+| 前端代理健康检查 | `https://script-workshop-web.vercel.app/api/healthz` |
+| 后端直连健康检查 | `https://script-workshop-api.onrender.com/api/healthz` |
+
+验收结果：
+
+- 前端首页返回 `200`。
+- 后端直连 `/api/healthz` 返回 `{"status":"ok","version":"0.1.0"}`。
+- 前端代理 `/api/healthz` 返回 `{"status":"ok","version":"0.1.0"}`。
+- 未登录访问 `/api/projects` 返回 `401 {"detail":"missing bearer token"}`，符合预期。
+
 ## 1. 准备 Supabase
 
 1. 新建 Supabase project。
@@ -22,11 +40,9 @@ DATABASE_URL=postgresql+psycopg://postgres:<password>@<host>:5432/postgres
 ```
 
 4. 在 `Authentication -> URL Configuration` 配置：
-   - `Site URL`：Vercel 前端正式域名，例如 `https://script-workshop.vercel.app`
-   - `Redirect URLs`：至少加入 `https://script-workshop.vercel.app/auth/callback`
+   - `Site URL`：Vercel 前端正式域名，例如 `https://script-workshop-web.vercel.app`
+   - `Redirect URLs`：至少加入 `https://script-workshop-web.vercel.app/auth/callback`
    - 本地调试可另加 `http://localhost:3000/auth/callback`
-
-> 已验证 2026-06-06：项目 `wsogpdggsmehdrujdjrx` (West US, Oregon) 配齐以上四个值后，`alembic upgrade head` 在 Transaction pooler (`aws-1-us-west-2.pooler.supabase.com:6543`) 上跑通 5 个迁移，`/api/healthz` 与 `/api/projects` 401 路径均正常返回。
 
 > 已验证 2026-06-06：项目 `wsogpdggsmehdrujdjrx` (West US, Oregon) 配齐以上四个值后，`alembic upgrade head` 在 Transaction pooler (`aws-1-us-west-2.pooler.supabase.com:6543`) 上跑通 5 个迁移，`/api/healthz` 与 `/api/projects` 401 路径均正常返回。
 
@@ -44,7 +60,7 @@ DATABASE_URL=postgresql+psycopg://postgres:<password>@<host>:5432/postgres
    | `SUPABASE_URL` | Supabase Project URL |
    | `SUPABASE_ANON_KEY` | Supabase → Settings → API Keys → Publishable key |
    | `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Settings → API Keys → Secret keys |
-   | `CORS_ORIGINS` | Vercel 前端域名,例如 `https://script-workshop.vercel.app` |
+   | `CORS_ORIGINS` | Vercel 前端域名,例如 `https://script-workshop-web.vercel.app` |
    | `KEY_ENCRYPTION_KEY` | `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 
    `AUTH_MODE=supabase` / `LLM_PROVIDER=openai` 等默认值已在 `render.yaml` 写死,不用手填。

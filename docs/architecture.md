@@ -148,4 +148,10 @@ service_role 直连 Postgres 时 `BYPASSRLS` 自动生效（Postgres 默认）�
 └────────────────────┘
 ```
 
-`render.yaml` (Render Blueprint) 和 `vercel.json` 已写好，用户在 dashboard 填环境变量后一键部署。
+当前生产环境：
+
+- 前端：`https://script-workshop-web.vercel.app`
+- 后端：`https://script-workshop-api.onrender.com`
+- `/api/*`：由 Vercel rewrite 转发到 Render 后端
+
+`render.yaml` (Render Blueprint) 和 `vercel.json` 已写好；生产环境已在 2026-06-06 通过前端首页、后端 `/api/healthz`、前端代理 `/api/healthz` 和未登录 `/api/projects` 401 验收。
