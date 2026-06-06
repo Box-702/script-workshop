@@ -1,12 +1,19 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Resolve `.env` relative to the repository root, not the current working
+# directory. The api package is invoked from `apps/api/`, but the canonical
+# environment file lives at the repo root next to `docker-compose.yml`.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_ENV_FILE = _REPO_ROOT / ".env"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_ENV_FILE) if _ENV_FILE.exists() else ".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",

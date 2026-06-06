@@ -235,7 +235,9 @@ def init_db() -> None:
     # Make Alembic honour the runtime DATABASE_URL instead of the one baked
     # into alembic.ini (which exists for the alembic CLI but should not be
     # the source of truth for the running app).
-    cfg.set_main_option("sqlalchemy.url", database_url)
+    # Doubling `%` keeps ConfigParser's `%` interpolation safe for percent-
+    # encoded chars in Postgres connection strings (e.g. `%2C`, `%26`).
+    cfg.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
     try:
         command.upgrade(cfg, "head")

@@ -32,7 +32,10 @@ from app.db import Base, resolve_database_url  # noqa: E402
 _db_url = resolve_database_url(get_settings().database_url)
 
 if _db_url:
-    config.set_main_option("sqlalchemy.url", _db_url)
+    # Alembic's ConfigParser uses `%` for interpolation, which collides with
+    # percent-encoded chars in Postgres connection strings (e.g. `%2C`).
+    # Doubling `%` here makes the ConfigParser round-trip safe.
+    config.set_main_option("sqlalchemy.url", _db_url.replace("%", "%%"))
 
 # add your model's MetaData object here
 # for 'autogenerate' support

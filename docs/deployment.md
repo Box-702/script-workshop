@@ -26,6 +26,10 @@ DATABASE_URL=postgresql+psycopg://postgres:<password>@<host>:5432/postgres
    - `Redirect URLs`：至少加入 `https://script-workshop.vercel.app/auth/callback`
    - 本地调试可另加 `http://localhost:3000/auth/callback`
 
+> 已验证 2026-06-06：项目 `wsogpdggsmehdrujdjrx` (West US, Oregon) 配齐以上四个值后，`alembic upgrade head` 在 Transaction pooler (`aws-1-us-west-2.pooler.supabase.com:6543`) 上跑通 5 个迁移，`/api/healthz` 与 `/api/projects` 401 路径均正常返回。
+
+> 已验证 2026-06-06：项目 `wsogpdggsmehdrujdjrx` (West US, Oregon) 配齐以上四个值后，`alembic upgrade head` 在 Transaction pooler (`aws-1-us-west-2.pooler.supabase.com:6543`) 上跑通 5 个迁移，`/api/healthz` 与 `/api/projects` 401 路径均正常返回。
+
 ## 2. 部署 Render 后端
 
 推荐先用 Render Web Service 的原生 Python 部署，避免 Docker 端口配置差异。
@@ -128,6 +132,10 @@ Render 不应使用固定 `8000` 作为生产 start command。
 ### 数据没有持久化
 
 检查 `DATABASE_URL` 是否指向 Supabase Postgres。生产不要使用 SQLite，因为免费服务磁盘可能不持久。
+
+### alembic 报 `invalid interpolation syntax`
+
+Postgres 连接串里 percent-encoded 字符（`%2C`、`%26`、`%2B` 等）和 alembic 的 ConfigParser `%` 插值冲突。`alembic/env.py` 与 `app/db.py` 已经做了 `.replace("%", "%%")` 兼容处理；如果升级 alembic 后又遇到这个错，优先检查这两处。
 
 ### 保存云端模型 key 失败
 
