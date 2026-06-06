@@ -18,7 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-screen">
         <header className="app-header">
           <div className="app-header-inner">
-            <Link href="/" className="brand-mark">
+            <Link href="/" className="brand-mark group">
               <span
                 aria-hidden="true"
                 className="brand-icon"

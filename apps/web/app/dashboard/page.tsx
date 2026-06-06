@@ -87,13 +87,18 @@ export default function DashboardPage() {
             <div>版本</div>
             <div>操作</div>
           </div>
-          {projects.map((project) => (
-            <ProjectCard
+          {projects.map((project, index) => (
+            <div
               key={project.id}
-              project={project}
-              deleting={deletingProjectId === project.id}
-              requestDelete={setProjectPendingDelete}
-            />
+              className="project-row sw-anim-in"
+              style={{ "--sw-delay": `${Math.min(index, 12) * 40}ms` } as React.CSSProperties}
+            >
+              <ProjectCard
+                project={project}
+                deleting={deletingProjectId === project.id}
+                requestDelete={setProjectPendingDelete}
+              />
+            </div>
           ))}
         </div>
       )}
@@ -111,7 +116,7 @@ function ProjectCard({
   requestDelete: (project: ProjectSummary) => void;
 }) {
   return (
-    <div className="project-row">
+    <>
       <div className="min-w-0">
         <div className="flex items-start justify-between gap-3 lg:block">
           <Link
@@ -160,7 +165,7 @@ function ProjectCard({
           {deleting ? "删除中..." : "删除"}
         </button>
       </div>
-    </div>
+    </>
   );
 }
 

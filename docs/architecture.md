@@ -83,3 +83,69 @@ class LLMProvider(Protocol):
 - 选择持久化在 `localStorage[script-workshop-ui-style]`，下次打开页面自动还原。
 - 自定义半透明工具类（`surface-line` / `surface-soft`）替代硬编码的 `border-white/10` / `bg-white/[0.02]`，避免 paper 主题下半透明白看不见。
 - paper 主题下 `ink` 阶反转（低编号 = 深色文字），保证浅色主题下高对比度。
+
+## 多用户隔离 (Supabase RLS)
+
+7 张业务表的隔离分两层：
+
+- **应用层**：每个路由的 `db.query(...)` 都先过 `get_project_or_404(project_id, user_id=current_user.id)`，404 路径由 Python 守护。
+- **数据库层**：`supabase/rls.sql` 给每张表 `ENABLE + FORCE ROW LEVEL SECURITY`，28 条 `POLICY` 用 `auth.uid()::text` 匹配 `owner_id`（projects / user_model_keys）或通过 `SECURITY DEFINER` 辅助函数 `project_owner_id()` 间接匹配（chapters / generation_runs / script_versions / agent_runs / edit_events）。
+
+子表的 RLS policy 通过 `project_owner_id(project_id) = auth.uid()::text` 实现，避免在每个 policy 写复杂的 join。删除一个 project 时，子表行靠 `cascade` 自动清理。
+
+service_role 直连 Postgres 时 `BYPASSRLS` 自动生效（Postgres 默认），所以后端 ORM 写库不受 RLS 限制；前端 supabase-js 走 anon JWT，会被 RLS 拦截。
+
+## 微动画系统
+
+`apps/web/styles/globals.css` 的 `@layer components` 集中提供 7 个动效：
+
+| 工具类 | 用途 |
+|---|---|
+| `.sw-anim-in` | 元素进入 (fade + 微上移) |
+| `.sw-anim-in-up` | 元素进入 (fade + 大幅上移) |
+| `.sw-anim-scale` | 元素进入 (fade + scale) |
+| `.sw-skeleton` | 加载占位 shimmer |
+| `.sw-attention` | 主 CTA 的 pulse 描边 |
+| `.sw-spinner` | 加载中圆环 |
+| `.sw-pop` | 切换态 pop 反馈 |
+
+每个 `.sw-anim-*` 都接受 `--sw-delay` CSS 变量控制延迟，用于列表错位 (stagger)：
+
+```tsx
+{items.map((item, i) => (
+  <div
+    className="project-row sw-anim-in"
+    style={{ "--sw-delay": `${Math.min(i, 12) * 40}ms` } as React.CSSProperties}
+  >
+    {item}
+  </div>
+))}
+```
+
+所有动效用 `cubic-bezier(0.16, 1, 0.3, 1)` (ease-out expo) — 不弹跳、不延迟累积。`prefers-reduced-motion` 用户的体验由浏览器自动降级（CSS 动画会失效但不影响布局）。
+
+## 部署拓扑
+
+```
+┌────────────────────┐
+│  Vercel            │  Next.js 14 (apps/web)
+│  - pnpm install    │  Root Directory: apps/web
+│  - pnpm build      │  Env: BACKEND_URL, NEXT_PUBLIC_*
+└─────────┬──────────┘
+          │ /api/*  (rewrites via next.config.mjs)
+          ▼
+┌────────────────────┐
+│  Render            │  FastAPI (apps/api)
+│  - pip install -e  │  Health check: /api/healthz
+│  - uvicorn         │  Env: DATABASE_URL, AUTH_MODE=supabase,
+└─────────┬──────────┘     SUPABASE_URL, KEY_ENCRYPTION_KEY, ...
+          │ psycopg3 / pgbouncer
+          ▼
+┌────────────────────┐
+│  Supabase          │  Postgres 17 (free tier)
+│  - Auth (GoTrue)   │  Region: us-west-2 (Oregon)
+│  - RLS enabled     │  28 policies via supabase/rls.sql
+└────────────────────┘
+```
+
+`render.yaml` (Render Blueprint) 和 `vercel.json` 已写好，用户在 dashboard 填环境变量后一键部署。
