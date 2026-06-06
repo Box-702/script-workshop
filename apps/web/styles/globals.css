@@ -214,6 +214,20 @@
   .metric-value {
     @apply mt-1 font-medium text-ink-100;
   }
+  .status-pill {
+    @apply inline-flex items-center self-start rounded-full px-2 py-0.5 text-xs font-medium leading-none;
+  }
+
+  /* Info cards (project detail summary) */
+  .info-card {
+    @apply flex flex-col gap-1.5 rounded-lg border border-ink-600/30 bg-ink-800/40 p-4;
+  }
+  .info-card-label {
+    @apply text-xs font-medium text-ink-500;
+  }
+  .info-card-value {
+    @apply text-sm font-medium text-ink-100;
+  }
 
   /* Danger panel (delete confirm) */
   .danger-panel {

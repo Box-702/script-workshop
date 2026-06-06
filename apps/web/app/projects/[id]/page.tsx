@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AuthRequiredMessage, isAuthRequiredMessage } from "@/components/AuthRequiredMessage";
 import { ExportMenu } from "@/components/ExportMenu";
 import { api } from "@/lib/api";
@@ -194,11 +194,11 @@ export default function ProjectDetailPage() {
   );
 }
 
-function InfoCard({ label, value }: { label: string; value: string | number }) {
+function InfoCard({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="panel p-4">
-      <div className="text-xs text-ink-500">{label}</div>
-      <div className="mt-2 text-lg font-semibold">{value}</div>
+    <div className="info-card">
+      <div className="info-card-label">{label}</div>
+      <div className="info-card-value">{value}</div>
     </div>
   );
 }
