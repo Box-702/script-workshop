@@ -10,6 +10,8 @@ export default function DashboardPage() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [projectPendingDelete, setProjectPendingDelete] = useState<ProjectSummary | null>(null);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
 
   useEffect(() => {
     api
@@ -19,25 +21,28 @@ export default function DashboardPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  async function deleteProject(project: ProjectSummary) {
-    const ok = window.confirm(`确定删除《${project.title}》吗？项目章节、生成记录和剧本版本都会一并删除。`);
-    if (!ok) return;
+  async function confirmDeleteProject() {
+    if (!projectPendingDelete) return;
     setError(null);
+    setDeletingProjectId(projectPendingDelete.id);
     try {
-      await api.deleteProject(project.id);
-      setProjects((current) => current.filter((item) => item.id !== project.id));
+      await api.deleteProject(projectPendingDelete.id);
+      setProjects((current) => current.filter((item) => item.id !== projectPendingDelete.id));
+      setProjectPendingDelete(null);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setDeletingProjectId(null);
     }
   }
 
   return (
-    <div className="space-y-5">
+    <div className="dashboard-shell">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="text-sm text-ink-400">工作台</div>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">项目看板</h1>
-          <p className="mt-1 text-sm text-ink-400">管理剧本项目、生成结果、版本历史和导出入口。</p>
+          <div className="page-kicker">工作台</div>
+          <h1 className="page-title">项目看板</h1>
+          <p className="page-description">管理剧本项目、生成结果、版本历史和导出入口。</p>
         </div>
         <Link href="/new" className="btn-primary">
           新建项目
@@ -47,15 +52,24 @@ export default function DashboardPage() {
       {isAuthRequiredMessage(error) ? (
         <AuthRequiredMessage />
       ) : error ? (
-        <div className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+        <div className="notice-error">
           加载失败：{error}
         </div>
       ) : null}
 
+      {projectPendingDelete && (
+        <DeleteProjectPanel
+          project={projectPendingDelete}
+          busy={deletingProjectId === projectPendingDelete.id}
+          onCancel={() => setProjectPendingDelete(null)}
+          onConfirm={confirmDeleteProject}
+        />
+      )}
+
       {loading ? (
-        <div className="card text-sm text-ink-400">加载中...</div>
+        <div className="card loading-panel">加载中...</div>
       ) : projects.length === 0 ? (
-        <div className="card flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="card empty-panel">
           <div>
             <div className="text-base font-medium">暂无项目</div>
             <p className="mt-1 text-sm text-ink-400">创建第一个剧本项目后会显示在这里。</p>
@@ -66,7 +80,7 @@ export default function DashboardPage() {
         </div>
       ) : (
         <div className="panel overflow-hidden">
-          <div className="grid grid-cols-[minmax(0,1.5fr)_120px_100px_100px_220px] gap-4 border-b border-ink-600/30 px-4 py-3 text-xs text-ink-500 max-lg:hidden">
+          <div className="project-table-head">
             <div>项目</div>
             <div>状态</div>
             <div>章节</div>
@@ -74,7 +88,12 @@ export default function DashboardPage() {
             <div>操作</div>
           </div>
           {projects.map((project) => (
-            <ProjectCard key={project.id} project={project} deleteProject={deleteProject} />
+            <ProjectCard
+              key={project.id}
+              project={project}
+              deleting={deletingProjectId === project.id}
+              requestDelete={setProjectPendingDelete}
+            />
           ))}
         </div>
       )}
@@ -84,18 +103,20 @@ export default function DashboardPage() {
 
 function ProjectCard({
   project,
-  deleteProject,
+  deleting,
+  requestDelete,
 }: {
   project: ProjectSummary;
-  deleteProject: (project: ProjectSummary) => void;
+  deleting: boolean;
+  requestDelete: (project: ProjectSummary) => void;
 }) {
   return (
-    <div className="grid gap-3 border-b border-ink-600/30 px-4 py-4 last:border-b-0 lg:grid-cols-[minmax(0,1.5fr)_120px_100px_100px_220px] lg:items-center">
+    <div className="project-row">
       <div className="min-w-0">
         <div className="flex items-start justify-between gap-3 lg:block">
           <Link
             href={`/projects/${project.id}`}
-            className="text-lg font-semibold text-ink-50 hover:text-accent-400"
+            className="project-title-link"
           >
             {project.title}
           </Link>
@@ -113,7 +134,7 @@ function ProjectCard({
       </div>
       <Metric label="章节" value={project.chapter_count} />
       <Metric label="版本" value={project.version_count} />
-      <div className="text-sm text-ink-400 max-lg:rounded-md max-lg:border max-lg:border-ink-600/30 max-lg:bg-ink-900/50 max-lg:p-3 lg:col-span-4 lg:col-start-1 lg:mt-[-10px]">
+      <div className="project-version-note">
         {project.latest_version
           ? `当前版本：${formatVersionLabel(project.latest_version.label, project.latest_version.source_type)} · ${formatValidation(project.latest_version.validation_status)}`
           : "暂无剧本版本"}
@@ -132,21 +153,60 @@ function ProjectCard({
         )}
         <button
           type="button"
-          className="btn-ghost px-3 py-1.5 text-xs text-red-200 hover:bg-red-500/15"
-          onClick={() => deleteProject(project)}
+          className="btn-danger px-3 py-1.5 text-xs"
+          onClick={() => requestDelete(project)}
+          disabled={deleting}
         >
-          删除
+          {deleting ? "删除中..." : "删除"}
         </button>
       </div>
     </div>
   );
 }
 
+function DeleteProjectPanel({
+  project,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  project: ProjectSummary;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <section className="danger-panel">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="danger-title">确认删除《{project.title}》？</div>
+          <p className="danger-copy">
+            项目章节、生成记录、剧本快照和本地版本都会一并删除。
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <button type="button" className="btn-ghost px-3 py-1.5 text-xs" onClick={onCancel} disabled={busy}>
+            取消
+          </button>
+          <button
+            type="button"
+            className="btn-danger px-3 py-1.5 text-xs"
+            onClick={onConfirm}
+            disabled={busy}
+          >
+            {busy ? "删除中..." : "确认删除"}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Metric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="text-sm">
-      <div className="text-xs text-ink-500">{label}</div>
-      <div className="mt-1 font-medium text-ink-100">{value}</div>
+    <div className="metric">
+      <div className="metric-label">{label}</div>
+      <div className="metric-value">{value}</div>
     </div>
   );
 }
@@ -161,7 +221,7 @@ function StatusPill({ value }: { value: string }) {
           ? "bg-red-500/15 text-red-300"
         : "bg-ink-700 text-ink-100";
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${color}`}>
+    <span className={`status-pill ${color}`}>
       {formatStatus(value)}
     </span>
   );
