@@ -1,0 +1,17 @@
+# Vercel project configuration for the Next.js frontend.
+#
+# Vercel auto-detects Next.js once Root Directory is set to "apps/web".
+# /api/* -> BACKEND_URL/api/* is handled by apps/web/next.config.mjs
+# (which reads process.env.BACKEND_URL).
+#
+# Environment variables to set in the Vercel dashboard:
+#   BACKEND_URL                       e.g. https://script-workshop-api.onrender.com
+#   NEXT_PUBLIC_API_BASE              keep as "/api"
+#   NEXT_PUBLIC_SUPABASE_URL          Supabase Project URL
+#   NEXT_PUBLIC_SUPABASE_ANON_KEY     the publishable key (sb_publishable_...)
+#
+# Do NOT set SUPABASE_SERVICE_ROLE_KEY or any backend-only secrets here.
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs"
+}

@@ -32,66 +32,52 @@ DATABASE_URL=postgresql+psycopg://postgres:<password>@<host>:5432/postgres
 
 ## 2. 部署 Render 后端
 
-推荐先用 Render Web Service 的原生 Python 部署，避免 Docker 端口配置差异。
+仓库根目录已经写好 `render.yaml` (Render Blueprint)。在 Render 控制台:
 
-### 基本设置
+1. **New** → **Blueprint** → 选 GitHub 仓库 `Box-702/script-workshop`。
+2. Render 会读 `render.yaml` 自动建一个 `script-workshop-api` Web Service。
+3. 在 **Environment** 标签,把所有 `sync: false` 的 secret 手动填入(用密码框,不进 git)：
 
-| 项 | 值 |
-|---|---|
-| Runtime | Python 3 |
-| Root Directory | 仓库根目录 |
-| Build Command | `cd apps/api && pip install -U pip && pip install -e .` |
-| Start Command | `cd apps/api && uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
-| Health Check Path | `/api/healthz` |
+   | 变量 | 来源 |
+   |---|---|
+   | `DATABASE_URL` | Supabase → Database → Settings → Connection string (Transaction pooler) |
+   | `SUPABASE_URL` | Supabase Project URL |
+   | `SUPABASE_ANON_KEY` | Supabase → Settings → API Keys → Publishable key |
+   | `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Settings → API Keys → Secret keys |
+   | `CORS_ORIGINS` | Vercel 前端域名,例如 `https://script-workshop.vercel.app` |
+   | `KEY_ENCRYPTION_KEY` | `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 
-### 后端环境变量
+   `AUTH_MODE=supabase` / `LLM_PROVIDER=openai` 等默认值已在 `render.yaml` 写死,不用手填。
 
-| 变量 | 必填 | 说明 |
-|---|---|---|
-| `DATABASE_URL` | 是 | Supabase Postgres 连接串，使用 `postgresql+psycopg://...` |
-| `AUTH_MODE` | 是 | 生产设为 `supabase` |
-| `SUPABASE_URL` | 是 | Supabase Project URL |
-| `SUPABASE_ANON_KEY` | 是 | 后端用它向 Supabase Auth 验证 Bearer token |
-| `SUPABASE_SERVICE_ROLE_KEY` | 建议 | 预留给后续服务端管理能力；不要暴露到前端 |
-| `KEY_ENCRYPTION_KEY` | 是 | 加密用户保存的模型 key。用 `python -c "import secrets; print(secrets.token_urlsafe(32))"` 生成 |
-| `OPENAI_API_KEY` | 否 | 可留空，默认让用户在 `/settings` 自带 key |
-| `OPENAI_BASE_URL` | 否 | 默认 `https://api.openai.com/v1` |
-| `OPENAI_MODEL` | 否 | 默认 `gpt-4o-mini` |
-| `OUTPUT_LANGUAGE` | 否 | 默认 `zh-CN` |
-| `CORS_ORIGINS` | 是 | Vercel 前端域名，例如 `https://script-workshop.vercel.app` |
+4. **Apply** → 等部署完成。
 
-部署后打开：
+部署后打开:
 
 ```text
-https://<render-service>.onrender.com/api/healthz
+https://script-workshop-api.onrender.com/api/healthz
 ```
 
-返回 `{"status":"ok","version":"0.1.0"}` 即后端启动成功。首次访问可能有冷启动延迟。
+返回 `{"status":"ok","version":"0.1.0"}` 即后端启动成功。Free 计划首次访问有冷启动延迟。
+
+如果用 Docker 而非 Blueprint: 用仓库根目录的 `docker-compose.yml`,命令一致。
 
 ## 3. 部署 Vercel 前端
 
-### 基本设置
+仓库根目录有 `vercel.json` 钉住 framework。导入 GitHub 仓库后:
 
-导入 GitHub 仓库后，选择 `apps/web` 作为 Next.js 应用目录。如果 Vercel 没有自动识别 pnpm workspace，可手动设置：
+1. **Project Settings → General → Root Directory** 设为 `apps/web`。
+2. **Environment Variables** 填 (密码框,不进 git):
 
-| 项 | 值 |
-|---|---|
-| Framework Preset | Next.js |
-| Install Command | `pnpm install --frozen-lockfile` |
-| Build Command | `pnpm --dir apps/web build` |
+   | 变量 | 值 |
+   |---|---|
+   | `BACKEND_URL` | Render 后端地址,例如 `https://script-workshop-api.onrender.com` |
+   | `NEXT_PUBLIC_API_BASE` | `/api` |
+   | `NEXT_PUBLIC_SUPABASE_URL` | Supabase Project URL |
+   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Publishable key |
 
-如果项目根目录被设置为 `apps/web`，则使用默认 `pnpm build` 也可以；关键是最终构建命令必须运行 `apps/web/package.json` 中的 `build`。
+3. **Deploy**。`/api/*` 会被 `apps/web/next.config.mjs` 里的 rewrites 转发到 `BACKEND_URL/api/*`。
 
-### 前端环境变量
-
-| 变量 | 必填 | 说明 |
-|---|---|---|
-| `BACKEND_URL` | 是 | Render 后端地址，例如 `https://script-workshop-api.onrender.com` |
-| `NEXT_PUBLIC_API_BASE` | 建议 | 保持 `/api`，由 Next rewrites 转发到后端 |
-| `NEXT_PUBLIC_SUPABASE_URL` | 是 | Supabase Project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 是 | Supabase anon public key |
-
-注意：不要在 Vercel 中设置 `SUPABASE_SERVICE_ROLE_KEY` 或任何服务端私钥。
+**禁止在 Vercel 设置 `SUPABASE_SERVICE_ROLE_KEY` 或任何后端私钥。**
 
 ## 4. 生产验收清单
 

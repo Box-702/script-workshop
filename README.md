@@ -140,6 +140,8 @@ script-workshop/
   CHANGELOG.md              # 变更历史
   Makefile                  # 一键启动
   docker-compose.yml        # 本地容器化
+  render.yaml               # Render Blueprint (后端部署)
+  vercel.json               # Vercel 项目配置 (前端部署)
 ```
 
 ## 示例与样本数据
@@ -150,7 +152,15 @@ script-workshop/
 
 ## 部署
 
-免费方案: Vercel (前端) + Render (后端) + Supabase (Postgres + Auth)。详细步骤、环境变量、生产 checklist 见 [docs/deployment.md](./docs/deployment.md)。
+免费方案: Vercel (前端) + Render (后端) + Supabase (Postgres + Auth)。
+
+仓库已写好:
+
+- `render.yaml` (Render Blueprint) — 一键拉起 FastAPI Web Service
+- `vercel.json` — 钉住 Next.js framework
+- `docker-compose.yml` — 本地容器化备选
+
+详细步骤、环境变量、生产 checklist 见 [docs/deployment.md](./docs/deployment.md)。
 
 ## 题目要求对应
 

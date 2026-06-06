@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: script-workshop-api
+    runtime: python
+    rootDir: .
+    plan: free
+    buildCommand: cd apps/api && pip install -U pip && pip install -e .
+    startCommand: cd apps/api && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/healthz
+    autoDeploy: true
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # === Supabase ===
+      - key: DATABASE_URL
+        sync: false
+      - key: AUTH_MODE
+        value: supabase
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # === CORS ===
+      # Add your Vercel URL here (and any preview domains). No trailing slash.
+      - key: CORS_ORIGINS
+        sync: false
+      # === Server-side encryption for saved user model keys ===
+      # Generate with: python -c "import secrets; print(secrets.token_urlsafe(32))"
+      - key: KEY_ENCRYPTION_KEY
+        sync: false
+      # === Optional LLM defaults (users can override in /settings) ===
+      - key: LLM_PROVIDER
+        value: openai
+      - key: OPENAI_BASE_URL
+        value: https://api.openai.com/v1
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: OUTPUT_LANGUAGE
+        value: zh-CN
