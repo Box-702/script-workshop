@@ -15,6 +15,20 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN" className="h-full">
+      <head>
+        {/*
+          Read the saved UI style from localStorage and apply it to
+          <html data-ui-style="..."> BEFORE the first paint, so the user
+          never sees a 0.5s flash of the default theme on reload. This
+          must run synchronously in the document head, before any
+          stylesheet evaluation.
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var s=localStorage.getItem('script-workshop-ui-style');if(s==='paper'||s==='studio'){document.documentElement.dataset.uiStyle=s;}}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body className="min-h-screen">
         <header className="app-header">
           <div className="app-header-inner">
