@@ -12,6 +12,7 @@ import type {
   ScriptVersionDetail,
   ScriptVersionSummary,
   ValidateResponse,
+  VersionDiffSummary,
 } from "./types";
 import type { LlmSettings } from "./llm-settings";
 import { getAccessToken, isSupabaseConfigured } from "./auth";
@@ -132,6 +133,12 @@ export const api = {
 
   listVersions: (projectId: string) =>
     jfetch<ScriptVersionSummary[]>(`/api/projects/${projectId}/versions`),
+
+  getVersionDiff: (projectId: string, fromVersionId: string, toVersionId?: string) => {
+    const params = new URLSearchParams({ from: fromVersionId });
+    if (toVersionId) params.set("to", toVersionId);
+    return jfetch<VersionDiffSummary>(`/api/projects/${projectId}/diff?${params.toString()}`);
+  },
 
   listEditEvents: (projectId: string, limit = 50) =>
     jfetch<EditEventSummary[]>(`/api/projects/${projectId}/edits?limit=${limit}`),

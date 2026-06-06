@@ -5,17 +5,17 @@ Revises:
 Create Date: 2026-06-05 12:57:06.462879
 
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = '71ad7f055dfc'
-down_revision: Union[str, Sequence[str], None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -55,7 +55,12 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['project_id'], ['projects.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_generation_runs_project_id'), 'generation_runs', ['project_id'], unique=False)
+    op.create_index(
+        op.f('ix_generation_runs_project_id'),
+        'generation_runs',
+        ['project_id'],
+        unique=False,
+    )
     op.create_table('script_versions',
     sa.Column('id', sa.String(length=64), nullable=False),
     sa.Column('project_id', sa.String(length=64), nullable=False),
@@ -67,7 +72,12 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['project_id'], ['projects.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_script_versions_project_id'), 'script_versions', ['project_id'], unique=False)
+    op.create_index(
+        op.f('ix_script_versions_project_id'),
+        'script_versions',
+        ['project_id'],
+        unique=False,
+    )
     # ### end Alembic commands ###
 
 

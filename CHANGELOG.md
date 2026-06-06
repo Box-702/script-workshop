@@ -21,6 +21,7 @@ All notable changes to 剧本工坊 are documented here.
 - Added named script snapshots in the editor version panel with a direct rollback action.
 - Replaced the text-based app mark with a minimal script-document icon and matching favicon.
 - Added JSON and Markdown script exports for latest and historical script versions.
+- Added a version diff endpoint and editor-side snapshot comparison panel for comparing historical snapshots against the current script version.
 
 ### Fixed
 - Collapsed script export actions into a single format menu, fixed the editor toolbar dropdown so it is not clipped by the workspace header, and made the menu close when users click elsewhere.
@@ -47,6 +48,7 @@ All notable changes to 剧本工坊 are documented here.
 - Added duplicate id checks for characters, locations, and source chapter ids.
 - Made YAML repair return a clear no-op result for unparseable YAML instead of raising a server error.
 - Corrected Docker build contexts so API images include `schema/` and web images can use the monorepo pnpm lockfile.
+- Cleaned Alembic migration formatting so the full backend Ruff check passes.
 - Updated documentation to distinguish current MVP behavior from planned Monaco/visualization enhancements.
 - Replaced stale legacy UI references with the Script Workshop project name.
 

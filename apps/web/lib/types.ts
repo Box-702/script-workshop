@@ -85,6 +85,23 @@ export interface ScriptVersionDetail extends ScriptVersionSummary {
   yaml_content: string;
 }
 
+export interface VersionDiffItem {
+  path: string;
+  section: string;
+  label: string;
+  change_type: "added" | "removed" | "changed";
+  before: unknown;
+  after: unknown;
+}
+
+export interface VersionDiffSummary {
+  project_id: string;
+  from_version_id: string;
+  to_version_id: string;
+  items: VersionDiffItem[];
+  summary: Record<string, number>;
+}
+
 export interface DialogueLine {
   speaker: string;
   line: string;

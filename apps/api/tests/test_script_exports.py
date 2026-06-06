@@ -99,6 +99,56 @@ def test_save_structured_json_creates_version():
     assert latest.json()["script"]["title"] == "Structured Save"
 
 
+def test_version_diff_compares_requested_snapshot_to_latest():
+    db = _session()
+    project = Project(id="proj_test", title="Test", adaptation_type="short_drama")
+    db.add(project)
+    db.commit()
+    first = create_version_from_yaml(db, project, VALID_SCRIPT_YAML, label="First")
+    second_yaml = (
+        VALID_SCRIPT_YAML
+        .replace("Smoke Script", "Second Script")
+        .replace("Open the story.", "Make the opening more urgent.")
+        .replace("Rain hits the door.", "Rain hammers the clinic door.")
+    )
+    second = create_version_from_yaml(db, project, second_yaml, label="Second")
+    client = _client(db)
+
+    response = client.get(f"/api/projects/{project.id}/diff?from={first.id}")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["from_version_id"] == first.id
+    assert data["to_version_id"] == second.id
+    labels = [item["label"] for item in data["items"]]
+    assert "标题" in labels
+    assert any("目的" in label for label in labels)
+    assert any("动作" in label for label in labels)
+    assert data["summary"]["剧本"] >= 1
+    assert data["summary"]["场景"] >= 1
+
+
+def test_version_diff_hides_other_users_projects():
+    db = _session()
+    project = Project(
+        id="proj_private",
+        owner_id="user_b",
+        title="Private",
+        adaptation_type="short_drama",
+    )
+    db.add(project)
+    db.commit()
+    version = create_version_from_yaml(db, project, VALID_SCRIPT_YAML)
+    client = _client(db)
+
+    response = client.get(
+        f"/api/projects/{project.id}/diff?from={version.id}",
+        headers={"X-Dev-User-Id": "user_a"},
+    )
+
+    assert response.status_code == 404
+
+
 def test_script_routes_hide_other_users_projects():
     db = _session()
     project = Project(

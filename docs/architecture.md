@@ -61,6 +61,7 @@ class LLMProvider(Protocol):
 7. 编辑页默认读取 `/script.json` 渲染结构化表单；YAML 仅作为高级源码模式和导出格式保留
 8. 导出接口提供 YAML、JSON、Markdown，其中 Markdown 面向编剧/改编者阅读稿
 9. AI 改编助手读取当前版本和选中场景；有模型 key 时生成结构化 patch，无 key 或模型失败时退回本地建议；编辑页会加载最近建议并恢复待确认项，审阅时保留原始用户需求并用角色名展示对白变更；用户可重新生成建议，或接受全部/部分 patch，再保存为新的 `agent_adaptation` 版本
+10. 版本历史支持基础结构化 diff：`GET /api/projects/{project_id}/diff?from=<version_id>&to=<version_id>` 会按剧本、角色、地点和场景分组返回差异；编辑器可将历史快照与当前快照对比
 
 ## 目录约定
 
@@ -71,3 +72,4 @@ class LLMProvider(Protocol):
 - 模型 key：DB `user_model_keys.encrypted_api_key`，只展示 `key_last4`
 - 手动保存和历史恢复：通过 `script_versions` 生成可命名快照；编辑页隐藏技术来源字段，用户从快照历史直接回退到任意旧快照
 - AI 改编：`agent_runs` 保存用户指令、选中上下文、计划和 patch；接受全部或部分 patch 后写入 `script_versions` 与 `edit_events`，并记录 `accepted_patch_indexes` 便于追溯局部落版范围
+- 版本差异：`services.diff` 使用角色、地点和场景的稳定 id 匹配结构化实体，避免仅因数组顺序变化产生整组误报

@@ -1,19 +1,21 @@
 """Script version endpoints."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import PlainTextResponse, Response
 
 from .. import db as dbm
 from ..schemas import (
     EditEventOut,
     ScriptVersionDetail,
+    ScriptVersionDiffOut,
     ScriptVersionJsonSaveRequest,
     ScriptVersionOut,
     ScriptVersionSaveRequest,
 )
+from ..services.diff import compare_script_versions
 from ..services.exports import script_to_json_text, script_to_markdown
 from ..services.versions import (
     create_version_from_yaml,
@@ -105,6 +107,25 @@ def list_versions(
         .all()
     )
     return [_version_out(version) for version in versions]
+
+
+@router.get("/projects/{project_id}/diff", response_model=ScriptVersionDiffOut)
+def diff_versions(
+    project_id: str,
+    db: DbSession,
+    current_user: CurrentUser,
+    from_version_id: Annotated[str, Query(alias="from")],
+    to_version_id: Annotated[str | None, Query(alias="to")] = None,
+) -> dict[str, Any]:
+    get_project_or_404(db, project_id, user_id=current_user.id)
+    from_version = get_version_or_404(db, project_id, from_version_id)
+    if to_version_id:
+        to_version = get_version_or_404(db, project_id, to_version_id)
+    else:
+        to_version = latest_version(db, project_id)
+    if not to_version:
+        raise HTTPException(404, "target script version not found")
+    return compare_script_versions(from_version, to_version)
 
 
 @router.get("/projects/{project_id}/edits", response_model=list[EditEventOut])

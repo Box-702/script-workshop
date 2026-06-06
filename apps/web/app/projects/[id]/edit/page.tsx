@@ -16,6 +16,7 @@ import type {
   ScriptScene,
   ScriptVersionSummary,
   ValidationError,
+  VersionDiffSummary,
 } from "@/lib/types";
 
 type EditorMode = "script" | "scene" | "yaml";
@@ -38,6 +39,8 @@ export default function EditPage() {
   const [agentScope, setAgentScope] = useState<"current_scene" | "whole_script">("current_scene");
   const [agentRun, setAgentRun] = useState<AgentRunSummary | null>(null);
   const [agentRuns, setAgentRuns] = useState<AgentRunSummary[]>([]);
+  const [versionDiff, setVersionDiff] = useState<VersionDiffSummary | null>(null);
+  const [diffBusy, setDiffBusy] = useState(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [snapshotName, setSnapshotName] = useState("");
@@ -156,6 +159,7 @@ export default function EditPage() {
         label,
         notes: "用户从剧本编辑界面保存快照。",
       });
+      setVersionDiff(null);
       await loadScript();
       setSnapshotName("");
       setNotice(saved.validation_status === "valid" ? `已保存快照：${label}` : `已保存快照：${label}，但仍有结构问题需要处理。`);
@@ -176,6 +180,7 @@ export default function EditPage() {
         notes: "用户从 YAML 源码保存快照。",
       });
       setYaml(saved.yaml_content);
+      setVersionDiff(null);
       await loadScript();
       setSnapshotName("");
       setNotice(saved.validation_status === "valid" ? `已保存快照：${label}` : `已保存快照：${label}，但仍有结构问题需要处理。`);
@@ -192,6 +197,7 @@ export default function EditPage() {
     try {
       const restored = await api.restoreVersion(projectId, versionId);
       setYaml(restored.yaml_content);
+      setVersionDiff(null);
       await loadScript();
       setNotice("已回退到所选快照，并创建了新的当前快照。");
     } catch (e) {
@@ -232,6 +238,7 @@ export default function EditPage() {
       setYaml(version.yaml_content);
       setAgentRun(null);
       setAgentInstruction("");
+      setVersionDiff(null);
       await loadScript({ restoreAgentRun: false });
       setNotice("已接受 AI 改编，并保存为新版本。");
     } catch (e) {
@@ -270,6 +277,19 @@ export default function EditPage() {
       setErrors([{ path: "<agent>", message: (e as Error).message, severity: "error" }]);
     } finally {
       setAgentBusy(false);
+    }
+  }
+
+  async function compareVersion(versionId: string) {
+    setDiffBusy(true);
+    setNotice(null);
+    try {
+      const diff = await api.getVersionDiff(projectId, versionId);
+      setVersionDiff(diff);
+    } catch (e) {
+      setErrors([{ path: "<diff>", message: (e as Error).message, severity: "error" }]);
+    } finally {
+      setDiffBusy(false);
     }
   }
 
@@ -399,11 +419,19 @@ export default function EditPage() {
           <VersionPanel
             versions={versions}
             saving={saving}
+            diffBusy={diffBusy}
             snapshotName={snapshotName}
             setSnapshotName={setSnapshotName}
             canSaveSnapshot={Boolean(script) || mode === "yaml"}
             saveSnapshot={mode === "yaml" ? saveYamlVersion : saveStructuredVersion}
             restoreVersion={restoreVersion}
+            compareVersion={compareVersion}
+          />
+          <DiffPanel
+            diff={versionDiff}
+            busy={diffBusy}
+            characterNames={characterNames}
+            onClose={() => setVersionDiff(null)}
           />
 
           {changes.length > 0 && (
@@ -1490,20 +1518,26 @@ function ValidationPanel({ busy, errors }: { busy: boolean; errors: ValidationEr
 function VersionPanel({
   versions,
   saving,
+  diffBusy,
   snapshotName,
   setSnapshotName,
   canSaveSnapshot,
   saveSnapshot,
   restoreVersion,
+  compareVersion,
 }: {
   versions: ScriptVersionSummary[];
   saving: boolean;
+  diffBusy: boolean;
   snapshotName: string;
   setSnapshotName: (value: string) => void;
   canSaveSnapshot: boolean;
   saveSnapshot: () => void;
   restoreVersion: (versionId: string) => void;
+  compareVersion: (versionId: string) => void;
 }) {
+  const currentVersionId = versions[0]?.id;
+
   return (
     <div className="card space-y-3">
       <div className="label">快照历史</div>
@@ -1544,18 +1578,99 @@ function VersionPanel({
                 <div className="font-mono">{new Date(version.created_at).toLocaleString()}</div>
               </div>
               {index > 0 && (
-                <button
-                  className="btn-ghost mt-2 w-full px-2 py-1 text-xs"
-                  onClick={() => restoreVersion(version.id)}
-                  disabled={saving}
-                >
-                  回退到此快照
-                </button>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button
+                    className="btn-ghost px-2 py-1 text-xs"
+                    onClick={() => compareVersion(version.id)}
+                    disabled={saving || diffBusy || !currentVersionId}
+                  >
+                    {diffBusy ? "对比中..." : "对比当前"}
+                  </button>
+                  <button
+                    className="btn-ghost px-2 py-1 text-xs"
+                    onClick={() => restoreVersion(version.id)}
+                    disabled={saving}
+                  >
+                    回退
+                  </button>
+                </div>
               )}
               {index === 0 && <div className="mt-2 text-xs text-ink-500">当前使用中</div>}
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+function DiffPanel({
+  diff,
+  busy,
+  characterNames,
+  onClose,
+}: {
+  diff: VersionDiffSummary | null;
+  busy: boolean;
+  characterNames: Record<string, string>;
+  onClose: () => void;
+}) {
+  if (!diff && !busy) return null;
+  const groups = groupDiffItems(diff?.items ?? []);
+
+  return (
+    <div className="card space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="label mb-0">版本差异</div>
+          {diff && (
+            <div className="mt-1 text-xs text-ink-500">
+              {diff.items.length === 0 ? "两个快照内容一致" : `${diff.items.length} 处变化`}
+            </div>
+          )}
+        </div>
+        {diff && (
+          <button type="button" className="text-xs text-ink-500 hover:text-ink-200" onClick={onClose}>
+            关闭
+          </button>
+        )}
+      </div>
+      {busy && !diff ? (
+        <div className="text-sm text-ink-400">正在对比快照...</div>
+      ) : diff && diff.items.length === 0 ? (
+        <div className="rounded-md border border-white/10 bg-white/[0.02] p-3 text-sm text-ink-300">
+          没有发现内容差异。
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {groups.map(([section, items]) => (
+            <section key={section} className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium text-ink-200">{section}</span>
+                <span className="text-ink-500">{items.length}</span>
+              </div>
+              <ul className="space-y-2">
+                {items.map((item) => (
+                  <li key={`${item.path}-${item.change_type}`} className="rounded-md border border-white/10 bg-white/[0.03] p-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0 truncate text-sm font-medium text-ink-100">{item.label}</div>
+                      <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${diffBadgeClass(item.change_type)}`}>
+                        {formatDiffChangeType(item.change_type)}
+                      </span>
+                    </div>
+                    <div className="mt-1 truncate font-mono text-[10px] text-ink-600">{item.path}</div>
+                    {item.change_type !== "added" && (
+                      <PatchValue label="修改前" value={item.before} characterNames={characterNames} />
+                    )}
+                    {item.change_type !== "removed" && (
+                      <PatchValue label="修改后" value={item.after} characterNames={characterNames} />
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -1603,6 +1718,32 @@ function formatValidation(value: string) {
       invalid: "待处理",
     }[value] ?? value
   );
+}
+
+function groupDiffItems(items: VersionDiffSummary["items"]) {
+  const grouped = new Map<string, VersionDiffSummary["items"]>();
+  for (const item of items) {
+    const bucket = grouped.get(item.section) ?? [];
+    bucket.push(item);
+    grouped.set(item.section, bucket);
+  }
+  return Array.from(grouped.entries());
+}
+
+function formatDiffChangeType(value: string) {
+  return (
+    {
+      added: "新增",
+      removed: "删除",
+      changed: "修改",
+    }[value] ?? value
+  );
+}
+
+function diffBadgeClass(value: string) {
+  if (value === "added") return "bg-emerald-500/15 text-emerald-300";
+  if (value === "removed") return "bg-red-500/15 text-red-300";
+  return "bg-amber-500/15 text-amber-300";
 }
 
 function formatAgentStatus(value: string) {

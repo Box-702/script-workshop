@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -261,6 +261,23 @@ class ScriptVersionOut(BaseModel):
 
 class ScriptVersionDetail(ScriptVersionOut):
     yaml_content: str
+
+
+class ScriptVersionDiffItem(BaseModel):
+    path: str
+    section: str
+    label: str
+    change_type: Literal["added", "removed", "changed"]
+    before: Any = None
+    after: Any = None
+
+
+class ScriptVersionDiffOut(BaseModel):
+    project_id: str
+    from_version_id: str
+    to_version_id: str
+    items: list[ScriptVersionDiffItem] = Field(default_factory=list)
+    summary: dict[str, int] = Field(default_factory=dict)
 
 
 class EditEventOut(BaseModel):
