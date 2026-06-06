@@ -118,33 +118,28 @@ function ProjectCard({
   return (
     <>
       <div className="min-w-0">
-        <div className="flex items-start justify-between gap-3 lg:block">
-          <Link
-            href={`/projects/${project.id}`}
-            className="project-title-link"
-          >
-            {project.title}
-          </Link>
-          <div className="mt-1 text-sm text-ink-400">
-            {formatAdaptation(project.adaptation_type)} · 更新于 {formatDate(project.updated_at)}
-          </div>
-          <div className="lg:hidden">
-            <StatusPill value={displayProjectStatus(project)} />
-          </div>
+        <Link
+          href={`/projects/${project.id}`}
+          className="project-title-link"
+        >
+          {project.title}
+        </Link>
+        <div className="mt-1 truncate text-sm text-ink-400">
+          {formatAdaptation(project.adaptation_type)} · 更新于 {formatDate(project.updated_at)}
         </div>
       </div>
 
-      <div className="hidden lg:block">
+      <div>
         <StatusPill value={displayProjectStatus(project)} />
       </div>
       <Metric label="章节" value={project.chapter_count} />
       <Metric label="版本" value={project.version_count} />
       <div className="project-version-note">
         {project.latest_version
-          ? `当前版本：${formatVersionLabel(project.latest_version.label, project.latest_version.source_type)} · ${formatValidation(project.latest_version.validation_status)}`
-          : "暂无剧本版本"}
+          ? `${formatVersionLabel(project.latest_version.label, project.latest_version.source_type)} · ${formatValidation(project.latest_version.validation_status)}`
+          : "暂无版本"}
       </div>
-      <div className="flex flex-wrap gap-2 lg:col-start-5 lg:row-start-1">
+      <div className="flex flex-wrap items-center gap-2">
         <Link href={`/projects/${project.id}`} className="btn-ghost px-3 py-1.5 text-xs">
           详情
         </Link>

@@ -304,13 +304,14 @@
     @apply grid gap-3 border-b border-ink-600/30 px-4 py-4
            transition-all duration-200 ease-out last:border-b-0
            hover:bg-ink-800/40 hover:pl-5
-           lg:grid-cols-[minmax(0,1.5fr)_120px_100px_100px_220px] lg:items-center;
+           lg:grid-cols-[minmax(0,1.5fr)_120px_100px_100px_220px]
+           lg:grid-rows-[auto_auto] lg:items-center;
   }
   .project-title-link {
     @apply text-lg font-semibold text-ink-50 transition-colors duration-150 hover:text-accent-400;
   }
   .project-version-note {
-    @apply text-sm text-ink-400 max-lg:rounded-md max-lg:border max-lg:border-ink-600/30 max-lg:bg-ink-900/50 max-lg:p-3 lg:col-span-4 lg:col-start-1 lg:mt-[-10px];
+    @apply text-sm text-ink-400 max-lg:rounded-md max-lg:border max-lg:border-ink-600/30 max-lg:bg-ink-900/50 max-lg:p-3 lg:col-start-4 lg:row-start-2 lg:mt-0;
   }
   .metric {
     @apply text-sm;
@@ -325,6 +326,28 @@
   .status-pill {
     @apply inline-flex items-center self-start rounded-full px-2 py-0.5 text-xs font-medium leading-none
            transition-transform duration-150 hover:scale-105;
+  }
+  /* Paper theme uses deeper, more saturated pill colors so the bg/text
+     contrast survives on the warm cream surface. */
+  [data-ui-style="paper"] .status-pill.bg-emerald-500\/15 {
+    background: rgb(34 120 70 / 0.18);
+    color: rgb(20 80 50);
+    border: 1px solid rgb(34 120 70 / 0.30);
+  }
+  [data-ui-style="paper"] .status-pill.bg-amber-500\/15 {
+    background: rgb(170 110 20 / 0.18);
+    color: rgb(120 75 10);
+    border: 1px solid rgb(170 110 20 / 0.30);
+  }
+  [data-ui-style="paper"] .status-pill.bg-red-500\/15 {
+    background: rgb(180 50 50 / 0.18);
+    color: rgb(130 30 30);
+    border: 1px solid rgb(180 50 50 / 0.30);
+  }
+  [data-ui-style="paper"] .status-pill.bg-ink-700 {
+    background: rgb(var(--line-rgb) / 0.10);
+    color: rgb(var(--ink-50));
+    border: 1px solid rgb(var(--line-rgb) / 0.20);
   }
 
   /* Themed surface tokens — replace hardcoded white/10 and white/[0.02] */
