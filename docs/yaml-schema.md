@@ -4,6 +4,23 @@
 
 本文档逐字段解释 Schema 设计原因。
 
+## 设计总原则
+
+剧本工坊的 YAML 不是单纯给机器看的配置文件，而是一个可以长期保存、反复编辑、给 AI Agent 修改、再导出给创作者阅读的剧本中间格式。它同时服务三类需求：
+
+1. **人能读**：作者打开场景时，应该能按剧本顺序看到动作、对白、提示之间的关系。
+2. **机器能改**：AI Agent 需要稳定 id、明确字段和可校验结构，不能只处理一整段散文。
+3. **版本能比较**：每次人工修改或 AI 改编都要能 diff、回滚、局部接受。
+
+因此 Schema 采用“结构化资产 + 剧本流”的组合：
+
+- `characters`、`locations`、`scenes` 是资产层，负责稳定引用。
+- `purpose`、`conflict`、`entry_state`、`exit_state` 是场景判断层，负责说明这场戏为什么存在。
+- `beats` 是主编辑层，负责按阅读顺序呈现动作、对白和提示。
+- `action`、`dialogue` 是兼容层，保留给旧项目、旧导出和部分下游工具。
+
+这个设计避免两个极端：如果只保存纯文本剧本，AI 很难安全地局部修改；如果只保存拆散的字段，作者又看不清动作和对白之间的连续关系。
+
 ## 顶层结构
 
 ```yaml
@@ -102,6 +119,7 @@ BCP-47 编码（如 `zh-CN` / `en-US`），影响后续台词语言校验与导�
 - 剧本中动作描述按镜头/节拍拆分，方便后期改写。
 - 强制短句，避免模型直接复述大段心理描写。
 - 旧版本和下游导出仍使用它做兼容字段；新编辑体验优先使用 `beats`。
+- 在结构化编辑器中，`action` 不再作为主要人工编辑入口，而是由 `beats` 中的 `action` 节拍同步生成。
 
 ### `beats[]` —— 剧本流
 
@@ -134,9 +152,23 @@ beats:
 | `subtext` | ❌ | 潜台词 |
 
 **兼容规则**：
-- `beats` 是主编辑结构，适合人工阅读和逐条改写。
-- `action` 和 `dialogue` 继续保留，方便旧项目、导出和现有 Agent patch 使用。
-- 当前编辑器会在修改 `beats` 时同步回写 `action` 与 `dialogue`；`cue` 只保存在 `beats` 中。
+- `beats` 是主编辑结构，适合人工阅读、逐条改写和版本 diff。
+- `action` 和 `dialogue` 继续保留，方便旧项目、旧导出和部分下游工具。
+- 当前结构化编辑器只通过 `beats` 修改剧本正文，并把 `action` 与 `dialogue` 作为兼容结构预览。
+- 修改 `beats` 时会同步回写 `action` 与 `dialogue`；`cue` 只保存在 `beats` 中，因为旧字段没有对应表达。
+- 如果用户直接编辑 YAML，应优先修改 `beats`，并尽量保持 `action`、`dialogue` 与 `beats` 一致。
+
+**为什么不直接删除 `action` / `dialogue`**：
+- 已有项目可能只包含旧字段，删除会破坏历史版本。
+- 部分导出和 Agent patch 仍可能读取旧字段，保留可以降低迁移风险。
+- `dialogue` 这种纯对白列表对统计角色台词、检查 speaker 合法性仍然有用。
+
+**为什么不只保留 `action` / `dialogue`**：
+- 它们是两个并列数组，无法表达“动作 A 触发台词 B，台词 B 后接音效 C”的顺序关系。
+- cue、灯光、音效、舞台提示没有自然位置。
+- 编辑器无法让作者像读剧本一样连续审稿。
+
+所以当前规则是：**`beats` 负责创作体验，`action` / `dialogue` 负责兼容和索引**。
 
 ### `dialogue[]` —— 对白
 
@@ -150,6 +182,7 @@ beats:
 **为什么有 `emotion` 和 `subtext`**：
 - 剧本不是小说。演员要的不只是台词文本，还包括情绪走向和没说出口的话。
 - 这两个字段让 AI 输出接近"可用剧本"而非"对话摘要"。
+- 在新结构中，`dialogue` 主要用于兼容和快速索引；实际阅读顺序以 `beats` 中的对白节拍为准。
 
 ### `adaptation_notes` —— 改编说明
 | 字段 | 说明 |
@@ -165,6 +198,8 @@ beats:
 - `scene.location_id` 必须命中 `locations[].id`
 - `scene.characters[]` 每个 id 必须命中 `characters[].id`
 - `dialogue.speaker` 必须命中 `characters[].id`
+- `beats[].speaker` 如果存在，也必须命中 `characters[].id`
+- `beats[].id` 在同一场内必须唯一
 - `scenes[].id` 全剧唯一
 - `characters[].id` 全剧唯一
 - `locations[].id` 全剧唯一

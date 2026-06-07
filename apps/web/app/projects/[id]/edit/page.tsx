@@ -635,8 +635,12 @@ function SceneEditor({
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {script.characters.map((character) => {
               const checked = scene.characters.includes(character.id);
-              const appearsInDialogue = scene.dialogue.some((line) => line.speaker === character.id);
-              const removalDisabled = checked && (scene.characters.length <= 1 || appearsInDialogue);
+              const appearsInScriptFlow =
+                scene.dialogue.some((line) => line.speaker === character.id) ||
+                (scene.beats ?? []).some(
+                  (beat) => beat.type === "dialogue" && beat.speaker === character.id,
+                );
+              const removalDisabled = checked && (scene.characters.length <= 1 || appearsInScriptFlow);
               return (
                 <label
                   key={character.id}
@@ -647,8 +651,8 @@ function SceneEditor({
                   }`}
                   title={
                     removalDisabled
-                      ? appearsInDialogue
-                        ? "该角色已有对白，先调整对白 speaker 后再移出场景"
+                      ? appearsInScriptFlow
+                        ? "该角色已有对白，先调整剧本流中的说话人后再移出场景"
                         : "场景至少需要一个角色"
                       : undefined
                   }
@@ -678,10 +682,9 @@ function SceneEditor({
 
         <details className="mt-6 rounded-md border surface-line surface-soft p-3">
           <summary className="cursor-pointer text-sm font-medium text-ink-100">
-            高级结构
+            兼容结构
           </summary>
-          <ActionEditor scene={scene} updateScene={updateScene} />
-          <DialogueEditor scene={scene} characterNames={characterNames} updateScene={updateScene} />
+          <LegacyStructurePreview scene={scene} characterNames={characterNames} />
         </details>
         </div>
       </section>
@@ -700,6 +703,9 @@ function ScriptOverview({
     for (const scene of script.scenes) {
       for (const id of scene.characters) ids.add(id);
       for (const line of scene.dialogue) ids.add(line.speaker);
+      for (const beat of scene.beats ?? []) {
+        if (beat.type === "dialogue" && beat.speaker) ids.add(beat.speaker);
+      }
     }
     return ids;
   }, [script.scenes]);
@@ -731,6 +737,11 @@ function ScriptOverview({
           ...line,
           speaker: line.speaker === characterId ? trimmed : line.speaker,
         })),
+        beats: scene.beats?.map((beat) =>
+          beat.type === "dialogue" && beat.speaker === characterId
+            ? { ...beat, speaker: trimmed }
+            : beat,
+        ),
       })),
     }));
   }
@@ -1169,140 +1180,55 @@ function ScriptFlowEditor({
   );
 }
 
-function ActionEditor({
-  scene,
-  updateScene,
-}: {
-  scene: ScriptScene;
-  updateScene: (sceneId: string, patch: (scene: ScriptScene) => ScriptScene) => void;
-}) {
-  return (
-    <div className="mt-6">
-      <div className="mb-3 flex items-center justify-between">
-        <div className="text-sm font-medium text-ink-100">动作</div>
-        <button
-          type="button"
-          className="btn-ghost px-2 py-1 text-xs"
-          onClick={() => updateScene(scene.id, (next) => ({ ...next, action: [...next.action, ""] }))}
-        >
-          添加
-        </button>
-      </div>
-      <ul className="space-y-2">
-        {scene.action.map((line, index) => (
-          <li key={index} className="flex gap-2">
-            <textarea
-              className="input min-h-[52px] text-sm"
-              value={line}
-              onChange={(e) =>
-                updateScene(scene.id, (next) => ({
-                  ...next,
-                  action: next.action.map((item, i) => (i === index ? e.target.value : item)),
-                }))
-              }
-            />
-            <button
-              type="button"
-              className="btn-ghost h-10 px-2 text-xs"
-              onClick={() =>
-                updateScene(scene.id, (next) => ({
-                  ...next,
-                  action: next.action.filter((_, i) => i !== index),
-                }))
-              }
-            >
-              删除
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function DialogueEditor({
+function LegacyStructurePreview({
   scene,
   characterNames,
-  updateScene,
 }: {
   scene: ScriptScene;
   characterNames: Record<string, string>;
-  updateScene: (sceneId: string, patch: (scene: ScriptScene) => ScriptScene) => void;
 }) {
-  function updateLine(index: number, patch: Partial<DialogueLine>) {
-    updateScene(scene.id, (next) => ({
-      ...next,
-      dialogue: next.dialogue.map((line, i) => (i === index ? { ...line, ...patch } : line)),
-    }));
-  }
-
   return (
-    <div className="mt-6">
-      <div className="mb-3 flex items-center justify-between">
-        <div className="text-sm font-medium text-ink-100">对白</div>
-        <button
-          type="button"
-          className="btn-ghost px-2 py-1 text-xs"
-          onClick={() =>
-            updateScene(scene.id, (next) => ({
-              ...next,
-              dialogue: [...next.dialogue, { speaker: next.characters[0] || "", line: "" }],
-            }))
-          }
-        >
-          添加
-        </button>
-      </div>
-      <ul className="space-y-3">
-        {scene.dialogue.map((line, index) => (
-          <li key={index} className="rounded border surface-line surface-soft p-3">
-            <div className="grid gap-3 md:grid-cols-[180px_1fr]">
-              <select
-                className="input"
-                value={line.speaker}
-                onChange={(e) => updateLine(index, { speaker: e.target.value })}
-              >
-                {scene.characters.map((id) => (
-                  <option key={id} value={id}>
-                    {characterNames[id] ?? "未命名角色"}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="input"
-                value={line.emotion ?? ""}
-                onChange={(e) => updateLine(index, { emotion: e.target.value })}
-                placeholder="情绪"
-              />
-            </div>
-            <textarea
-              className="input mt-3 min-h-[72px] text-sm"
-              value={line.line}
-              onChange={(e) => updateLine(index, { line: e.target.value })}
-            />
-            <div className="mt-3 flex gap-2">
-              <input
-                className="input"
-                value={line.subtext ?? ""}
-                onChange={(e) => updateLine(index, { subtext: e.target.value })}
-                placeholder="潜台词"
-              />
-              <button
-                type="button"
-                className="btn-ghost px-2 text-xs"
-                onClick={() =>
-                  updateScene(scene.id, (next) => ({
-                    ...next,
-                    dialogue: next.dialogue.filter((_, i) => i !== index),
-                  }))
-                }
-              >
-                删除
-              </button>
-            </div>
-          </li>
-        ))}
-      </ul>
+    <div className="mt-4 grid gap-4 lg:grid-cols-2">
+      <section className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs font-medium text-ink-400">action</div>
+          <span className="text-[11px] text-ink-500">{scene.action.length}</span>
+        </div>
+        {scene.action.length > 0 ? (
+          <ol className="space-y-2">
+            {scene.action.map((line, index) => (
+              <li key={`${index}-${line}`} className="rounded-md bg-ink-950/50 px-2.5 py-2 text-sm leading-5 text-ink-200">
+                <span className="mr-2 font-mono text-[11px] text-ink-500">{index + 1}</span>
+                {line}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <div className="rounded-md bg-ink-950/50 px-2.5 py-2 text-sm text-ink-500">空</div>
+        )}
+      </section>
+      <section className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs font-medium text-ink-400">dialogue</div>
+          <span className="text-[11px] text-ink-500">{scene.dialogue.length}</span>
+        </div>
+        {scene.dialogue.length > 0 ? (
+          <ol className="space-y-2">
+            {scene.dialogue.map((line, index) => (
+              <li key={`${index}-${line.speaker}-${line.line}`} className="rounded-md bg-ink-950/50 px-2.5 py-2 text-sm leading-5 text-ink-200">
+                <div className="font-medium text-ink-100">
+                  {characterNames[line.speaker] ?? line.speaker}
+                  {line.emotion ? <span className="font-normal text-ink-500">（{line.emotion}）</span> : null}
+                </div>
+                <div className="mt-1">{line.line}</div>
+                {line.subtext ? <div className="mt-1 text-xs text-ink-500">潜台词：{line.subtext}</div> : null}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <div className="rounded-md bg-ink-950/50 px-2.5 py-2 text-sm text-ink-500">空</div>
+        )}
+      </section>
     </div>
   );
 }
