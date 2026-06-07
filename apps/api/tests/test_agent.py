@@ -48,6 +48,19 @@ MULTI_SCENE_SCRIPT_YAML = (
 """
 )
 
+SCRIPT_WITH_BEATS_YAML = VALID_SCRIPT_YAML.replace(
+    "      dialogue:\n        - speaker: char_doctor\n          line: We are closed.\n",
+    "      dialogue:\n        - speaker: char_doctor\n          line: We are closed.\n"
+    "      beats:\n"
+    "        - id: beat_001\n"
+    "          type: action\n"
+    "          text: Rain hits the door.\n"
+    "        - id: beat_002\n"
+    "          type: dialogue\n"
+    "          speaker: char_doctor\n"
+    "          line: We are closed.\n",
+)
+
 
 def _session():
     engine = create_engine(
@@ -360,6 +373,68 @@ def test_accept_agent_run_can_apply_selected_patch_items_only():
     event = db.query(EditEvent).filter_by(version_id=version.id).one()
     assert event.patch["accepted_patch_indexes"] == [0, 2]
     assert len(event.patch["patch"]) == 2
+
+
+def test_agent_can_accept_individual_beat_suggestions():
+    db = _session()
+    project = Project(id="proj_test", title="Test", adaptation_type="short_drama")
+    db.add(project)
+    db.commit()
+    base = create_version_from_yaml(db, project, SCRIPT_WITH_BEATS_YAML)
+    provider = FakeAgentProvider(
+        {
+            "plan": ["逐节拍增强开场"],
+            "changes": [
+                {
+                    "scene_id": "scene_001",
+                    "beats": [
+                        {
+                            "id": "beat_001",
+                            "type": "action",
+                            "text": "Blood runs under the clinic door.",
+                        },
+                        {
+                            "id": "beat_002",
+                            "type": "dialogue",
+                            "speaker": "char_doctor",
+                            "line": "Who is out there?",
+                            "emotion": "tense",
+                        },
+                    ],
+                }
+            ],
+        }
+    )
+
+    run = create_agent_run(
+        db,
+        project,
+        payload=AgentAdaptRequest(
+            instruction="逐节拍强化短剧开场",
+            base_version_id=base.id,
+            scene_ids=["scene_001"],
+        ),
+        provider=provider,
+    )
+
+    assert [item["beat_id"] for item in run.patch] == ["beat_001", "beat_002"]
+    assert [item["beat_label"] for item in run.patch] == ["节拍 001 · 动作", "节拍 002 · 对白"]
+    version = accept_agent_run(db, run, patch_indexes=[1])
+    scene = version.json_content["script"]["scenes"][0]
+
+    assert scene["beats"][0]["text"] == "Rain hits the door."
+    assert scene["beats"][1]["line"] == "Who is out there?"
+    assert scene["action"] == ["Rain hits the door."]
+    assert scene["dialogue"] == [
+        {
+            "speaker": "char_doctor",
+            "line": "Who is out there?",
+            "emotion": "tense",
+        }
+    ]
+    event = db.query(EditEvent).filter_by(version_id=version.id).one()
+    assert event.patch["accepted_patch_indexes"] == [1]
+    assert event.patch["patch"][0]["beat_id"] == "beat_002"
 
 
 def test_retry_agent_run_reuses_original_context_and_prompt():

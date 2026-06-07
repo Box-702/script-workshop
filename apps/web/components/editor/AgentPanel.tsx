@@ -283,12 +283,17 @@ export function AgentPanel({
                           onChange={() => togglePatchIndex(index)}
                         />
                       )}
-                      <span className="truncate">{item.scene_title || `变更 ${index + 1}`}</span>
+                      <span className="truncate">{formatPatchTitle(item, index)}</span>
                     </label>
                     <span className="rounded bg-ink-800 px-1.5 py-0.5 text-xs text-ink-300">
                       {formatPatchField(item)}
                     </span>
                   </div>
+                  {item.risk && item.risk.length > 0 && (
+                    <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-xs leading-5 text-amber-200">
+                      {item.risk.join(" ")}
+                    </div>
+                  )}
                   <PatchValue label="修改前" value={item.before} characterNames={characterNames} />
                   <PatchValue label="修改后" value={item.after ?? item.value} characterNames={characterNames} />
                 </li>
@@ -363,4 +368,11 @@ function formatPatchField(item: AgentPatchOperation) {
       "adaptation_notes/fidelity": "方式",
     }[item.field || String(item.path || "").split("/script/scenes/").pop()?.split("/").slice(1).join("/") || ""] ?? "修改"
   );
+}
+
+function formatPatchTitle(item: AgentPatchOperation, index: number) {
+  if (item.beat_label) {
+    return item.scene_title ? `${item.scene_title} · ${item.beat_label}` : item.beat_label;
+  }
+  return item.scene_title || `变更 ${index + 1}`;
 }

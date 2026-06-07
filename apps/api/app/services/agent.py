@@ -399,6 +399,120 @@ def _beats_from_action_dialogue(
     return beats
 
 
+def _beat_maps(beats: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {
+        str(beat.get("id")): beat
+        for beat in beats
+        if isinstance(beat, dict) and beat.get("id")
+    }
+
+
+def _beat_label(beat_id: str, beat: dict[str, Any] | None) -> str:
+    number = beat_id.removeprefix("beat_") if beat_id else ""
+    kind = (beat or {}).get("type")
+    type_label = {"action": "动作", "dialogue": "对白", "cue": "提示"}.get(kind, "节拍")
+    return f"节拍 {number} · {type_label}" if number else type_label
+
+
+def _beat_risks(
+    before: dict[str, Any] | None, after: dict[str, Any] | None, op: str
+) -> list[str]:
+    risks: list[str] = []
+    if op == "remove":
+        risks.append("会删除一个剧本节拍。")
+    if op == "add":
+        risks.append("会新增一个剧本节拍。")
+    if before and after and before.get("type") != after.get("type"):
+        risks.append("会改变节拍类型。")
+    if before and after and before.get("speaker") != after.get("speaker"):
+        risks.append("会改变对白说话人。")
+    return risks
+
+
+def _make_beat_op(
+    *,
+    scene_index: int,
+    scene: dict[str, Any],
+    beat_id: str,
+    op: str,
+    before: dict[str, Any] | None,
+    after: dict[str, Any] | None,
+) -> dict[str, Any]:
+    display_beat = after or before
+    return {
+        "op": op,
+        "path": f"/script/scenes/{scene_index}/beats/{beat_id}",
+        "scene_id": scene.get("id"),
+        "scene_title": scene.get("title"),
+        "field": "beats",
+        "beat_id": beat_id,
+        "beat_label": _beat_label(beat_id, display_beat),
+        "risk": _beat_risks(before, after, op),
+        "before": before,
+        "value": after,
+        "after": after,
+    }
+
+
+def _beat_patch_ops(
+    *,
+    scene_index: int,
+    scene: dict[str, Any],
+    next_beats: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    current_beats = scene.get("beats") if isinstance(scene.get("beats"), list) else []
+    if not current_beats:
+        current_beats = _beats_from_action_dialogue(
+            scene.get("action") or [],
+            scene.get("dialogue") or [],
+        )
+    before_map = _beat_maps(current_beats)
+    after_map = _beat_maps(next_beats)
+    ordered_ids = [str(beat.get("id")) for beat in next_beats if beat.get("id")]
+    ordered_ids.extend(beat_id for beat_id in before_map if beat_id not in after_map)
+
+    ops: list[dict[str, Any]] = []
+    for beat_id in ordered_ids:
+        before = before_map.get(beat_id)
+        after = after_map.get(beat_id)
+        if before == after:
+            continue
+        if before is None and after is not None:
+            ops.append(
+                _make_beat_op(
+                    scene_index=scene_index,
+                    scene=scene,
+                    beat_id=beat_id,
+                    op="add",
+                    before=None,
+                    after=after,
+                )
+            )
+        elif before is not None and after is None:
+            ops.append(
+                _make_beat_op(
+                    scene_index=scene_index,
+                    scene=scene,
+                    beat_id=beat_id,
+                    op="remove",
+                    before=before,
+                    after=None,
+                )
+            )
+        else:
+            ops.append(
+                _make_beat_op(
+                    scene_index=scene_index,
+                    scene=scene,
+                    beat_id=beat_id,
+                    op="set",
+                    before=before,
+                    after=after,
+                )
+            )
+    return ops
+
+
 def _make_set_op(
     *,
     scene_index: int,
@@ -466,22 +580,9 @@ def _patch_from_agent_response(
             beats = _clean_beats(change.get("beats"), allowed_speakers)
             if beats is not None:
                 beats_were_set = True
-                next_action = _action_from_beats(beats)
-                next_dialogue = _dialogue_from_beats(beats)
-                for field, before, after in (
-                    ("beats", scene.get("beats") or [], beats),
-                    ("action", scene.get("action") or [], next_action),
-                    ("dialogue", scene.get("dialogue") or [], next_dialogue),
-                ):
-                    op = _make_set_op(
-                        scene_index=idx,
-                        scene=scene,
-                        field=field,
-                        before=before,
-                        after=after,
-                    )
-                    if op:
-                        patch.append(op)
+                patch.extend(
+                    _beat_patch_ops(scene_index=idx, scene=scene, next_beats=beats)
+                )
 
         if "action" in change and not beats_were_set:
             action = _clean_action(change.get("action"))
@@ -589,8 +690,10 @@ def _build_model_patch(
 
 def _apply_set_patch(data: dict[str, Any], patch: list[dict]) -> dict[str, Any]:
     next_data = deepcopy(data)
+    sync_beat_scene_indexes: set[int] = set()
     for op in patch:
-        if op.get("op") != "set":
+        op_name = str(op.get("op") or "")
+        if op_name not in {"set", "add", "remove"}:
             raise HTTPException(400, f"unsupported patch op: {op.get('op')}")
         path = str(op.get("path") or "")
         if not path.startswith("/script/scenes/"):
@@ -606,8 +709,36 @@ def _apply_set_patch(data: dict[str, Any], patch: list[dict]) -> dict[str, Any]:
             raise HTTPException(400, f"patch scene index is out of range: {scene_index}")
         scene = scenes[scene_index]
         field_path = parts[3:]
+        if len(field_path) == 2 and field_path[0] == "beats":
+            beat_id = field_path[1]
+            beats = scene.setdefault("beats", [])
+            if not isinstance(beats, list):
+                raise HTTPException(400, f"invalid beats value in scene: {scene_index}")
+            existing_index = next(
+                (
+                    idx
+                    for idx, beat in enumerate(beats)
+                    if isinstance(beat, dict) and beat.get("id") == beat_id
+                ),
+                -1,
+            )
+            if op_name == "remove":
+                if existing_index >= 0:
+                    beats.pop(existing_index)
+            else:
+                value = op.get("value")
+                if not isinstance(value, dict):
+                    raise HTTPException(400, f"invalid beat patch value: {path}")
+                if existing_index >= 0:
+                    beats[existing_index] = value
+                else:
+                    beats.append(value)
+            sync_beat_scene_indexes.add(scene_index)
+            continue
         if len(field_path) == 1 and field_path[0] in EDITABLE_SCENE_FIELDS:
             scene[field_path[0]] = op.get("value")
+            if field_path[0] == "beats":
+                sync_beat_scene_indexes.add(scene_index)
             continue
         if len(field_path) == 2 and field_path[0] == "adaptation_notes" and field_path[1] in {
             "reason",
@@ -619,6 +750,8 @@ def _apply_set_patch(data: dict[str, Any], patch: list[dict]) -> dict[str, Any]:
                 notes.setdefault("fidelity", "reordered")
             continue
         raise HTTPException(400, f"unsupported patch path: {path}")
+    for scene_index in sync_beat_scene_indexes:
+        _sync_scene_compat_from_beats(next_data["script"]["scenes"][scene_index])
     return next_data
 
 
@@ -638,6 +771,14 @@ def _select_patch_items(patch: list[dict], patch_indexes: list[int] | None) -> l
         seen.add(index)
         selected.append(patch[index])
     return selected
+
+
+def _sync_scene_compat_from_beats(scene: dict[str, Any]) -> None:
+    beats = scene.get("beats")
+    if not isinstance(beats, list):
+        return
+    scene["action"] = _action_from_beats(beats)
+    scene["dialogue"] = _dialogue_from_beats(beats)
 
 
 def create_agent_run(

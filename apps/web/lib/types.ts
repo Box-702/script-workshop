@@ -195,6 +195,9 @@ export interface AgentPatchOperation {
   field?: string;
   scene_id?: string | null;
   scene_title?: string | null;
+  beat_id?: string | null;
+  beat_label?: string | null;
+  risk?: string[] | null;
   before?: unknown;
   value?: unknown;
   after?: unknown;
