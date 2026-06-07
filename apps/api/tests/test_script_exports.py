@@ -128,6 +128,37 @@ def test_version_diff_compares_requested_snapshot_to_latest():
     assert data["summary"]["场景"] >= 1
 
 
+def test_version_diff_compares_script_flow_beats_by_id():
+    db = _session()
+    project = Project(id="proj_test", title="Test", adaptation_type="short_drama")
+    db.add(project)
+    db.commit()
+    yaml_with_beats = VALID_SCRIPT_YAML.replace(
+        "      dialogue:\n        - speaker: char_doctor\n          line: We are closed.\n",
+        "      dialogue:\n        - speaker: char_doctor\n          line: We are closed.\n"
+        "      beats:\n"
+        "        - id: beat_001\n"
+        "          type: action\n"
+        "          text: Rain hits the door.\n"
+        "        - id: beat_002\n"
+        "          type: dialogue\n"
+        "          speaker: char_doctor\n"
+        "          line: Who is there?\n",
+    )
+    first = create_version_from_yaml(db, project, yaml_with_beats, label="First")
+    second_yaml = yaml_with_beats.replace("line: Who is there?", "line: Who is outside?")
+    create_version_from_yaml(db, project, second_yaml, label="Second")
+    client = _client(db)
+
+    response = client.get(f"/api/projects/{project.id}/diff?from={first.id}")
+
+    assert response.status_code == 200
+    data = response.json()
+    beat_items = [item for item in data["items"] if "beat_002" in item["path"]]
+    assert beat_items
+    assert any("剧本流" in item["label"] and "台词" in item["label"] for item in beat_items)
+
+
 def test_version_diff_hides_other_users_projects():
     db = _session()
     project = Project(

@@ -9,6 +9,7 @@ IDENTIFIED_LISTS = {
     "characters": "id",
     "locations": "id",
     "scenes": "id",
+    "beats": "id",
 }
 
 FIELD_LABELS = {
@@ -43,6 +44,9 @@ FIELD_LABELS = {
     "exit_state": "离场状态",
     "action": "动作",
     "dialogue": "对白",
+    "beats": "剧本流",
+    "type": "节拍类型",
+    "text": "内容",
     "speaker": "说话人",
     "line": "台词",
     "emotion": "情绪",
