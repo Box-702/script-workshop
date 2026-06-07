@@ -4,6 +4,8 @@
 
 ### AI 驱动的剧本 IDE：从 3 章以上小说生成可编辑、可校验、可回滚的中文剧本初稿。
 
+[B站演示视频](https://b23.tv/IzKVJsg)
+
 [English below](#english-summary) · [架构](docs/architecture.md) · [部署](docs/deployment.md) · [Schema](docs/yaml-schema.md) · [变更](CHANGELOG.md)
 
 ![status](https://img.shields.io/badge/status-active%20beta-green)
