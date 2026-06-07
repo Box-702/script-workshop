@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from .. import db as dbm
+from ..adaptation_profiles import adaptation_profile_for, adaptation_profile_prompt
 from ..ids import gen_id
 from ..providers.base import LLMProvider, Stage
 from ..schemas import AgentAdaptRequest
@@ -192,6 +193,10 @@ def _build_agent_prompt(
     data = version.json_content
     script = data.get("script", {})
     scenes = script.get("scenes", [])
+    adaptation = script.get("adaptation") if isinstance(script.get("adaptation"), dict) else {}
+    adaptation_type = str(adaptation.get("type") or project.adaptation_type or "other")
+    language = str(script.get("language") or project.language or "zh-CN")
+    adaptation_profile = adaptation_profile_for(adaptation_type)
     selected_indexes = _selected_scene_indexes(version, scene_ids)
     selected_scene_ids = {scenes[idx].get("id") for idx in selected_indexes}
     characters = {
@@ -225,8 +230,9 @@ def _build_agent_prompt(
     context = {
         "script": {
             "title": script.get("title"),
-            "language": script.get("language"),
+            "language": language,
             "adaptation": script.get("adaptation"),
+            "adaptation_profile": adaptation_profile,
             "logline": script.get("logline"),
             "themes": script.get("themes"),
         },
@@ -243,6 +249,7 @@ def _build_agent_prompt(
 请输出 JSON：
 - plan: 1-6 条中文计划，说明你将如何改。
 - changes: 每个被修改场景一项，scene_id 必须来自 {sorted(selected_scene_ids)}。
+- 必须遵守改编类型 profile，不要把电影/剧集/舞台剧都改成短剧节奏。
 - 只返回真正需要更新的字段；没有必要改的字段不要返回。
 - dialogue 中 speaker 必须使用该场景已有 characters 列表里的角色 id。
 - 优先返回 beats 来修改剧本流；beats 是动作、对白、提示按阅读顺序混排的列表。
@@ -250,6 +257,9 @@ def _build_agent_prompt(
 - action 和 dialogue 如果返回，会整体替换该场景对应列表。
 - beats 如果返回，也会同步更新 action/dialogue 兼容字段。
 - adaptation_reason 要说明这次改编为什么这么做。
+
+改编类型 profile：
+{adaptation_profile_prompt(adaptation_profile, language=language)}
 
 当前上下文：
 {json.dumps(context, ensure_ascii=False, indent=2)}

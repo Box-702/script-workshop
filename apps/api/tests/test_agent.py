@@ -265,6 +265,37 @@ def test_agent_prompt_includes_source_chapters_and_recent_edits():
     assert "林屿听见门外三次敲击" in prompt
     assert "recent_edits" in prompt
     assert "用户要求保留雨夜敲门的悬疑钩子" in prompt
+    assert "改编类型 profile" in prompt
+    assert "短剧" in prompt
+
+
+def test_agent_prompt_uses_project_adaptation_profile_when_script_has_none():
+    db = _session()
+    project = Project(id="proj_test", title="Test", adaptation_type="film")
+    db.add(project)
+    db.commit()
+    base = create_version_from_yaml(db, project, VALID_SCRIPT_YAML)
+    provider = FakeAgentProvider(
+        {
+            "plan": ["按电影方式调整"],
+            "changes": [{"scene_id": "scene_001", "purpose": "Open visually."}],
+        }
+    )
+
+    create_agent_run(
+        db,
+        project,
+        payload=AgentAdaptRequest(
+            instruction="按电影方式增强场面调度",
+            base_version_id=base.id,
+            scene_ids=["scene_001"],
+        ),
+        provider=provider,
+    )
+
+    prompt = provider.calls[0]["prompt"]
+    assert "电影剧本，强调三幕推进和视觉叙事" in prompt
+    assert "不要把电影/剧集/舞台剧都改成短剧节奏" in prompt
 
 
 def test_accept_agent_run_creates_version_and_edit_event():
