@@ -130,6 +130,55 @@ export default function EditPage() {
     }));
   }
 
+  function addSceneAfter(afterSceneId?: string, options: { continueFromScene?: boolean } = {}) {
+    if (!script) return;
+    const id = nextNumberedId("scene", script.scenes.map((scene) => scene.id));
+
+    updateScript((current) => {
+      const prepared = ensureSceneDependencies(current);
+      const currentSourceIndex = afterSceneId
+        ? prepared.scenes.findIndex((scene) => scene.id === afterSceneId)
+        : prepared.scenes.length - 1;
+      const insertIndex = currentSourceIndex >= 0 ? currentSourceIndex + 1 : prepared.scenes.length;
+      const sourceScene = currentSourceIndex >= 0 ? prepared.scenes[currentSourceIndex] : undefined;
+      const draft = createDraftScene(id, prepared, sourceScene, options.continueFromScene);
+      const scenes = [...prepared.scenes];
+      scenes.splice(insertIndex, 0, draft);
+      return { ...prepared, scenes };
+    });
+    setSelectedSceneId(id);
+    setMode("scene");
+  }
+
+  function deleteScene(sceneId: string) {
+    if (!script || script.scenes.length <= 1) return;
+    const index = script.scenes.findIndex((scene) => scene.id === sceneId);
+    const fallbackSceneId = script.scenes[index + 1]?.id ?? script.scenes[index - 1]?.id ?? "";
+    updateScript((current) => ({
+      ...current,
+      scenes: current.scenes.filter((scene) => scene.id !== sceneId),
+    }));
+    setSelectedSceneId(fallbackSceneId);
+    setMode("scene");
+  }
+
+  function addCharacterToScene(sceneId: string) {
+    if (!script) return;
+    const id = nextAvailableId("char_new", script.characters.map((character) => character.id));
+    updateScript((current) => ({
+      ...current,
+      characters: [
+        ...current.characters,
+        { id, name: `新角色 ${current.characters.length + 1}`, role: "supporting" },
+      ],
+      scenes: current.scenes.map((scene) =>
+        scene.id === sceneId
+          ? { ...scene, characters: uniqueStrings([...scene.characters, id]) }
+          : scene,
+      ),
+    }));
+  }
+
   function updateYaml(next: string) {
     setYaml(next);
     setNotice(null);
@@ -366,6 +415,7 @@ export default function EditPage() {
               locationNames={locationNames}
               selectedSceneId={selectedSceneId}
               setSelectedSceneId={setSelectedSceneId}
+              onAddSceneAfter={(sceneId) => addSceneAfter(sceneId)}
             />
           )}
         </aside>
@@ -379,6 +429,10 @@ export default function EditPage() {
               characterNames={characterNames}
               locationNames={locationNames}
               updateScene={updateScene}
+              addSceneAfter={(sceneId) => addSceneAfter(sceneId)}
+              continueScene={(sceneId) => addSceneAfter(sceneId, { continueFromScene: true })}
+              deleteScene={deleteScene}
+              addCharacterToScene={addCharacterToScene}
             />
           )}
           {mode === "script" && script && (
@@ -480,16 +534,27 @@ function ResourcePanel({
   locationNames,
   selectedSceneId,
   setSelectedSceneId,
+  onAddSceneAfter,
 }: {
   script: ScriptDocument;
   locationNames: Record<string, string>;
   selectedSceneId: string;
   setSelectedSceneId: (id: string) => void;
+  onAddSceneAfter: (sceneId?: string) => void;
 }) {
   return (
     <div className="panel flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="panel-header">
+      <div className="panel-header flex items-center justify-between gap-3">
         <div className="text-sm font-medium text-ink-100">资源</div>
+        <button
+          type="button"
+          className="btn-ghost h-8 px-2 text-xs"
+          onClick={() => onAddSceneAfter()}
+          title="新增场景"
+          aria-label="新增场景"
+        >
+          + 场景
+        </button>
       </div>
       <div className="border-b border-ink-600/30 px-4 py-3">
         <div className="grid grid-cols-3 gap-2 text-center text-xs">
@@ -503,28 +568,45 @@ function ResourcePanel({
         <ul className="space-y-2">
           {script.scenes.map((item, index) => (
             <li key={item.id}>
-              <button
-                type="button"
-                className={`w-full rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+              <div
+                className={`rounded-md border transition-colors ${
                   item.id === selectedSceneId
                     ? "border-accent-500/70 bg-accent-500/10 text-ink-50"
                     : "border-ink-600/30 bg-ink-900/50 text-ink-300 hover:border-ink-500 hover:bg-ink-800"
                 }`}
-                onClick={() => setSelectedSceneId(item.id)}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium">{sceneDisplayTitle(item, index)}</span>
-                  <span className="text-[11px] text-ink-500">{index + 1}</span>
+                <div className="flex items-start gap-2 px-3 py-2">
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left text-sm"
+                    onClick={() => setSelectedSceneId(item.id)}
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate font-medium">
+                        {sceneDisplayTitle(item, index)}
+                      </span>
+                      <span className="shrink-0 text-[11px] text-ink-500">{index + 1}</span>
+                    </div>
+                    <div className="mt-1 truncate text-xs text-ink-400">
+                      {sceneMeta(item, locationNames)}
+                    </div>
+                    {item.purpose && (
+                      <div className="mt-2 line-clamp-2 text-xs leading-5 text-ink-500">
+                        {item.purpose}
+                      </div>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-sm text-ink-400 transition-colors hover:bg-ink-700 hover:text-ink-100 focus:outline-none focus:ring-1 focus:ring-accent-500"
+                    onClick={() => onAddSceneAfter(item.id)}
+                    title="在此场后新增"
+                    aria-label={`在${sceneDisplayTitle(item, index)}后新增场景`}
+                  >
+                    +
+                  </button>
                 </div>
-                <div className="mt-1 truncate text-xs text-ink-400">
-                  {sceneMeta(item, locationNames)}
-                </div>
-                {item.purpose && (
-                  <div className="mt-2 line-clamp-2 text-xs leading-5 text-ink-500">
-                    {item.purpose}
-                  </div>
-                )}
-              </button>
+              </div>
             </li>
           ))}
         </ul>
@@ -549,6 +631,10 @@ function SceneEditor({
   characterNames,
   locationNames,
   updateScene,
+  addSceneAfter,
+  continueScene,
+  deleteScene,
+  addCharacterToScene,
 }: {
   script: ScriptDocument;
   scene: ScriptScene;
@@ -556,11 +642,18 @@ function SceneEditor({
   characterNames: Record<string, string>;
   locationNames: Record<string, string>;
   updateScene: (sceneId: string, patch: (scene: ScriptScene) => ScriptScene) => void;
+  addSceneAfter: (sceneId?: string) => void;
+  continueScene: (sceneId: string) => void;
+  deleteScene: (sceneId: string) => void;
+  addCharacterToScene: (sceneId: string) => void;
 }) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const canDeleteScene = script.scenes.length > 1;
+
   return (
       <section className="panel flex h-full min-h-0 flex-col overflow-hidden">
         <div className="shrink-0 border-b border-ink-600/30 p-5">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="text-xs text-ink-500">当前场景</div>
             <h2 className="mt-1 text-xl font-semibold text-ink-50">
@@ -568,8 +661,48 @@ function SceneEditor({
             </h2>
             <p className="mt-1 text-sm text-ink-400">{sceneMeta(scene, locationNames)}</p>
           </div>
-          <div className="text-sm text-ink-500">{script.scenes.length} 场</div>
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+            <button
+              type="button"
+              className="btn-ghost h-8 px-2 text-xs"
+              onClick={() => continueScene(scene.id)}
+            >
+              续写一场
+            </button>
+            <button
+              type="button"
+              className="btn-ghost h-8 px-2 text-xs"
+              onClick={() => addSceneAfter(scene.id)}
+            >
+              在后面新增
+            </button>
+            <button
+              type="button"
+              className="btn-ghost h-8 px-2 text-xs"
+              onClick={() => setConfirmingDelete((value) => !value)}
+              disabled={!canDeleteScene}
+              title={canDeleteScene ? undefined : "至少保留一个场景"}
+            >
+              删除场景
+            </button>
           </div>
+          </div>
+          {confirmingDelete && (
+            <div className="danger-panel mt-4 flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-sm font-medium text-ink-100">确认删除当前场景？</div>
+                <div className="mt-1 text-xs text-ink-400">会同时移除这一场的节拍、动作和对白。</div>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <button type="button" className="btn-ghost h-8 px-2 text-xs" onClick={() => setConfirmingDelete(false)}>
+                  取消
+                </button>
+                <button type="button" className="btn-danger h-8 px-2 text-xs" onClick={() => deleteScene(scene.id)}>
+                  确认删除
+                </button>
+              </div>
+            </div>
+          )}
         </div>
         <div className="workspace-scroll min-h-0 flex-1 overflow-auto p-5">
         <div className="grid gap-4 md:grid-cols-[1fr_180px_220px]">
@@ -628,9 +761,18 @@ function SceneEditor({
         </div>
 
         <div className="mt-5">
-          <div className="mb-2 flex items-center justify-between">
-            <div className="label mb-0">出场角色</div>
-            <span className="text-xs text-ink-500">{scene.characters.length} 人</span>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div>
+              <div className="label mb-0">出场角色</div>
+              <div className="mt-0.5 text-xs text-ink-500">{scene.characters.length} 人</div>
+            </div>
+            <button
+              type="button"
+              className="btn-ghost h-8 px-2 text-xs"
+              onClick={() => addCharacterToScene(scene.id)}
+            >
+              添加并出场
+            </button>
           </div>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {script.characters.map((character) => {
@@ -1031,6 +1173,8 @@ function ScriptFlowEditor({
   updateScene: (sceneId: string, patch: (scene: ScriptScene) => ScriptScene) => void;
 }) {
   const beats = sceneBeats(scene);
+  const [draggedBeatId, setDraggedBeatId] = useState<string | null>(null);
+  const [dragOverBeatId, setDragOverBeatId] = useState<string | null>(null);
 
   function commit(nextBeats: ScriptBeat[]) {
     updateScene(scene.id, (next) => syncSceneFromBeats(next, nextBeats));
@@ -1065,6 +1209,20 @@ function ScriptFlowEditor({
     commit(next);
   }
 
+  function dropBeat(targetBeatId: string) {
+    if (!draggedBeatId || draggedBeatId === targetBeatId) {
+      setDraggedBeatId(null);
+      setDragOverBeatId(null);
+      return;
+    }
+    const fromIndex = beats.findIndex((beat) => beat.id === draggedBeatId);
+    const toIndex = beats.findIndex((beat) => beat.id === targetBeatId);
+    if (fromIndex < 0 || toIndex < 0) return;
+    commit(moveArrayItem(beats, fromIndex, toIndex));
+    setDraggedBeatId(null);
+    setDragOverBeatId(null);
+  }
+
   return (
     <div className="mt-6">
       <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1087,9 +1245,43 @@ function ScriptFlowEditor({
 
       <ul className="space-y-3">
         {beats.map((beat, index) => (
-          <li key={beat.id} className={`script-beat ${beatTypeClass(beat.type)}`}>
+          <li
+            key={beat.id}
+            className={`script-beat ${beatTypeClass(beat.type)} ${
+              draggedBeatId === beat.id ? "script-beat-dragging" : ""
+            } ${dragOverBeatId === beat.id && draggedBeatId !== beat.id ? "script-beat-drop-target" : ""}`}
+            onDragOver={(e) => {
+              if (!draggedBeatId) return;
+              e.preventDefault();
+              setDragOverBeatId(beat.id);
+            }}
+            onDragLeave={() => setDragOverBeatId((current) => (current === beat.id ? null : current))}
+            onDrop={(e) => {
+              e.preventDefault();
+              dropBeat(beat.id);
+            }}
+          >
             <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div className="flex min-w-0 items-center gap-2">
+                <span
+                  role="button"
+                  tabIndex={0}
+                  draggable
+                  className="script-drag-handle"
+                  title="拖拽排序"
+                  aria-label={`拖拽移动第 ${index + 1} 个节拍`}
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("text/plain", beat.id);
+                    setDraggedBeatId(beat.id);
+                  }}
+                  onDragEnd={() => {
+                    setDraggedBeatId(null);
+                    setDragOverBeatId(null);
+                  }}
+                >
+                  ::
+                </span>
                 <span className="script-beat-number">
                   {String(index + 1).padStart(2, "0")}
                 </span>
@@ -1440,6 +1632,82 @@ function nextAvailableId(base: string, existingIds: string[]) {
   let index = 2;
   while (used.has(`${base}_${index}`)) index += 1;
   return `${base}_${index}`;
+}
+
+function nextNumberedId(prefix: string, existingIds: string[]) {
+  const pattern = new RegExp(`^${prefix}_(\\d+)$`);
+  const max = existingIds.reduce((current, id) => {
+    const match = pattern.exec(id);
+    return match ? Math.max(current, Number(match[1])) : current;
+  }, 0);
+  return `${prefix}_${String(max + 1).padStart(3, "0")}`;
+}
+
+function createDraftScene(
+  id: string,
+  script: ScriptDocument,
+  sourceScene?: ScriptScene,
+  continueFromScene = false,
+): ScriptScene {
+  const chapterRefs =
+    sourceScene?.chapter_refs.length
+      ? sourceScene.chapter_refs
+      : script.source.chapter_ids.slice(0, 1);
+  const characters =
+    sourceScene?.characters.length
+      ? sourceScene.characters
+      : script.characters[0]
+        ? [script.characters[0].id]
+        : [];
+  const sourceTitle = sourceScene ? sceneTitleWithoutNumber(sourceScene.title) : "";
+
+  return {
+    id,
+    title: continueFromScene && sourceTitle ? `续写：${sourceTitle}` : `新场景 ${script.scenes.length + 1}`,
+    chapter_refs: chapterRefs,
+    location_id: sourceScene?.location_id || script.locations[0]?.id || "loc_new",
+    time: sourceScene?.time ?? "",
+    characters,
+    purpose: continueFromScene ? "承接上一场，推进新的行动。" : "",
+    conflict: "",
+    entry_state: continueFromScene ? sourceScene?.exit_state ?? "" : "",
+    exit_state: "",
+    action: [],
+    dialogue: [],
+    beats: [
+      {
+        id: "beat_001",
+        type: "action",
+        text: continueFromScene ? "继续上一场的情绪与行动。" : "",
+      },
+    ],
+  };
+}
+
+function ensureSceneDependencies(script: ScriptDocument): ScriptDocument {
+  const characters =
+    script.characters.length > 0
+      ? script.characters
+      : [{ id: "char_new", name: "新角色 1", role: "supporting" }];
+  const locations =
+    script.locations.length > 0
+      ? script.locations
+      : [{ id: "loc_new", name: "新地点 1" }];
+  if (characters === script.characters && locations === script.locations) return script;
+  return { ...script, characters, locations };
+}
+
+function sceneTitleWithoutNumber(title: string) {
+  return title
+    .replace(/^第\s*[\d一二三四五六七八九十百千万两〇零]+\s*场\s*[：:、.-]?\s*/, "")
+    .trim();
+}
+
+function moveArrayItem<T>(items: T[], fromIndex: number, toIndex: number) {
+  const next = [...items];
+  const [item] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, item);
+  return next;
 }
 
 function compactCharacter(character: ScriptCharacter): ScriptCharacter {

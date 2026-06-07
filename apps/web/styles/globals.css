@@ -506,6 +506,30 @@
   .script-beat:hover {
     border-color: rgb(var(--accent-400) / 0.34);
   }
+  .script-beat-dragging {
+    opacity: 0.58;
+  }
+  .script-beat-drop-target {
+    border-color: rgb(var(--accent-400) / 0.74);
+    background:
+      linear-gradient(90deg, rgb(var(--accent-400) / 0.12), transparent 48%),
+      rgb(var(--ink-900) / 0.68);
+  }
+  .script-drag-handle {
+    @apply inline-flex h-8 w-7 select-none items-center justify-center rounded border text-xs font-semibold tracking-widest text-ink-500 transition-colors;
+    border-color: rgb(var(--line-rgb) / var(--line-alpha));
+    background: rgb(var(--line-rgb) / var(--line-soft-alpha));
+    cursor: grab;
+  }
+  .script-drag-handle:hover,
+  .script-drag-handle:focus {
+    color: rgb(var(--ink-100));
+    border-color: rgb(var(--accent-400) / 0.45);
+    outline: none;
+  }
+  .script-drag-handle:active {
+    cursor: grabbing;
+  }
   .script-beat-dialogue {
     background:
       linear-gradient(90deg, rgb(var(--accent-400) / 0.08), transparent 42%),
