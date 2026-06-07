@@ -4,16 +4,16 @@ import { useEffect, useState } from "react";
 import { AuthRequiredMessage, isAuthRequiredMessage } from "@/components/AuthRequiredMessage";
 import { api } from "@/lib/api";
 import {
+  authRedirectTo,
   getAuthErrorMessage,
   getAuthUser,
   isSupabaseConfigured,
   isAuthRateLimitError,
   onAuthStateChanged,
   OTP_RESEND_COOLDOWN_SECONDS,
-  sendEmailOtp,
+  sendEmailLoginLink,
   signOut,
   type AuthUser,
-  verifyEmailOtp,
 } from "@/lib/auth";
 import {
   clearLlmSettings,
@@ -260,7 +260,6 @@ export default function SettingsPage() {
 
 function AuthPanel() {
   const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
   const [sentEmail, setSentEmail] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [busy, setBusy] = useState(false);
@@ -287,7 +286,7 @@ function AuthPanel() {
     return () => window.clearTimeout(timer);
   }, [resendSeconds]);
 
-  async function sendCode() {
+  async function sendLink() {
     const value = email.trim();
     if (!value) {
       setError("请输入邮箱。");
@@ -299,9 +298,9 @@ function AuthPanel() {
     setNotice(null);
     setSentEmail(value);
     try {
-      await sendEmailOtp(value);
+      await sendEmailLoginLink(value, authRedirectTo("/settings"));
       setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
-      setNotice("验证码已发送，请查看邮箱。");
+      setNotice("登录链接已发送，请打开邮箱里的链接完成登录。");
     } catch (e) {
       if (isAuthRateLimitError(e)) setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
       setError(getAuthErrorMessage(e));
@@ -310,39 +309,7 @@ function AuthPanel() {
     }
   }
 
-  async function verifyCode() {
-    const value = sentEmail || email.trim();
-    const token = code.trim().replace(/\s+/g, "");
-    if (!value) {
-      setError("请输入邮箱。");
-      setNotice(null);
-      return;
-    }
-    if (!token) {
-      setError("请输入邮箱验证码。");
-      setNotice(null);
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      await verifyEmailOtp(value, token);
-      const nextUser = await getAuthUser();
-      if (!nextUser) throw new Error("登录状态未建立，请重新获取验证码。");
-      setUser(nextUser);
-      setNotice("登录成功。");
-      setCode("");
-      setSentEmail(null);
-      setResendSeconds(0);
-    } catch (e) {
-      setError(getAuthErrorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function resendCode() {
+  async function resendLink() {
     const value = sentEmail || email.trim();
     if (!value) {
       setError("请输入邮箱。");
@@ -353,11 +320,10 @@ function AuthPanel() {
     setError(null);
     setNotice(null);
     try {
-      await sendEmailOtp(value);
+      await sendEmailLoginLink(value, authRedirectTo("/settings"));
       setSentEmail(value);
-      setCode("");
       setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
-      setNotice("新的验证码已发送，请查看邮箱。");
+      setNotice("新的登录链接已发送，请打开邮箱里的链接完成登录。");
     } catch (e) {
       if (isAuthRateLimitError(e)) setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
       setError(getAuthErrorMessage(e));
@@ -368,20 +334,7 @@ function AuthPanel() {
 
   function changeEmail() {
     setSentEmail(null);
-    setCode("");
     setResendSeconds(0);
-    setNotice(null);
-    setError(null);
-  }
-
-  function useExistingCode() {
-    const value = email.trim();
-    if (!value) {
-      setError("请先输入邮箱。");
-      setNotice(null);
-      return;
-    }
-    setSentEmail(value);
     setNotice(null);
     setError(null);
   }
@@ -430,38 +383,19 @@ function AuthPanel() {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
             autoComplete="email"
-            disabled={busy || Boolean(sentEmail)}
+            disabled={busy}
           />
-          {!sentEmail && (
-            <button type="button" className="w-fit text-xs text-ink-400 underline-offset-4 hover:text-ink-100 hover:underline" onClick={useExistingCode} disabled={busy}>
-              已有验证码？输入验证码
-            </button>
-          )}
           {sentEmail && (
-            <input
-              className="input font-mono tracking-widest"
-              type="text"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="输入 6 位验证码"
-              autoComplete="one-time-code"
-              inputMode="numeric"
-              disabled={busy}
-            />
+            <div className="text-xs text-ink-400">链接已发送到 {sentEmail}</div>
           )}
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn-primary whitespace-nowrap" onClick={sentEmail ? verifyCode : sendCode} disabled={busy || (!sentEmail && resendSeconds > 0)}>
-              {busy ? "处理中..." : sentEmail ? "登录" : resendSeconds > 0 ? `稍后再试 ${resendSeconds}s` : "发送验证码"}
+            <button type="button" className="btn-primary whitespace-nowrap" onClick={sentEmail ? resendLink : sendLink} disabled={busy || resendSeconds > 0}>
+              {busy ? "处理中..." : sentEmail ? (resendSeconds > 0 ? `重新发送 ${resendSeconds}s` : "重新发送登录链接") : resendSeconds > 0 ? `稍后再试 ${resendSeconds}s` : "发送登录链接"}
             </button>
             {sentEmail && (
-              <>
-                <button type="button" className="btn-ghost whitespace-nowrap" onClick={resendCode} disabled={busy || resendSeconds > 0}>
-                  {resendSeconds > 0 ? `重新发送 ${resendSeconds}s` : "重新发送"}
-                </button>
-                <button type="button" className="btn-ghost whitespace-nowrap" onClick={changeEmail} disabled={busy}>
-                  更换邮箱
-                </button>
-              </>
+              <button type="button" className="btn-ghost whitespace-nowrap" onClick={changeEmail} disabled={busy}>
+                更换邮箱
+              </button>
             )}
           </div>
         </div>

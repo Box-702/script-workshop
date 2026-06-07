@@ -50,22 +50,19 @@ export async function getAuthUser(): Promise<AuthUser | null> {
   return normalizeUser(data.user);
 }
 
-export async function sendEmailOtp(email: string) {
+export function authRedirectTo(nextPath = "/dashboard") {
+  if (typeof window === "undefined") return undefined;
+  const url = new URL("/auth/callback", window.location.origin);
+  url.searchParams.set("next", nextPath);
+  return url.toString();
+}
+
+export async function sendEmailLoginLink(email: string, redirectTo?: string) {
   const client = await getSupabaseClient();
   if (!client) throw new Error("Supabase Auth 尚未配置。");
   const { error } = await client.auth.signInWithOtp({
     email,
-  });
-  if (error) throw error;
-}
-
-export async function verifyEmailOtp(email: string, token: string) {
-  const client = await getSupabaseClient();
-  if (!client) throw new Error("Supabase Auth 尚未配置。");
-  const { error } = await client.auth.verifyOtp({
-    email,
-    token,
-    type: "email",
+    options: redirectTo ? { emailRedirectTo: redirectTo } : undefined,
   });
   if (error) throw error;
 }
@@ -97,13 +94,13 @@ export function getAuthErrorMessage(error: unknown) {
   const message = getErrorText(error);
   const normalized = message.toLowerCase();
   if (isAuthRateLimitMessage(normalized)) {
-    return "验证码邮件发送过于频繁，请稍后再试。";
+    return "登录邮件发送过于频繁，请稍后再试。";
   }
   if (normalized.includes("token has expired") || normalized.includes("otp_expired")) {
-    return "验证码已过期，请重新获取。";
+    return "登录链接已过期，请重新获取。";
   }
   if (normalized.includes("invalid") && normalized.includes("otp")) {
-    return "验证码不正确，请检查后重试。";
+    return "登录链接无效，请重新获取。";
   }
   return message || "认证失败，请稍后重试。";
 }
