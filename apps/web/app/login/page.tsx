@@ -71,9 +71,9 @@ function LoginContent() {
     setBusy(true);
     setError(null);
     setNotice(null);
+    setSentEmail(value);
     try {
       await sendEmailOtp(value);
-      setSentEmail(value);
       setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
       setNotice("验证码已发送，请查看邮箱。");
     } catch (err) {
@@ -146,6 +146,18 @@ function LoginContent() {
     setError(null);
   }
 
+  function useExistingCode() {
+    const value = email.trim();
+    if (!value) {
+      setError("请先输入邮箱。");
+      setNotice(null);
+      return;
+    }
+    setSentEmail(value);
+    setNotice(null);
+    setError(null);
+  }
+
   async function logout() {
     setBusy(true);
     setError(null);
@@ -205,6 +217,11 @@ function LoginContent() {
               disabled={busy || Boolean(sentEmail)}
             />
           </div>
+          {!sentEmail && (
+            <button type="button" className="text-xs text-ink-400 underline-offset-4 hover:text-ink-100 hover:underline" onClick={useExistingCode} disabled={busy}>
+              已有验证码？输入验证码
+            </button>
+          )}
           {sentEmail && (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3">

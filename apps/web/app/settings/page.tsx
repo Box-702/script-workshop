@@ -297,9 +297,9 @@ function AuthPanel() {
     setBusy(true);
     setError(null);
     setNotice(null);
+    setSentEmail(value);
     try {
       await sendEmailOtp(value);
-      setSentEmail(value);
       setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
       setNotice("验证码已发送，请查看邮箱。");
     } catch (e) {
@@ -374,6 +374,18 @@ function AuthPanel() {
     setError(null);
   }
 
+  function useExistingCode() {
+    const value = email.trim();
+    if (!value) {
+      setError("请先输入邮箱。");
+      setNotice(null);
+      return;
+    }
+    setSentEmail(value);
+    setNotice(null);
+    setError(null);
+  }
+
   async function logout() {
     setBusy(true);
     setError(null);
@@ -420,6 +432,11 @@ function AuthPanel() {
             autoComplete="email"
             disabled={busy || Boolean(sentEmail)}
           />
+          {!sentEmail && (
+            <button type="button" className="w-fit text-xs text-ink-400 underline-offset-4 hover:text-ink-100 hover:underline" onClick={useExistingCode} disabled={busy}>
+              已有验证码？输入验证码
+            </button>
+          )}
           {sentEmail && (
             <input
               className="input font-mono tracking-widest"
