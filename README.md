@@ -4,8 +4,6 @@
 
 ### AI 驱动的剧本 IDE：从 3 章以上小说生成可编辑、可校验、可回滚的中文剧本初稿。
 
-[【2026-06-07 20-04-25-哔哩哔哩】](https://b23.tv/IzKVJsg)
-
 [English below](#english-summary) · [架构](docs/architecture.md) · [部署](docs/deployment.md) · [Schema](docs/yaml-schema.md) · [变更](CHANGELOG.md)
 
 ![status](https://img.shields.io/badge/status-active%20beta-green)
@@ -24,6 +22,10 @@
 剧本工坊把小说原文转换成结构化剧本。用户可以粘贴或上传 3 章以上小说，系统通过 8 阶段 AI 流水线生成剧本初稿，再在结构化编辑器里继续打磨。
 
 它的核心能力包括：逐场编辑、AI 改编建议、逐节拍接受、命名快照、结构化 diff、一键回滚、YAML / JSON / Markdown 导出，以及基于 Supabase RLS 的多用户隔离。前端和后端分别作为独立子项目维护，支持本地 SQLite 免登录使用，也支持 Vercel + Render + Supabase 部署。
+
+## 演示视频
+
+[【2026-06-07 20-04-25-哔哩哔哩】](https://b23.tv/IzKVJsg)
 
 ## 在线体验
 
