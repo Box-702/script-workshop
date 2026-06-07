@@ -139,14 +139,14 @@ export default function SettingsPage() {
       </div>
 
       {notice && (
-        <div className="rounded border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+        <div className="notice-success">
           {notice}
         </div>
       )}
       {isAuthRequiredMessage(error) ? (
         <AuthRequiredMessage />
       ) : error ? (
-        <div className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+        <div className="notice-danger">
           {error}
         </div>
       ) : null}
@@ -222,7 +222,7 @@ export default function SettingsPage() {
                         {key.default_model || "未设置模型"} · ****{key.key_last4}
                       </div>
                     </div>
-                    <span className={key.status === "active" ? "text-emerald-300" : "text-ink-500"}>
+                    <span className={key.status === "active" ? "state-success-text" : "text-ink-500"}>
                       {key.status}
                     </span>
                   </div>
@@ -467,8 +467,8 @@ function AuthPanel() {
         </div>
       )}
 
-      {notice && <div className="text-sm text-emerald-300">{notice}</div>}
-      {error && <div className="text-sm text-red-300">{error}</div>}
+      {notice && <div className="text-sm state-success-text">{notice}</div>}
+      {error && <div className="text-sm state-danger-text">{error}</div>}
     </section>
   );
 }

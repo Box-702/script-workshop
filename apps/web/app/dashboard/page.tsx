@@ -218,11 +218,11 @@ function Metric({ label, value }: { label: string; value: string | number }) {
 function StatusPill({ value }: { value: string }) {
   const color =
     value === "ready"
-      ? "bg-emerald-500/15 text-emerald-300"
+      ? "state-success"
       : value === "generating"
-        ? "bg-amber-500/15 text-amber-300"
+        ? "state-warning"
         : value === "failed"
-          ? "bg-red-500/15 text-red-300"
+          ? "state-danger"
         : "bg-ink-700 text-ink-100";
   return (
     <span className={`status-pill ${color}`}>

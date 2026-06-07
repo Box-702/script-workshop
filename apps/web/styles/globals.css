@@ -19,6 +19,15 @@
     --accent-400: 124 92 255;
     --accent-500: 91 61 240;
     --accent-600: 72 48 201;
+    --success-bg: 16 185 129;
+    --success-text: 167 243 208;
+    --success-strong: 110 231 183;
+    --warning-bg: 245 158 11;
+    --warning-text: 253 230 138;
+    --warning-strong: 252 211 77;
+    --danger-bg: 239 68 68;
+    --danger-text: 254 202 202;
+    --danger-strong: 252 165 165;
     --surface-0: 15 18 24;
     --surface-1: 31 36 46;
     --surface-2: 47 53 64;
@@ -44,6 +53,15 @@
     --accent-400: 176 89 39;
     --accent-500: 152 71 22;
     --accent-600: 120 54 14;
+    --success-bg: 39 123 82;
+    --success-text: 17 75 49;
+    --success-strong: 14 95 62;
+    --warning-bg: 160 101 18;
+    --warning-text: 106 67 8;
+    --warning-strong: 128 76 8;
+    --danger-bg: 174 54 54;
+    --danger-text: 115 29 29;
+    --danger-strong: 150 40 40;
     --surface-0: 248 245 236;
     --surface-1: 240 235 222;
     --surface-2: 228 221 204;
@@ -71,9 +89,7 @@
     background-size: 100% 360px, auto;
   }
   [data-ui-style="paper"] body {
-    background:
-      linear-gradient(180deg, rgb(var(--accent-500) / 0.05), transparent 240px),
-      rgb(var(--ink-900));
+    background: rgb(var(--ink-900));
   }
 
   a {
@@ -110,11 +126,6 @@
     from { opacity: 0; transform: scale(0.97); }
     to   { opacity: 1; transform: scale(1); }
   }
-  @keyframes sw-pulse-ring {
-    0%   { box-shadow: 0 0 0 0   rgb(var(--accent-500) / 0.5); }
-    70%  { box-shadow: 0 0 0 8px rgb(var(--accent-500) / 0); }
-    100% { box-shadow: 0 0 0 0   rgb(var(--accent-500) / 0); }
-  }
   @keyframes sw-shimmer {
     0%   { background-position: -200% 0; }
     100% { background-position:  200% 0; }
@@ -135,29 +146,25 @@
            disabled:active:scale-100;
   }
   .btn-primary {
-    @apply btn bg-accent-500 text-white shadow-sm shadow-accent-500/20
-           hover:bg-accent-600 hover:shadow-md hover:shadow-accent-500/30
-           hover:-translate-y-px;
+    @apply btn bg-accent-500 text-white shadow-sm shadow-accent-500/10
+           hover:bg-accent-600;
   }
   .btn-ghost {
     @apply btn bg-ink-800 text-ink-50 hover:bg-ink-600
-           hover:-translate-y-px;
+           hover:text-ink-50;
   }
   .btn-danger {
-    @apply btn bg-red-500/90 text-white hover:bg-red-500
-           hover:-translate-y-px;
+    @apply btn bg-red-500/90 text-white hover:bg-red-500;
   }
 
   .card {
     @apply rounded-lg border border-ink-600/30 bg-ink-800/40 p-5 shadow-sm
            transition-all duration-200 ease-out
-           hover:border-ink-500/50 hover:shadow-md hover:shadow-accent-500/5
-           hover:-translate-y-0.5;
+           hover:border-ink-500/50;
   }
   .panel {
     @apply rounded-lg border border-ink-600/30 bg-ink-800/30
-           transition-shadow duration-200 ease-out
-           hover:shadow-sm hover:shadow-accent-500/5;
+           transition-colors duration-150 ease-out;
   }
   .panel-header {
     @apply border-b border-ink-600/30 px-4 py-3;
@@ -213,10 +220,6 @@
   }
 
   /* Attention ring — wrap a primary CTA when you want to draw the eye */
-  .sw-attention {
-    animation: sw-pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  }
-
   /* Spinner */
   .sw-spinner {
     @apply inline-block h-4 w-4 rounded-full border-2 border-current border-t-transparent;
@@ -260,11 +263,10 @@
     @apply grid h-8 w-8 place-items-center rounded-md border border-accent-400/40
            bg-ink-800 text-accent-400 shadow-sm
            transition-all duration-300 ease-out
-           group-hover:border-accent-400 group-hover:shadow-md group-hover:shadow-accent-500/30
-           group-hover:-rotate-6;
+           group-hover:border-accent-400;
   }
   .brand-mark:hover .brand-icon {
-    transform: rotate(-8deg) scale(1.05);
+    transform: none;
   }
   .brand-text {
     @apply font-semibold tracking-tight;
@@ -282,8 +284,34 @@
   }
 
   /* Notices */
+  .notice,
+  .notice-success,
+  .notice-warning,
+  .notice-danger,
   .notice-error {
-    @apply rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200;
+    @apply rounded-md border px-3 py-2.5 text-sm leading-5 shadow-sm;
+  }
+  .notice-success {
+    background: rgb(var(--success-bg) / 0.11);
+    border-color: rgb(var(--success-bg) / 0.34);
+    color: rgb(var(--success-text));
+  }
+  .notice-warning {
+    background: rgb(var(--warning-bg) / 0.12);
+    border-color: rgb(var(--warning-bg) / 0.36);
+    color: rgb(var(--warning-text));
+  }
+  .notice-danger,
+  .notice-error {
+    background: rgb(var(--danger-bg) / 0.11);
+    border-color: rgb(var(--danger-bg) / 0.36);
+    color: rgb(var(--danger-text));
+  }
+  .notice-success strong,
+  .notice-warning strong,
+  .notice-danger strong,
+  .notice-error strong {
+    color: currentColor;
   }
 
   /* Dashboard shell */
@@ -306,7 +334,7 @@
   .project-row {
     @apply grid gap-3 border-b border-ink-600/30 px-4 py-4
            transition-all duration-200 ease-out last:border-b-0
-           hover:bg-ink-800/40 hover:pl-5
+           hover:bg-ink-800/40
            grid-cols-[1fr_auto]
            sm:grid-cols-[minmax(0,1fr)_120px_100px]
            lg:grid-cols-[minmax(0,1.5fr)_120px_100px_100px_220px]
@@ -330,7 +358,31 @@
   /* Status pill */
   .status-pill {
     @apply inline-flex items-center self-start rounded-full px-2 py-0.5 text-xs font-medium leading-none
-           transition-transform duration-150 hover:scale-105;
+           transition-colors duration-150;
+  }
+  .state-success {
+    background: rgb(var(--success-bg) / 0.14);
+    color: rgb(var(--success-strong));
+    border: 1px solid rgb(var(--success-bg) / 0.30);
+  }
+  .state-warning {
+    background: rgb(var(--warning-bg) / 0.14);
+    color: rgb(var(--warning-strong));
+    border: 1px solid rgb(var(--warning-bg) / 0.30);
+  }
+  .state-danger {
+    background: rgb(var(--danger-bg) / 0.14);
+    color: rgb(var(--danger-strong));
+    border: 1px solid rgb(var(--danger-bg) / 0.30);
+  }
+  .state-success-text {
+    color: rgb(var(--success-strong));
+  }
+  .state-warning-text {
+    color: rgb(var(--warning-strong));
+  }
+  .state-danger-text {
+    color: rgb(var(--danger-strong));
   }
   /* Paper theme uses deeper, more saturated pill colors so the bg/text
      contrast survives on the warm cream surface. */
@@ -379,10 +431,13 @@
 
   /* Danger panel (delete confirm) */
   .danger-panel {
-    @apply rounded-lg border border-red-500/40 bg-red-500/5 p-4 shadow-sm;
+    background: rgb(var(--danger-bg) / 0.08);
+    border-color: rgb(var(--danger-bg) / 0.30);
+    @apply rounded-lg border p-4 shadow-sm;
   }
   .danger-title {
-    @apply text-sm font-semibold text-red-200;
+    color: rgb(var(--danger-strong));
+    @apply text-sm font-semibold;
   }
   .danger-copy {
     @apply mt-1 text-xs text-ink-300;
@@ -395,14 +450,15 @@
   .style-switcher button {
     @apply rounded px-2 py-1 text-xs font-medium text-ink-400 transition-colors hover:text-ink-50;
   }
-  .style-switcher button.is-active {
+  :root:not([data-ui-style="paper"]) .style-switcher .style-studio,
+  [data-ui-style="studio"] .style-switcher .style-studio {
     @apply bg-ink-700 text-ink-50 shadow-sm;
   }
   [data-ui-style="paper"] .style-switcher {
-    @apply border-ink-300/40 bg-ink-100/60;
+    @apply border-ink-600/40 bg-ink-800/70;
   }
-  [data-ui-style="paper"] .style-switcher button.is-active {
-    @apply bg-ink-50 text-ink-900 shadow-sm;
+  [data-ui-style="paper"] .style-switcher .style-paper {
+    @apply bg-ink-900 text-ink-50 shadow-sm;
   }
 
   /* Scrollbar */

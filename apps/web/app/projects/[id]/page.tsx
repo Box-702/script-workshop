@@ -49,7 +49,7 @@ export default function ProjectDetailPage() {
   if (!project) {
     if (isAuthRequiredMessage(error)) return <AuthRequiredMessage />;
     return (
-      <div className="card border-red-500/40 text-red-200">
+      <div className="notice-danger">
         {error ? `加载失败：${error}` : "项目不存在"}
       </div>
     );
@@ -92,7 +92,7 @@ export default function ProjectDetailPage() {
       {isAuthRequiredMessage(error) ? (
         <AuthRequiredMessage />
       ) : error ? (
-        <div className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+        <div className="notice-danger">
           {error}
         </div>
       ) : null}

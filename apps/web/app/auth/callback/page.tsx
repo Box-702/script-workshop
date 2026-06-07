@@ -43,7 +43,7 @@ function AuthCallbackContent() {
 
   if (error) {
     return (
-      <div className="card mx-auto max-w-xl border-red-500/40 text-red-200">
+      <div className="notice-danger mx-auto max-w-xl">
         登录失败：{error}
       </div>
     );

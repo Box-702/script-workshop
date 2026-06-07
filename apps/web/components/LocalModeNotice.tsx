@@ -30,10 +30,10 @@ export function LocalModeNotice() {
   if (!ready || !configured || user || pathname?.startsWith("/login")) return null;
 
   return (
-    <div className="card mb-5 flex flex-col gap-3 border-amber-500/40 bg-amber-500/10 text-amber-100 sm:flex-row sm:items-center sm:justify-between">
+    <div className="notice-warning mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <div className="font-medium">当前为本地模式</div>
-        <p className="mt-1 text-sm text-amber-100/80">
+        <p className="mt-1 text-sm opacity-85">
           项目绑定此浏览器的本地身份，模型 key 可只保存到当前浏览器；登录后可使用云端账号隔离和跨设备同步。
         </p>
       </div>

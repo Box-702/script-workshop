@@ -13,10 +13,10 @@ export function AuthRequiredMessage() {
   const href = `/login?next=${encodeURIComponent(pathname || "/dashboard")}`;
 
   return (
-    <div className="card flex flex-col gap-3 border-amber-500/40 bg-amber-500/10 text-amber-100 sm:flex-row sm:items-center sm:justify-between">
+    <div className="notice-warning flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <div className="font-medium">需要登录</div>
-        <p className="mt-1 text-sm text-amber-100/80">
+        <p className="mt-1 text-sm opacity-85">
           当前环境启用了 Supabase Auth，请先登录后继续使用云端项目和模型 key。
         </p>
       </div>

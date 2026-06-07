@@ -77,9 +77,9 @@ function stepState(index: number, activeIndex: number, status: RunOut["status"])
 }
 
 function stepClass(state: StepState) {
-  if (state === "done") return "border-emerald-500/40 bg-emerald-500/10 text-emerald-200";
+  if (state === "done") return "state-success";
   if (state === "active") return "border-accent-500/70 bg-accent-500/10 text-ink-50";
-  if (state === "error") return "border-red-500/50 bg-red-500/10 text-red-200";
+  if (state === "error") return "state-danger";
   return "border-ink-600/30 bg-ink-900/40 text-ink-400";
 }
 
@@ -125,7 +125,7 @@ export default function RunPage() {
   if (error) {
     if (isAuthRequiredMessage(error)) return <AuthRequiredMessage />;
     return (
-      <div className="card border-red-500/40 text-red-200">
+      <div className="notice-danger">
         加载失败：{error}
       </div>
     );
@@ -194,7 +194,7 @@ export default function RunPage() {
       </div>
 
       {run.status === "failed" && (
-        <div className="card border-red-500/40 text-red-200">
+        <div className="notice-danger">
           生成失败：{run.error_message}
         </div>
       )}

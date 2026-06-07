@@ -184,7 +184,7 @@ function LoginContent() {
       </div>
 
       {!configured ? (
-        <div className="card border-amber-500/40 bg-amber-500/10 text-amber-100">
+        <div className="notice-warning">
           当前未配置 Supabase，应用会继续使用本地单用户模式。
         </div>
       ) : user ? (
@@ -253,12 +253,12 @@ function LoginContent() {
       )}
 
       {notice && (
-        <div className="rounded border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+        <div className="notice-success">
           {notice}
         </div>
       )}
       {error && (
-        <div className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+        <div className="notice-danger">
           {error}
         </div>
       )}

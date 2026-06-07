@@ -3,17 +3,7 @@ import Link from "next/link";
 export default function HomePage() {
   return (
     <div className="grid min-h-[70vh] gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-      <section className="panel relative flex flex-col justify-between overflow-hidden">
-        {/* Decorative background gradient that softly pulses */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 -z-0 opacity-60"
-          style={{
-            background:
-              "radial-gradient(60% 50% at 20% 0%, rgb(var(--accent-500) / 0.18) 0%, transparent 70%), radial-gradient(40% 30% at 90% 100%, rgb(var(--accent-500) / 0.10) 0%, transparent 70%)",
-          }}
-        />
-
+      <section className="panel flex flex-col justify-between overflow-hidden">
         <div className="panel-body relative z-10 max-w-3xl py-10">
           <div
             className="sw-anim-in text-xs font-medium uppercase tracking-[0.2em] text-accent-400"
@@ -41,7 +31,7 @@ export default function HomePage() {
             className="sw-anim-in-up mt-8 flex flex-wrap gap-3"
             style={{ "--sw-delay": "280ms" } as React.CSSProperties}
           >
-            <Link href="/dashboard" className="btn-primary sw-attention">
+            <Link href="/dashboard" className="btn-primary">
               进入项目
             </Link>
             <Link href="/new" className="btn-ghost">
@@ -57,7 +47,7 @@ export default function HomePage() {
             style={{ "--sw-delay": "380ms" } as React.CSSProperties}
           >
             <span className="inline-flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 sw-pulse" />
+              <span className="h-1.5 w-1.5 rounded-full state-success" />
               Next.js 14 · FastAPI · Supabase
             </span>
             <span>·</span>
@@ -184,7 +174,7 @@ function QuickLink({
   return (
     <Link
       href={href}
-      className="sw-anim-in block rounded-md border border-ink-600/30 bg-ink-900/60 p-3 text-ink-200 transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-accent-500/50 hover:bg-ink-800 hover:shadow-md hover:shadow-accent-500/10"
+      className="sw-anim-in block rounded-md border border-ink-600/30 bg-ink-900/60 p-3 text-ink-200 transition-colors duration-150 ease-out hover:border-accent-500/50 hover:bg-ink-800"
       style={{ "--sw-delay": `${delay}ms` } as React.CSSProperties}
     >
       <div className="flex items-center justify-between">

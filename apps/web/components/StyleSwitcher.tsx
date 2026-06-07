@@ -24,6 +24,7 @@ export function StyleSwitcher() {
   // the stored preference. The user-triggered `choose` path below already
   // updates both state and dataset synchronously.
   useEffect(() => {
+    setStyle(readInitialStyle());
     const onStorage = (e: StorageEvent) => {
       if (e.key !== STORAGE_KEY) return;
       const next = e.newValue === "paper" ? "paper" : "studio";
@@ -44,7 +45,7 @@ export function StyleSwitcher() {
     <div className="style-switcher" aria-label="界面风格">
       <button
         type="button"
-        className={style === "studio" ? "is-active" : ""}
+        className="style-studio"
         onClick={() => choose("studio")}
         aria-pressed={style === "studio"}
       >
@@ -52,7 +53,7 @@ export function StyleSwitcher() {
       </button>
       <button
         type="button"
-        className={style === "paper" ? "is-active" : ""}
+        className="style-paper"
         onClick={() => choose("paper")}
         aria-pressed={style === "paper"}
       >

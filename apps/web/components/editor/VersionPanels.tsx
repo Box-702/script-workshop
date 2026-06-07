@@ -55,7 +55,7 @@ export function VersionPanel({
                 <span className="min-w-0 truncate font-medium text-ink-100">
                   {formatVersionLabel(version.label, index)}
                 </span>
-                <span className={version.validation_status === "valid" ? "shrink-0 text-xs text-emerald-300" : "shrink-0 text-xs text-amber-300"}>
+                <span className={version.validation_status === "valid" ? "shrink-0 text-xs state-success-text" : "shrink-0 text-xs state-warning-text"}>
                   {formatValidation(version.validation_status)}
                 </span>
               </div>
@@ -203,8 +203,7 @@ function formatDiffChangeType(value: string) {
 }
 
 function diffBadgeClass(value: string) {
-  if (value === "added") return "bg-emerald-500/15 text-emerald-300";
-  if (value === "removed") return "bg-red-500/15 text-red-300";
-  return "bg-amber-500/15 text-amber-300";
+  if (value === "added") return "state-success";
+  if (value === "removed") return "state-danger";
+  return "state-warning";
 }
-

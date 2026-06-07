@@ -231,7 +231,7 @@ export function AgentPanel({
             {agentRun.user_prompt}
           </div>
           {agentRun.error_message && (
-            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-sm leading-5 text-amber-200">
+            <div className="notice-warning px-2.5 py-2">
               {agentRun.error_message}
             </div>
           )}
@@ -363,4 +363,3 @@ function formatPatchField(item: AgentPatchOperation) {
     }[item.field || String(item.path || "").split("/script/scenes/").pop()?.split("/").slice(1).join("/") || ""] ?? "修改"
   );
 }
-

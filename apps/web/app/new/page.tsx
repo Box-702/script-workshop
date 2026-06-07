@@ -394,13 +394,13 @@ export default function NewProjectPage() {
       {isAuthRequiredMessage(error) ? (
         <AuthRequiredMessage />
       ) : error ? (
-        <div className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+        <div className="notice-danger">
           {error}
         </div>
       ) : null}
 
         {mode === "novel" && !keyLoading && !hasKey && (
-          <div className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
+          <div className="notice-warning">
             尚未检测到可用模型 key。请先前往{" "}
             <Link href="/settings" className="underline">模型设置</Link>
             ，保存云端或本地 API key 后再回来生成。

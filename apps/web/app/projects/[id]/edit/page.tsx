@@ -297,7 +297,7 @@ export default function EditPage() {
 
   if (loadErr) {
     if (isAuthRequiredMessage(loadErr)) return <AuthRequiredMessage />;
-    return <div className="card border-red-500/40 text-red-200">加载剧本失败：{loadErr}</div>;
+    return <div className="notice-danger">加载剧本失败：{loadErr}</div>;
   }
 
   return (
@@ -343,11 +343,11 @@ export default function EditPage() {
       </div>
 
       {notice && (
-        <div className="flex shrink-0 items-center justify-between gap-3 rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+        <div className="notice-success flex shrink-0 items-center justify-between gap-3">
           <span className="min-w-0">{notice}</span>
           <button
             type="button"
-            className="shrink-0 rounded px-1.5 text-lg leading-none text-emerald-300 hover:bg-emerald-500/10 hover:text-emerald-100"
+            className="shrink-0 rounded px-1.5 text-lg leading-none text-current opacity-70 hover:bg-ink-50/10 hover:opacity-100"
             onClick={() => setNotice(null)}
             aria-label="关闭通知"
             title="关闭通知"
