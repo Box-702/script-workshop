@@ -6,7 +6,7 @@
 
 [English below](#english-summary) · [架构](docs/architecture.md) · [部署](docs/deployment.md) · [Schema](docs/yaml-schema.md) · [变更](CHANGELOG.md)
 
-![status](https://img.shields.io/badge/status-MVP-green)
+![status](https://img.shields.io/badge/status-active%20beta-green)
 ![frontend](https://img.shields.io/badge/frontend-Next.js%2014-black?logo=next.js)
 ![backend](https://img.shields.io/badge/backend-FastAPI%20%2B%20Pydantic%20v2-009688?logo=fastapi)
 ![database](https://img.shields.io/badge/database-Supabase%20Postgres-3ecf8e?logo=supabase)
@@ -21,7 +21,7 @@
 
 剧本工坊把小说原文转换成结构化剧本。用户可以粘贴或上传 3 章以上小说，系统通过 8 阶段 AI 流水线生成剧本初稿，再在结构化编辑器里继续打磨。
 
-它的核心能力包括：逐场编辑、AI 改编建议、命名快照、结构化 diff、一键回滚、YAML / JSON / Markdown 导出，以及基于 Supabase RLS 的多用户隔离。前端和后端分别作为独立子项目维护，支持本地开发和 Vercel + Render + Supabase 部署。
+它的核心能力包括：逐场编辑、AI 改编建议、逐节拍接受、命名快照、结构化 diff、一键回滚、YAML / JSON / Markdown 导出，以及基于 Supabase RLS 的多用户隔离。前端和后端分别作为独立子项目维护，支持本地 SQLite 免登录使用，也支持 Vercel + Render + Supabase 部署。
 
 ## 在线体验
 
@@ -69,6 +69,17 @@ make dev
 # 后端  http://localhost:8000/docs
 ```
 
+Windows PowerShell 没有 `make` 时，可以用下面的等价安装流程：
+
+```powershell
+pnpm install
+cd apps\api
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -U pip
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+cd ..\..
+```
+
 `make dev-api` 会默认设置：
 
 ```text
@@ -79,7 +90,7 @@ CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 
 `make dev-web` 会默认把 Next.js 的 `/api/*` 代理到 `http://127.0.0.1:8000`。
 
-Windows 用户：
+Windows 用户启动时推荐开两个 PowerShell 窗口：
 
 ```powershell
 .\scripts\dev-api.ps1
@@ -130,7 +141,7 @@ bash apps/api/scripts/dev-api.sh   # 仅后端 (linux/macOS)
 
 ## 编辑、改编与版本
 
-AI 改编助手支持当前场景和全剧两种范围。用户可以插入“改编重点”和“约束”的快捷片段，模型返回结构化 `patch`，前端展示变更预览；如果建议涉及剧本流，系统会拆成逐节拍变更，并用字段级对比展示类型、说话人、台词、情绪和潜台词变化，用户可以分别接受每一个动作、对白或提示节拍。也可以基于同一 prompt 和 base version 重新生成。没有模型 key 时，系统会给出本地建议 fallback；未提交建议会持久化到 `agent_runs`，刷新页面后仍可恢复。
+AI 改编助手支持当前场景和全剧两种范围。用户可以插入“改编重点”和“约束”的快捷片段，模型返回结构化 `patch`，前端展示变更预览；如果建议涉及剧本流，系统会拆成逐节拍变更，并用字段级对比展示类型、说话人、台词、情绪和潜台词变化。用户可以分别接受每一个动作、对白或提示节拍，也可以一次接受全部建议。还可以基于同一 prompt 和 base version 重新生成。没有模型 key 时，系统会给出本地建议 fallback；未提交建议会持久化到 `agent_runs`，刷新页面后仍可恢复。
 
 版本系统统一记录 AI 生成、手动保存、自动修复、AI 改编、导入、回滚 6 种来源，全部进入 `script_versions`。用户可以给快照命名，例如“高潮前夜”；结构化 diff 会按角色、地点、场景的稳定 id 匹配，只展示实际变化；历史快照可以一键回滚为当前版本。
 
@@ -169,7 +180,7 @@ AI 改编助手支持当前场景和全剧两种范围。用户可以插入“�
 | 前端 | Next.js 14 (App Router) · TypeScript · Tailwind 3.4 · CSS 变量主题系统 |
 | 后端 | FastAPI · Python 3.11+ · Pydantic v2 · SQLAlchemy · Alembic |
 | 数据 | Supabase Postgres (生产) · SQLite (本地开发) |
-| 认证 | Supabase Auth + 数据库层 RLS |
+| 认证 | 本地浏览器身份 · Supabase Auth · 数据库层 RLS |
 | AI | OpenAI 兼容 Provider，支持 Azure / DeepSeek / 通义千问等 |
 | 部署 | Vercel (前端) · Render (后端) · Supabase (DB + Auth) |
 
@@ -191,7 +202,8 @@ AI 改编助手支持当前场景和全剧两种范围。用户可以插入“�
 |---|---|
 | `apps/web/` | Next.js 前端，独立子项目 |
 | `apps/web/app/` | 页面：home / dashboard / editor / settings / runs / new / login |
-| `apps/web/components/` | AuthStatus · ExportMenu · StyleSwitcher · AuthRequiredMessage |
+| `apps/web/components/` | AuthStatus · LocalModeNotice · ExportMenu · StyleSwitcher · AuthRequiredMessage |
+| `apps/web/components/editor/` | AgentPanel · PatchComparison · PatchValue · ValidationPanel · VersionPanels |
 | `apps/web/lib/` | API 客户端 · LLM 设置 · 类型 |
 | `apps/web/styles/globals.css` | CSS 变量 + 7 套动效 + 35+ 语义化组件类 |
 | `apps/web/tailwind.config.mjs` | Tailwind 读取 CSS 变量 |
@@ -242,14 +254,22 @@ Backend:  https://script-workshop-api.onrender.com
 Health:   https://script-workshop-web.vercel.app/api/healthz
 ```
 
-重新部署时：
+首次部署时：
 
 ```bash
 # 后端：Render 控制台 New -> Blueprint -> 选仓库 -> 填环境变量
 # 前端：Vercel 控制台 Add New -> Project -> Root Directory 选 apps/web
 ```
 
-详细步骤、环境变量和 8 步验收清单见 [docs/deployment.md](./docs/deployment.md)。
+已有 Vercel 项目并且本机已登录 / link 后，可以从仓库根目录重部署前端：
+
+```bash
+pnpm exec vercel deploy --prod --yes --cwd apps/web
+```
+
+Render 后端配置为 `autoDeploy: true`，正常情况下推送到 Git 后会自动部署；如果需要手动重启或重部署，需要在 Render 控制台操作，或使用单独配置的 Deploy Hook。
+
+详细步骤、环境变量和生产验收清单见 [docs/deployment.md](./docs/deployment.md)。
 
 ---
 
