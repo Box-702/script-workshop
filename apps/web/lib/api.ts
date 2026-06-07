@@ -219,6 +219,18 @@ export const api = {
       body: JSON.stringify({ yaml }),
     }),
 
+  validateScript: (script: ScriptDocument) =>
+    jfetch<ValidateResponse>("/api/validate/script", {
+      method: "POST",
+      body: JSON.stringify({ script }),
+    }),
+
+  scriptToYaml: (script: ScriptDocument) =>
+    jfetch<{ yaml: string }>("/api/script-to-yaml", {
+      method: "POST",
+      body: JSON.stringify({ script }),
+    }),
+
   repair: (yaml: string) =>
     jfetch<RepairResponse>("/api/repair", {
       method: "POST",

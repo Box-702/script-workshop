@@ -388,6 +388,10 @@ class ValidateRequest(BaseModel):
     yaml: str
 
 
+class ValidateScriptRequest(BaseModel):
+    script: dict = Field(default_factory=dict)
+
+
 class ValidationError(BaseModel):
     path: str
     message: str
@@ -407,6 +411,10 @@ class RepairRequest(BaseModel):
 class RepairResponse(BaseModel):
     fixed_yaml: str
     changes: list[str]
+
+
+class ScriptYamlResponse(BaseModel):
+    yaml: str
 
 
 class ModelKeyCreate(BaseModel):

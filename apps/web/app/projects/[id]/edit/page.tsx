@@ -36,6 +36,7 @@ export default function EditPage() {
   const [changes, setChanges] = useState<string[]>([]);
   const [versions, setVersions] = useState<ScriptVersionSummary[]>([]);
   const [busy, setBusy] = useState(false);
+  const [validating, setValidating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentInstruction, setAgentInstruction] = useState("");
@@ -48,6 +49,7 @@ export default function EditPage() {
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [snapshotName, setSnapshotName] = useState("");
+  const structuredValidationSeq = useRef(0);
 
   const selectedScene = useMemo(() => {
     return script?.scenes.find((scene) => scene.id === selectedSceneId) ?? script?.scenes[0] ?? null;
@@ -99,13 +101,39 @@ export default function EditPage() {
     if (restoreAgentRun) {
       setAgentRun((current) => current ?? nextAgentRuns.find((run) => run.status === "waiting_review") ?? null);
     }
-    const validation = await api.validate(yamlText);
+    const validation = await api.validateScript(jsonDoc.script);
     setErrors(validation.errors);
   }, [projectId, loadVersions, loadAgentRuns]);
 
   useEffect(() => {
     loadScript().catch((e) => setLoadErr((e as Error).message));
   }, [loadScript]);
+
+  useEffect(() => {
+    if (!script || mode === "yaml") {
+      structuredValidationSeq.current += 1;
+      setValidating(false);
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      const seq = structuredValidationSeq.current + 1;
+      structuredValidationSeq.current = seq;
+      setValidating(true);
+      api.validateScript(script)
+        .then((validation) => {
+          if (structuredValidationSeq.current === seq) setErrors(validation.errors);
+        })
+        .catch((e) => {
+          if (structuredValidationSeq.current === seq) {
+            setErrors([{ path: "<script>", message: (e as Error).message, severity: "error" }]);
+          }
+        })
+        .finally(() => {
+          if (structuredValidationSeq.current === seq) setValidating(false);
+        });
+    }, 350);
+    return () => window.clearTimeout(timeout);
+  }, [script, mode]);
 
   async function revalidate(next: string) {
     setBusy(true);
@@ -190,11 +218,31 @@ export default function EditPage() {
     void revalidate(next);
   }
 
+  async function showYamlMode() {
+    if (!script) {
+      setMode("yaml");
+      return;
+    }
+    setMode("yaml");
+    setValidating(true);
+    try {
+      const serialized = await api.scriptToYaml(script);
+      setYaml(serialized.yaml);
+      const validation = await api.validateScript(script);
+      setErrors(validation.errors);
+    } catch (e) {
+      setErrors([{ path: "<script>", message: (e as Error).message, severity: "error" }]);
+    } finally {
+      setValidating(false);
+    }
+  }
+
   async function doRepair() {
     setBusy(true);
     setNotice(null);
     try {
-      const r = await api.repair(yaml);
+      const sourceYaml = mode === "yaml" || !script ? yaml : (await api.scriptToYaml(script)).yaml;
+      const r = await api.repair(sourceYaml);
       setYaml(r.fixed_yaml);
       setChanges(r.changes.map(formatRepairChange));
       setMode("yaml");
@@ -382,7 +430,7 @@ export default function EditPage() {
               <ModeButton active={mode === "script"} onClick={() => setMode("script")}>
                 全剧资料
               </ModeButton>
-              <ModeButton active={mode === "yaml"} onClick={() => setMode("yaml")}>
+              <ModeButton active={mode === "yaml"} onClick={() => void showYamlMode()}>
                 源码
               </ModeButton>
             </div>
@@ -483,7 +531,7 @@ export default function EditPage() {
             retryAgentSuggestion={retryAgentSuggestion}
           />
 
-          <ValidationPanel busy={busy} errors={errors} />
+          <ValidationPanel busy={busy || validating} errors={errors} />
           <VersionPanel
             versions={versions}
             saving={saving}

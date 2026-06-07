@@ -562,7 +562,11 @@
     @apply flex h-8 w-full items-center rounded px-2 text-left text-xs text-ink-200 transition-colors hover:bg-ink-700 hover:text-ink-50 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-ink-200;
   }
   .script-beat-menu-danger {
-    @apply text-red-200 hover:bg-red-500/15 hover:text-red-100;
+    color: rgb(var(--danger-strong));
+  }
+  .script-beat-menu-danger:hover:not(:disabled) {
+    background: rgb(var(--danger-bg) / 0.12);
+    color: rgb(var(--danger-text));
   }
   .script-beat-dialogue {
     background:

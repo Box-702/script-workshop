@@ -7,11 +7,13 @@ from ..repair import repair_yaml
 from ..schemas import (
     RepairRequest,
     RepairResponse,
+    ScriptYamlResponse,
     ValidateRequest,
     ValidateResponse,
+    ValidateScriptRequest,
 )
 from ..validation import validate_script
-from ..yaml_io import from_yaml
+from ..yaml_io import from_yaml, to_yaml
 
 router = APIRouter(prefix="/api", tags=["validate"])
 
@@ -30,6 +32,18 @@ def validate(req: ValidateRequest) -> ValidateResponse:
         )
     errors = validate_script(data)
     return ValidateResponse(valid=not errors, errors=errors)
+
+
+@router.post("/validate/script", response_model=ValidateResponse)
+def validate_script_json(req: ValidateScriptRequest) -> ValidateResponse:
+    data = {"script": req.script}
+    errors = validate_script(data)
+    return ValidateResponse(valid=not errors, errors=errors)
+
+
+@router.post("/script-to-yaml", response_model=ScriptYamlResponse)
+def script_to_yaml(req: ValidateScriptRequest) -> ScriptYamlResponse:
+    return ScriptYamlResponse(yaml=to_yaml({"script": req.script}))
 
 
 @router.post("/repair", response_model=RepairResponse)
