@@ -218,6 +218,7 @@ def test_pipeline_e2e_fake():
     chapter_ids = {c.chapter_id for c in chapters}
     for s in doc.script.scenes:
         assert set(s.chapter_refs) & chapter_ids
+        assert s.beats, "generated scenes should include script-flow beats"
     # all pipeline stages were invoked
     assert set(fake.calls) >= {
         Stage.SUMMARY,
@@ -228,6 +229,19 @@ def test_pipeline_e2e_fake():
     }
     errors = validate_script(doc.model_dump(exclude_none=True))
     assert not errors, f"unexpected errors: {errors}"
+
+
+def test_pipeline_uses_adaptation_profile_target_format():
+    chapters = split_chapters(NOVEL)
+    doc, _ = run_pipeline(
+        chapters,
+        title="雨夜来客",
+        adaptation_type="film",
+        provider=FakeProvider(),
+    )
+    assert doc.script.adaptation is not None
+    assert doc.script.adaptation.type == "film"
+    assert doc.script.adaptation.target_format == "电影剧本，强调三幕推进和视觉叙事"
 
 
 def test_yaml_roundtrip():

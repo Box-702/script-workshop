@@ -91,6 +91,7 @@ BCP-47 编码（如 `zh-CN` / `en-US`），影响后续台词语言校验与导�
 | `exit_state` | ❌ | 离开时的状态 |
 | `action` | ❌ | 动作描写（短句数组，非大段散文） |
 | `dialogue` | ❌ | 对白 |
+| `beats` | ❌ | 剧本流：按阅读顺序混排动作、对白和提示 |
 | `adaptation_notes` | ❌ | 改编说明 |
 
 **为什么 `purpose` 和 `conflict` 必填**：
@@ -100,6 +101,42 @@ BCP-47 编码（如 `zh-CN` / `en-US`），影响后续台词语言校验与导�
 **为什么 `action` 是数组而不是字符串**：
 - 剧本中动作描述按镜头/节拍拆分，方便后期改写。
 - 强制短句，避免模型直接复述大段心理描写。
+- 旧版本和下游导出仍使用它做兼容字段；新编辑体验优先使用 `beats`。
+
+### `beats[]` —— 剧本流
+
+`beats` 是新的可选字段，用来解决动作和对白分开后难以阅读的问题。它按剧本实际阅读顺序混排三类块：
+
+```yaml
+beats:
+  - id: beat_001
+    type: action
+    text: 雨水敲打卷帘门，林屿停在灯开关旁。
+  - id: beat_002
+    type: dialogue
+    speaker: char_linyu
+    line: 今天已经停诊了。
+    emotion: 疲惫
+    subtext: 他不想再卷入麻烦。
+  - id: beat_003
+    type: cue
+    text: 门外的敲击声突然停住。
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `id` | ✅ | `beat_001`，同一场内唯一 |
+| `type` | ✅ | `action` / `dialogue` / `cue` |
+| `text` | action/cue 常用 | 动作、音效、灯光、道具或节奏提示 |
+| `speaker` | dialogue 常用 | 引用 `characters[].id` |
+| `line` | dialogue 常用 | 台词正文 |
+| `emotion` | ❌ | 情绪 |
+| `subtext` | ❌ | 潜台词 |
+
+**兼容规则**：
+- `beats` 是主编辑结构，适合人工阅读和逐条改写。
+- `action` 和 `dialogue` 继续保留，方便旧项目、导出和现有 Agent patch 使用。
+- 当前编辑器会在修改 `beats` 时同步回写 `action` 与 `dialogue`；`cue` 只保存在 `beats` 中。
 
 ### `dialogue[]` —— 对白
 

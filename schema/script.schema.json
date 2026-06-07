@@ -163,6 +163,10 @@
           "type": "array",
           "items": { "$ref": "#/$defs/line" }
         },
+        "beats": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/beat" }
+        },
         "adaptation_notes": { "$ref": "#/$defs/adaptation_notes" }
       }
     },
@@ -171,6 +175,23 @@
       "required": ["speaker", "line"],
       "additionalProperties": false,
       "properties": {
+        "speaker": { "type": "string", "pattern": "^char_[a-z0-9_]+$" },
+        "line": { "type": "string", "minLength": 1 },
+        "emotion": { "type": "string" },
+        "subtext": { "type": "string" }
+      }
+    },
+    "beat": {
+      "type": "object",
+      "required": ["id", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^beat_[0-9]{3,}$" },
+        "type": {
+          "type": "string",
+          "enum": ["action", "dialogue", "cue"]
+        },
+        "text": { "type": "string", "minLength": 1 },
         "speaker": { "type": "string", "pattern": "^char_[a-z0-9_]+$" },
         "line": { "type": "string", "minLength": 1 },
         "emotion": { "type": "string" },

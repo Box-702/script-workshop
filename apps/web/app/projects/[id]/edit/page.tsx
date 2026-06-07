@@ -12,6 +12,7 @@ import { loadLlmSettings } from "@/lib/llm-settings";
 import type {
   AgentRunSummary,
   DialogueLine,
+  ScriptBeat,
   ScriptCharacter,
   ScriptDocument,
   ScriptLocation,
@@ -673,8 +674,15 @@ function SceneEditor({
           </div>
         </div>
 
-        <ActionEditor scene={scene} updateScene={updateScene} />
-        <DialogueEditor scene={scene} characterNames={characterNames} updateScene={updateScene} />
+        <ScriptFlowEditor scene={scene} characterNames={characterNames} updateScene={updateScene} />
+
+        <details className="mt-6 rounded-md border surface-line surface-soft p-3">
+          <summary className="cursor-pointer text-sm font-medium text-ink-100">
+            高级结构
+          </summary>
+          <ActionEditor scene={scene} updateScene={updateScene} />
+          <DialogueEditor scene={scene} characterNames={characterNames} updateScene={updateScene} />
+        </details>
         </div>
       </section>
   );
@@ -1002,6 +1010,165 @@ function LocationCard({
   );
 }
 
+function ScriptFlowEditor({
+  scene,
+  characterNames,
+  updateScene,
+}: {
+  scene: ScriptScene;
+  characterNames: Record<string, string>;
+  updateScene: (sceneId: string, patch: (scene: ScriptScene) => ScriptScene) => void;
+}) {
+  const beats = sceneBeats(scene);
+
+  function commit(nextBeats: ScriptBeat[]) {
+    updateScene(scene.id, (next) => syncSceneFromBeats(next, nextBeats));
+  }
+
+  function addBeat(type: ScriptBeat["type"]) {
+    const next: ScriptBeat =
+      type === "dialogue"
+        ? {
+            id: nextBeatId(beats),
+            type,
+            speaker: scene.characters[0] || "",
+            line: "",
+          }
+        : {
+            id: nextBeatId(beats),
+            type,
+            text: "",
+          };
+    commit([...beats, next]);
+  }
+
+  function updateBeat(index: number, patch: Partial<ScriptBeat>) {
+    commit(beats.map((beat, i) => (i === index ? normalizeBeat({ ...beat, ...patch }, scene) : beat)));
+  }
+
+  function moveBeat(index: number, direction: -1 | 1) {
+    const target = index + direction;
+    if (target < 0 || target >= beats.length) return;
+    const next = [...beats];
+    [next[index], next[target]] = [next[target], next[index]];
+    commit(next);
+  }
+
+  return (
+    <div className="mt-6">
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-sm font-medium text-ink-100">剧本流</div>
+          <div className="mt-0.5 text-xs text-ink-500">{beats.length} 个节拍</div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="btn-ghost px-2 py-1 text-xs" onClick={() => addBeat("action")}>
+            动作
+          </button>
+          <button type="button" className="btn-ghost px-2 py-1 text-xs" onClick={() => addBeat("dialogue")}>
+            对白
+          </button>
+          <button type="button" className="btn-ghost px-2 py-1 text-xs" onClick={() => addBeat("cue")}>
+            提示
+          </button>
+        </div>
+      </div>
+
+      <ul className="space-y-3">
+        {beats.map((beat, index) => (
+          <li key={beat.id} className="rounded-md border surface-line bg-ink-900/45 p-3">
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2">
+                <span className="rounded bg-ink-800 px-2 py-1 font-mono text-[11px] text-ink-400">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <select
+                  className="input h-9 w-28 text-xs"
+                  value={beat.type}
+                  onChange={(e) =>
+                    updateBeat(index, normalizeBeatType(beat, e.target.value as ScriptBeat["type"], scene))
+                  }
+                >
+                  <option value="action">动作</option>
+                  <option value="dialogue">对白</option>
+                  <option value="cue">提示</option>
+                </select>
+              </div>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  className="btn-ghost h-8 px-2 text-xs"
+                  onClick={() => moveBeat(index, -1)}
+                  disabled={index === 0}
+                >
+                  上移
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost h-8 px-2 text-xs"
+                  onClick={() => moveBeat(index, 1)}
+                  disabled={index === beats.length - 1}
+                >
+                  下移
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost h-8 px-2 text-xs"
+                  onClick={() => commit(beats.filter((_, i) => i !== index))}
+                >
+                  删除
+                </button>
+              </div>
+            </div>
+
+            {beat.type === "dialogue" ? (
+              <div className="space-y-3">
+                <div className="grid gap-3 md:grid-cols-[180px_1fr]">
+                  <select
+                    className="input"
+                    value={beat.speaker ?? scene.characters[0] ?? ""}
+                    onChange={(e) => updateBeat(index, { speaker: e.target.value })}
+                  >
+                    {scene.characters.map((id) => (
+                      <option key={id} value={id}>
+                        {characterNames[id] ?? "未命名角色"}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className="input"
+                    value={beat.emotion ?? ""}
+                    onChange={(e) => updateBeat(index, { emotion: e.target.value })}
+                    placeholder="情绪"
+                  />
+                </div>
+                <textarea
+                  className="input min-h-[72px] text-sm leading-relaxed"
+                  value={beat.line ?? ""}
+                  onChange={(e) => updateBeat(index, { line: e.target.value })}
+                />
+                <input
+                  className="input"
+                  value={beat.subtext ?? ""}
+                  onChange={(e) => updateBeat(index, { subtext: e.target.value })}
+                  placeholder="潜台词"
+                />
+              </div>
+            ) : (
+              <textarea
+                className="input min-h-[72px] text-sm leading-relaxed"
+                value={beat.text ?? ""}
+                onChange={(e) => updateBeat(index, { text: e.target.value })}
+                placeholder={beat.type === "cue" ? "灯光、音效、道具或节奏提示" : "动作描写"}
+              />
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function ActionEditor({
   scene,
   updateScene,
@@ -1200,6 +1367,111 @@ function snapshotLabel(value: string) {
 
 function uniqueStrings(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
+}
+
+function sceneBeats(scene: ScriptScene): ScriptBeat[] {
+  if (scene.beats?.length) return scene.beats;
+  const beats: ScriptBeat[] = [];
+  for (const text of scene.action) {
+    beats.push({
+      id: `beat_${String(beats.length + 1).padStart(3, "0")}`,
+      type: "action",
+      text,
+    });
+  }
+  for (const line of scene.dialogue) {
+    beats.push({
+      id: `beat_${String(beats.length + 1).padStart(3, "0")}`,
+      type: "dialogue",
+      speaker: line.speaker,
+      line: line.line,
+      emotion: line.emotion,
+      subtext: line.subtext,
+    });
+  }
+  return beats;
+}
+
+function nextBeatId(beats: ScriptBeat[]) {
+  const max = beats.reduce((current, beat) => {
+    const match = /^beat_(\d+)$/.exec(beat.id);
+    return match ? Math.max(current, Number(match[1])) : current;
+  }, 0);
+  return `beat_${String(max + 1).padStart(3, "0")}`;
+}
+
+function normalizeBeat(beat: ScriptBeat, scene: ScriptScene): ScriptBeat {
+  if (beat.type === "dialogue") {
+    return {
+      id: beat.id,
+      type: "dialogue",
+      speaker: beat.speaker || scene.characters[0] || "",
+      line: beat.line ?? "",
+      emotion: beat.emotion || undefined,
+      subtext: beat.subtext || undefined,
+    };
+  }
+  return {
+    id: beat.id,
+    type: beat.type,
+    text: beat.text ?? beat.line ?? "",
+  };
+}
+
+function normalizeBeatType(
+  beat: ScriptBeat,
+  type: ScriptBeat["type"],
+  scene: ScriptScene,
+): ScriptBeat {
+  if (type === "dialogue") {
+    return normalizeBeat(
+      {
+        id: beat.id,
+        type,
+        speaker: beat.speaker || scene.characters[0] || "",
+        line: beat.line ?? beat.text ?? "",
+        emotion: beat.emotion,
+        subtext: beat.subtext,
+      },
+      scene,
+    );
+  }
+  return normalizeBeat(
+    {
+      id: beat.id,
+      type,
+      text: beat.text ?? beat.line ?? "",
+    },
+    scene,
+  );
+}
+
+function syncSceneFromBeats(scene: ScriptScene, beats: ScriptBeat[]): ScriptScene {
+  const normalized = beats.map((beat) => normalizeBeat(beat, scene));
+  const action = normalized
+    .filter((beat) => beat.type === "action")
+    .map((beat) => (beat.text ?? "").trim())
+    .filter(Boolean);
+  const dialogue = normalized
+    .filter((beat) => beat.type === "dialogue")
+    .map((beat): DialogueLine | null => {
+      const line = (beat.line ?? "").trim();
+      const speaker = beat.speaker || scene.characters[0] || "";
+      if (!line || !speaker) return null;
+      return {
+        speaker,
+        line,
+        emotion: beat.emotion || undefined,
+        subtext: beat.subtext || undefined,
+      };
+    })
+    .filter((line): line is DialogueLine => Boolean(line));
+  return {
+    ...scene,
+    beats: normalized,
+    action,
+    dialogue,
+  };
 }
 
 function normalizeIdInput(value: string) {

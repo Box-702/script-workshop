@@ -106,6 +106,24 @@ def repair_yaml(yaml_text: str) -> tuple[str, list[str]]:
                         )
                         line["__invalid__"] = True
             scene["dialogue"] = [ln for ln in scene["dialogue"] if not ln.get("__invalid__")]
+        # script-flow dialogue speakers
+        if isinstance(scene.get("beats"), list):
+            for k, beat in enumerate(scene["beats"]):
+                if not isinstance(beat, dict) or beat.get("type") != "dialogue":
+                    continue
+                if beat.get("speaker") not in char_ids and char_ids:
+                    rep = _nearest(beat["speaker"], char_ids)
+                    if rep:
+                        beat["speaker"] = rep
+                        changes.append(
+                            f"script.scenes[{i}].beats[{k}].speaker: snapped to '{rep}'"
+                        )
+                    else:
+                        changes.append(
+                            f"script.scenes[{i}].beats[{k}].speaker: removed unknown speaker"
+                        )
+                        beat["__invalid__"] = True
+            scene["beats"] = [beat for beat in scene["beats"] if not beat.get("__invalid__")]
         # chapter_refs: drop unknowns
         if isinstance(scene.get("chapter_refs"), list):
             keep = [c for c in scene["chapter_refs"] if c in chapter_ids] or scene["chapter_refs"]

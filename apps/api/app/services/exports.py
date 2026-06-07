@@ -90,31 +90,55 @@ def script_to_markdown(data: dict[str, Any]) -> str:
             if any(scene.get(key) for key in ("purpose", "conflict", "entry_state", "exit_state")):
                 lines.append("")
 
-            action = scene.get("action") or []
-            action_lines = [str(item).strip() for item in action if str(item).strip()]
-            if action_lines:
-                lines.append("**动作**")
-                for item in action_lines:
-                    lines.extend([item, ""])
+            beats = scene.get("beats") or []
+            if isinstance(beats, list) and beats:
+                lines.append("**剧本流**")
+                for beat in beats:
+                    if not isinstance(beat, dict):
+                        continue
+                    beat_type = beat.get("type")
+                    if beat_type == "dialogue":
+                        speaker = character_names.get(
+                            beat.get("speaker"), beat.get("speaker") or "Unknown"
+                        )
+                        line = str(beat.get("line") or "").strip()
+                        if not line:
+                            continue
+                        emotion = f" ({beat['emotion']})" if beat.get("emotion") else ""
+                        subtext = f"（潜台词：{beat['subtext']}）" if beat.get("subtext") else ""
+                        lines.extend([f"**{speaker}**{emotion}：{line}{subtext}", ""])
+                    else:
+                        text = str(beat.get("text") or "").strip()
+                        if not text:
+                            continue
+                        prefix = "【提示】" if beat_type == "cue" else ""
+                        lines.extend([f"{prefix}{text}", ""])
+            else:
+                action = scene.get("action") or []
+                action_lines = [str(item).strip() for item in action if str(item).strip()]
+                if action_lines:
+                    lines.append("**动作**")
+                    for item in action_lines:
+                        lines.extend([item, ""])
 
-            dialogue = scene.get("dialogue") or []
-            dialogue_lines: list[str] = []
-            if isinstance(dialogue, list):
-                for item in dialogue:
-                    if not isinstance(item, dict):
-                        continue
-                    speaker = character_names.get(
-                        item.get("speaker"), item.get("speaker") or "Unknown"
-                    )
-                    line = str(item.get("line") or "").strip()
-                    if not line:
-                        continue
-                    emotion = f" ({item['emotion']})" if item.get("emotion") else ""
-                    subtext = f"（潜台词：{item['subtext']}）" if item.get("subtext") else ""
-                    dialogue_lines.append(f"**{speaker}**{emotion}：{line}{subtext}")
-            if dialogue_lines:
-                lines.append("**对白**")
-                for item in dialogue_lines:
-                    lines.extend([item, ""])
+                dialogue = scene.get("dialogue") or []
+                dialogue_lines: list[str] = []
+                if isinstance(dialogue, list):
+                    for item in dialogue:
+                        if not isinstance(item, dict):
+                            continue
+                        speaker = character_names.get(
+                            item.get("speaker"), item.get("speaker") or "Unknown"
+                        )
+                        line = str(item.get("line") or "").strip()
+                        if not line:
+                            continue
+                        emotion = f" ({item['emotion']})" if item.get("emotion") else ""
+                        subtext = f"（潜台词：{item['subtext']}）" if item.get("subtext") else ""
+                        dialogue_lines.append(f"**{speaker}**{emotion}：{line}{subtext}")
+                if dialogue_lines:
+                    lines.append("**对白**")
+                    for item in dialogue_lines:
+                        lines.extend([item, ""])
 
     return "\n".join(lines).rstrip() + "\n"

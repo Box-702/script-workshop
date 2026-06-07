@@ -85,6 +85,23 @@ def validate_script(data: dict[str, Any]) -> list[ValidationError]:
                             message=f"unknown character id: {line.get('speaker')}",
                         )
                     )
+            beat_ids: list[str] = []
+            for k, beat in enumerate(scene.get("beats", [])):
+                beat_ids.append(beat.get("id", f"<beat[{k}]>"))
+                if beat.get("type") == "dialogue" and beat.get("speaker") not in char_ids:
+                    errors.append(
+                        ValidationError(
+                            path=f"script.scenes[{i}].beats[{k}].speaker",
+                            message=f"unknown character id: {beat.get('speaker')}",
+                        )
+                    )
+            if len(beat_ids) != len(set(beat_ids)):
+                errors.append(
+                    ValidationError(
+                        path=f"script.scenes[{i}].beats",
+                        message="beat ids must be unique within a scene",
+                    )
+                )
         # scene id uniqueness
         if len(scene_ids) != len(set(scene_ids)):
             errors.append(

@@ -217,11 +217,10 @@ def normalize_id(value: object, prefix: str, *, fallback: str | None = None) -> 
         slug = _slug_token(fallback or "")
     if not slug:
         slug = hashlib.md5(str(value).encode("utf-8")).hexdigest()[:8]
-    # Scene ids follow `<prefix>_<digits>`. If the slug isn't all digits, keep
-    # the slug as-is; otherwise zero-pad short numbers so they satisfy the
-    # `<prefix>_[0-9]{3,}` pattern that downstream code (and the JSON schema)
-    # expects.
-    if prefix == "scene" and slug.isdigit():
+    # Scene and beat ids follow `<prefix>_<digits>`. If the slug isn't all
+    # digits, keep the slug as-is; otherwise zero-pad short numbers so they
+    # satisfy the `<prefix>_[0-9]{3,}` pattern downstream code expects.
+    if prefix in {"scene", "beat"} and slug.isdigit():
         slug = slug.zfill(3)
     return f"{prefix}_{slug}"
 
@@ -493,6 +492,28 @@ class DialogueLine(BaseModel):
         return normalize_id(v, "char", fallback=v)
 
 
+class ScriptBeat(BaseModel):
+    id: str = Field(pattern=r"^beat_[0-9]{3,}$")
+    type: Literal["action", "dialogue", "cue"]
+    text: str | None = None
+    speaker: str | None = Field(default=None, pattern=r"^char_[a-z0-9_]+$")
+    line: str | None = None
+    emotion: str | None = None
+    subtext: str | None = None
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _coerce_id(cls, v: object) -> object:
+        return normalize_id(v, "beat", fallback=v)
+
+    @field_validator("speaker", mode="before")
+    @classmethod
+    def _coerce_speaker(cls, v: object) -> object:
+        if v is None or str(v).strip() == "":
+            return None
+        return normalize_id(v, "char", fallback=v)
+
+
 class AdaptationNotes(BaseModel):
     reason: str | None = None
     fidelity: Fidelity | None = None
@@ -516,6 +537,7 @@ class Scene(BaseModel):
     exit_state: str | None = None
     action: list[str] = Field(default_factory=list)
     dialogue: list[DialogueLine] = Field(default_factory=list)
+    beats: list[ScriptBeat] = Field(default_factory=list)
 
     @field_validator("id", mode="before")
     @classmethod

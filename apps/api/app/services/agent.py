@@ -22,6 +22,7 @@ EDITABLE_SCENE_FIELDS = {
     "exit_state",
     "action",
     "dialogue",
+    "beats",
 }
 
 AGENT_RESPONSE_SCHEMA: dict[str, Any] = {
@@ -53,6 +54,25 @@ AGENT_RESPONSE_SCHEMA: dict[str, Any] = {
                             "type": "object",
                             "required": ["speaker", "line"],
                             "properties": {
+                                "speaker": {"type": "string"},
+                                "line": {"type": "string"},
+                                "emotion": {"type": "string"},
+                                "subtext": {"type": "string"},
+                            },
+                        },
+                    },
+                    "beats": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["type"],
+                            "properties": {
+                                "id": {"type": "string"},
+                                "type": {
+                                    "type": "string",
+                                    "enum": ["action", "dialogue", "cue"],
+                                },
+                                "text": {"type": "string"},
                                 "speaker": {"type": "string"},
                                 "line": {"type": "string"},
                                 "emotion": {"type": "string"},
@@ -206,6 +226,7 @@ def _build_agent_prompt(
         "script": {
             "title": script.get("title"),
             "language": script.get("language"),
+            "adaptation": script.get("adaptation"),
             "logline": script.get("logline"),
             "themes": script.get("themes"),
         },
@@ -224,7 +245,10 @@ def _build_agent_prompt(
 - changes: 每个被修改场景一项，scene_id 必须来自 {sorted(selected_scene_ids)}。
 - 只返回真正需要更新的字段；没有必要改的字段不要返回。
 - dialogue 中 speaker 必须使用该场景已有 characters 列表里的角色 id。
+- 优先返回 beats 来修改剧本流；beats 是动作、对白、提示按阅读顺序混排的列表。
+- 如果修改台词或动作且该场景已有 beats，请返回完整 beats，避免剧本流和兼容字段不一致。
 - action 和 dialogue 如果返回，会整体替换该场景对应列表。
+- beats 如果返回，也会同步更新 action/dialogue 兼容字段。
 - adaptation_reason 要说明这次改编为什么这么做。
 
 当前上下文：
@@ -264,6 +288,105 @@ def _clean_action(value: object) -> list[str] | None:
         return None
     cleaned = [str(item).strip() for item in value if str(item).strip()]
     return cleaned if cleaned else None
+
+
+def _clean_beats(value: object, allowed_speakers: list[str]) -> list[dict[str, Any]] | None:
+    if not isinstance(value, list):
+        return None
+    cleaned: list[dict[str, Any]] = []
+    allowed = set(allowed_speakers)
+    fallback_speaker = allowed_speakers[0] if allowed_speakers else ""
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("type") or "").strip()
+        if kind not in {"action", "dialogue", "cue"}:
+            kind = "dialogue" if item.get("speaker") or item.get("line") else "action"
+        beat: dict[str, Any] = {
+            "id": f"beat_{len(cleaned) + 1:03d}",
+            "type": kind,
+        }
+        if kind == "dialogue":
+            line = str(item.get("line") or item.get("text") or "").strip()
+            speaker = str(item.get("speaker") or "").strip()
+            if speaker not in allowed:
+                speaker = fallback_speaker
+            if not line or not speaker:
+                continue
+            beat["speaker"] = speaker
+            beat["line"] = line
+            for key in ("emotion", "subtext"):
+                text = str(item.get(key) or "").strip()
+                if text:
+                    beat[key] = text
+        else:
+            text = str(item.get("text") or item.get("line") or "").strip()
+            if not text:
+                continue
+            beat["text"] = text
+        cleaned.append(beat)
+    return cleaned if cleaned else None
+
+
+def _action_from_beats(beats: list[dict[str, Any]]) -> list[str]:
+    return [
+        str(beat.get("text") or "").strip()
+        for beat in beats
+        if beat.get("type") == "action" and str(beat.get("text") or "").strip()
+    ]
+
+
+def _dialogue_from_beats(beats: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    dialogue: list[dict[str, Any]] = []
+    for beat in beats:
+        if beat.get("type") != "dialogue":
+            continue
+        line = str(beat.get("line") or "").strip()
+        speaker = str(beat.get("speaker") or "").strip()
+        if not line or not speaker:
+            continue
+        item: dict[str, Any] = {"speaker": speaker, "line": line}
+        for key in ("emotion", "subtext"):
+            text = str(beat.get(key) or "").strip()
+            if text:
+                item[key] = text
+        dialogue.append(item)
+    return dialogue
+
+
+def _beats_from_action_dialogue(
+    action: list[str], dialogue: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    beats: list[dict[str, Any]] = []
+    for text in action:
+        clean = str(text or "").strip()
+        if clean:
+            beats.append(
+                {
+                    "id": f"beat_{len(beats) + 1:03d}",
+                    "type": "action",
+                    "text": clean,
+                }
+            )
+    for line in dialogue:
+        if not isinstance(line, dict):
+            continue
+        speaker = str(line.get("speaker") or "").strip()
+        text = str(line.get("line") or "").strip()
+        if not speaker or not text:
+            continue
+        beat: dict[str, Any] = {
+            "id": f"beat_{len(beats) + 1:03d}",
+            "type": "dialogue",
+            "speaker": speaker,
+            "line": text,
+        }
+        for key in ("emotion", "subtext"):
+            value = str(line.get(key) or "").strip()
+            if value:
+                beat[key] = value
+        beats.append(beat)
+    return beats
 
 
 def _make_set_op(
@@ -310,6 +433,9 @@ def _patch_from_agent_response(
         idx = index_by_scene_id[scene_id]
         scene = scenes[idx]
         allowed_speakers = [str(item) for item in scene.get("characters", [])]
+        next_action: list[str] | None = None
+        next_dialogue: list[dict[str, Any]] | None = None
+        beats_were_set = False
 
         for field in ("title", "purpose", "conflict", "entry_state", "exit_state"):
             if field not in change:
@@ -326,9 +452,31 @@ def _patch_from_agent_response(
                 if op:
                     patch.append(op)
 
-        if "action" in change:
+        if "beats" in change:
+            beats = _clean_beats(change.get("beats"), allowed_speakers)
+            if beats is not None:
+                beats_were_set = True
+                next_action = _action_from_beats(beats)
+                next_dialogue = _dialogue_from_beats(beats)
+                for field, before, after in (
+                    ("beats", scene.get("beats") or [], beats),
+                    ("action", scene.get("action") or [], next_action),
+                    ("dialogue", scene.get("dialogue") or [], next_dialogue),
+                ):
+                    op = _make_set_op(
+                        scene_index=idx,
+                        scene=scene,
+                        field=field,
+                        before=before,
+                        after=after,
+                    )
+                    if op:
+                        patch.append(op)
+
+        if "action" in change and not beats_were_set:
             action = _clean_action(change.get("action"))
             if action is not None:
+                next_action = action
                 op = _make_set_op(
                     scene_index=idx,
                     scene=scene,
@@ -339,9 +487,10 @@ def _patch_from_agent_response(
                 if op:
                     patch.append(op)
 
-        if "dialogue" in change:
+        if "dialogue" in change and not beats_were_set:
             dialogue = _clean_dialogue(change.get("dialogue"), allowed_speakers)
             if dialogue is not None:
+                next_dialogue = dialogue
                 op = _make_set_op(
                     scene_index=idx,
                     scene=scene,
@@ -351,6 +500,25 @@ def _patch_from_agent_response(
                 )
                 if op:
                     patch.append(op)
+
+        if (
+            not beats_were_set
+            and scene.get("beats")
+            and (next_action is not None or next_dialogue is not None)
+        ):
+            compatible_beats = _beats_from_action_dialogue(
+                next_action if next_action is not None else scene.get("action") or [],
+                next_dialogue if next_dialogue is not None else scene.get("dialogue") or [],
+            )
+            op = _make_set_op(
+                scene_index=idx,
+                scene=scene,
+                field="beats",
+                before=scene.get("beats") or [],
+                after=compatible_beats,
+            )
+            if op:
+                patch.append(op)
 
         reason = str(change.get("adaptation_reason") or "").strip()
         if reason:

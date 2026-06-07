@@ -17,8 +17,10 @@ from .schemas import (
     Location,
     Scene,
     Script,
+    ScriptBeat,
     ScriptDocument,
     Source,
+    normalize_adaptation_type,
 )
 from .validation import validate_script
 from .yaml_io import to_yaml
@@ -34,6 +36,102 @@ STAGE_ORDER: tuple[Stage, ...] = (
     Stage.DIALOGUE,
     Stage.REPAIR,
 )
+
+ADAPTATION_PROFILES: dict[str, dict[str, Any]] = {
+    "short_drama": {
+        "label": "短剧",
+        "target_format": "竖屏或横屏短剧，单场节奏紧凑",
+        "tone": "high-tension",
+        "scene_planning": [
+            "优先保留强钩子、快速反转和高冲突场面。",
+            "每场只服务一个清晰戏剧目标，减少解释性过场。",
+            "场景结尾尽量形成追问、危险或情绪悬念。",
+        ],
+        "script_blocks": [
+            "动作短、可拍、直接推动下一句对白。",
+            "对白口语化，避免长段说明。",
+            "前三个 beat 需要尽快暴露压力、秘密或危险。",
+        ],
+    },
+    "film": {
+        "label": "电影",
+        "target_format": "电影剧本，强调三幕推进和视觉叙事",
+        "tone": "cinematic",
+        "scene_planning": [
+            "按电影场景组织，保留人物选择、视觉行动和因果推进。",
+            "避免把小说心理描写直接改成解释性对白。",
+            "让每场在人物状态、关系或外部局势上发生可见变化。",
+        ],
+        "script_blocks": [
+            "动作具有镜头感，但不要写具体机位术语。",
+            "对白克制，有潜台词，服务人物关系和冲突。",
+            "场面调度优先通过行为、空间和道具体现。",
+        ],
+    },
+    "series": {
+        "label": "剧集",
+        "target_format": "分集剧本，兼顾单集目标和长期人物弧",
+        "tone": "serial",
+        "scene_planning": [
+            "保留 A/B 线索和人物长期弧光。",
+            "每场要能服务本集推进，也要埋下后续回收点。",
+            "结尾适合留下关系变化、线索推进或集尾悬念。",
+        ],
+        "script_blocks": [
+            "动作和对白要兼顾当场冲突与后续伏笔。",
+            "对白可以承载关系变化，但避免信息堆砌。",
+            "重要线索用 cue 或动作 beat 标记，方便后续追踪。",
+        ],
+    },
+    "stage": {
+        "label": "舞台剧",
+        "target_format": "舞台剧本，重视出入场、舞台动作、灯光音效和有限空间",
+        "tone": "theatrical",
+        "scene_planning": [
+            "控制地点数量，优先选择可在舞台上持续成立的空间。",
+            "明确角色出入场、站位关系和冲突焦点。",
+            "用舞台动作、道具、灯光或音效承担小说中的心理变化。",
+        ],
+        "script_blocks": [
+            "动作要能被演员执行，避免镜头语言。",
+            "cue 可用于灯光、音效、道具或舞台提示。",
+            "对白允许更有节奏和舞台张力，但仍要贴合人物。",
+        ],
+    },
+    "other": {
+        "label": "自定义改编",
+        "target_format": "自定义剧本格式",
+        "tone": "adaptive",
+        "scene_planning": [
+            "优先保留原作核心冲突、人物关系和可改编场面。",
+            "根据素材自然选择场景密度，不强行套短剧或电影模板。",
+        ],
+        "script_blocks": [
+            "动作与对白按时间顺序组织，方便人工继续改写。",
+            "保留必要潜台词和改编说明。",
+        ],
+    },
+}
+
+
+def _profile_for(adaptation_type: str) -> dict[str, Any]:
+    normalized = normalize_adaptation_type(adaptation_type)
+    return ADAPTATION_PROFILES.get(normalized, ADAPTATION_PROFILES["other"])
+
+
+def _profile_prompt(profile: dict[str, Any], *, language: str) -> str:
+    return json.dumps(
+        {
+            "adaptation_label": profile["label"],
+            "target_format": profile["target_format"],
+            "tone": profile["tone"],
+            "scene_planning": profile["scene_planning"],
+            "script_blocks": profile["script_blocks"],
+            "output_language": language,
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
 
 
 class PipelineCallbacks:
@@ -71,12 +169,16 @@ def _stage_summary(provider: LLMProvider, chapter: ChapterSplit) -> dict[str, An
     return provider.generate_structured(prompt, schema, stage=Stage.SUMMARY)
 
 
-def _stage_bible(provider: LLMProvider, summaries: list[dict]) -> dict[str, Any]:
+def _stage_bible(
+    provider: LLMProvider, summaries: list[dict], profile: dict[str, Any], language: str
+) -> dict[str, Any]:
     text = json.dumps(summaries, ensure_ascii=False)
     prompt = (
         "Synthesize a Story Bible from these chapter summaries. Provide title, logline, "
-        "genre, themes, setting, central conflict, characters, locations, timeline."
-        f"\n\nCHAPTER SUMMARIES:\n{text}"
+        "genre, themes, setting, central conflict, characters, locations, timeline. "
+        "Follow the adaptation profile and write user-facing fields in the output language.\n\n"
+        f"ADAPTATION PROFILE:\n{_profile_prompt(profile, language=language)}\n\n"
+        f"CHAPTER SUMMARIES:\n{text}"
     )
     schema = {
         "type": "object",
@@ -151,13 +253,21 @@ def _stage_characters(provider: LLMProvider, bible: dict, summaries: list[dict])
 
 
 def _stage_scene_plan(
-    provider: LLMProvider, bible: dict, characters: list[dict], chapters: list[ChapterSplit]
+    provider: LLMProvider,
+    bible: dict,
+    characters: list[dict],
+    chapters: list[ChapterSplit],
+    profile: dict[str, Any],
+    language: str,
 ) -> dict[str, Any]:
     chapter_ids = [c.chapter_id for c in chapters]
     prompt = (
         "Plan scenes for the script. Each scene must reference at least one chapter id "
         "from CHAPTERS, must reference at least one character id from CHARACTERS, and "
-        "must define a purpose and a conflict.\n\n"
+        "must define a purpose and a conflict. Follow the adaptation profile instead "
+        "of using a generic screenplay structure. Write user-facing fields in the "
+        "output language.\n\n"
+        f"ADAPTATION PROFILE:\n{_profile_prompt(profile, language=language)}\n\n"
         f"CHAPTERS:\n{json.dumps(chapter_ids)}\n"
         f"CHARACTERS:\n{json.dumps(characters, ensure_ascii=False)}\n"
         f"BIBLE:\n{json.dumps(bible, ensure_ascii=False)}"
@@ -201,13 +311,20 @@ def _stage_dialogue(
     chapter_summaries: list[dict],
     characters: list[dict],
     chapter_texts: dict[str, str],
+    profile: dict[str, Any],
+    language: str,
 ) -> dict[str, Any]:
     chap_refs = scene_plan_entry.get("chapter_refs", [])
     relevant = [s for s in chapter_summaries if s.get("chapter_id") in chap_refs]
     src = "\n\n".join(chapter_texts.get(cid, "") for cid in chap_refs)
     prompt = (
-        "Generate action beats and dialogue for the following scene. Use ONLY the listed "
-        "character ids as speakers. Provide emotion and subtext for each line.\n\n"
+        "Generate ordered script beats, action list, and dialogue list for the following "
+        "scene. Use ONLY the listed character ids as speakers. Provide emotion and "
+        "subtext for each dialogue line. The beats array is the human-readable script "
+        "flow: mix action, dialogue, and cue items in the order an editor should read "
+        "them. Also keep action and dialogue arrays for compatibility. Write user-facing "
+        "fields in the output language.\n\n"
+        f"ADAPTATION PROFILE:\n{_profile_prompt(profile, language=language)}\n\n"
         f"SCENE PLAN:\n{json.dumps(scene_plan_entry, ensure_ascii=False)}\n\n"
         f"CHAPTER SUMMARIES:\n{json.dumps(relevant, ensure_ascii=False)}\n\n"
         f"CHARACTER CARDS:\n{json.dumps(characters, ensure_ascii=False)}\n\n"
@@ -230,9 +347,121 @@ def _stage_dialogue(
                     "required": ["speaker", "line"],
                 },
             },
+            "beats": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "type": {"type": "string", "enum": ["action", "dialogue", "cue"]},
+                        "text": {"type": "string"},
+                        "speaker": {"type": "string"},
+                        "line": {"type": "string"},
+                        "emotion": {"type": "string"},
+                        "subtext": {"type": "string"},
+                    },
+                    "required": ["type"],
+                },
+            },
         },
     }
     return provider.generate_structured(prompt, schema, stage=Stage.DIALOGUE)
+
+
+def _clean_action(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _clean_dialogue(value: object, allowed_speakers: list[str]) -> list[DialogueLine]:
+    if not isinstance(value, list):
+        return []
+    allowed = set(allowed_speakers)
+    fallback = allowed_speakers[0] if allowed_speakers else ""
+    dialogue: list[DialogueLine] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        line = str(item.get("line") or "").strip()
+        if not line:
+            continue
+        speaker = str(item.get("speaker") or "").strip()
+        if speaker not in allowed:
+            speaker = fallback
+        if not speaker:
+            continue
+        dialogue.append(
+            DialogueLine(
+                speaker=speaker,
+                line=line,
+                emotion=str(item.get("emotion") or "").strip() or None,
+                subtext=str(item.get("subtext") or "").strip() or None,
+            )
+        )
+    return dialogue
+
+
+def _build_beats(
+    raw_beats: object,
+    *,
+    action: list[str],
+    dialogue: list[DialogueLine],
+    allowed_speakers: list[str],
+) -> list[ScriptBeat]:
+    allowed = set(allowed_speakers)
+    fallback = allowed_speakers[0] if allowed_speakers else ""
+    beats: list[ScriptBeat] = []
+
+    if isinstance(raw_beats, list):
+        for item in raw_beats:
+            if not isinstance(item, dict):
+                continue
+            kind = str(item.get("type") or "").strip()
+            if kind not in {"action", "dialogue", "cue"}:
+                kind = "dialogue" if item.get("speaker") or item.get("line") else "action"
+            beat_id = f"beat_{len(beats) + 1:03d}"
+            if kind == "dialogue":
+                line = str(item.get("line") or item.get("text") or "").strip()
+                speaker = str(item.get("speaker") or "").strip()
+                if speaker not in allowed:
+                    speaker = fallback
+                if not line or not speaker:
+                    continue
+                beats.append(
+                    ScriptBeat(
+                        id=beat_id,
+                        type="dialogue",
+                        speaker=speaker,
+                        line=line,
+                        emotion=str(item.get("emotion") or "").strip() or None,
+                        subtext=str(item.get("subtext") or "").strip() or None,
+                    )
+                )
+                continue
+
+            text = str(item.get("text") or item.get("line") or "").strip()
+            if not text:
+                continue
+            beats.append(ScriptBeat(id=beat_id, type=kind, text=text))  # type: ignore[arg-type]
+
+    if beats:
+        return beats
+
+    for text in action:
+        beats.append(ScriptBeat(id=f"beat_{len(beats) + 1:03d}", type="action", text=text))
+    for line in dialogue:
+        beats.append(
+            ScriptBeat(
+                id=f"beat_{len(beats) + 1:03d}",
+                type="dialogue",
+                speaker=line.speaker,
+                line=line.line,
+                emotion=line.emotion,
+                subtext=line.subtext,
+            )
+        )
+    return beats
 
 
 # ---------- public entry point ----------
@@ -251,6 +480,8 @@ def run_pipeline(
     provider = provider or get_provider()
     cb = on_progress or PipelineCallbacks()
     artifacts: dict[str, Any] = {}
+    profile = _profile_for(adaptation_type)
+    artifacts["adaptation_profile"] = profile
 
     # Stage 1: chapter summaries (parallel; one OpenAI call per chapter)
     cb.update("chapter_summary", 10)
@@ -268,7 +499,7 @@ def run_pipeline(
     # Stage 2: story bible
     cb.update("story_bible", 25)
     with StageTimer(run_id, "story_bible"):
-        bible = _stage_bible(provider, summaries)
+        bible = _stage_bible(provider, summaries, profile, language)
     artifacts["bible"] = bible
 
     # Stage 3: characters
@@ -316,7 +547,14 @@ def run_pipeline(
     # Stage 4: scene plan
     cb.update("scene_planning", 55)
     with StageTimer(run_id, "scene_planning"):
-        plan = _stage_scene_plan(provider, bible, [c.model_dump() for c in characters], chapters)
+        plan = _stage_scene_plan(
+            provider,
+            bible,
+            [c.model_dump() for c in characters],
+            chapters,
+            profile,
+            language,
+        )
         scene_entries = plan.get("scenes") or []
     artifacts["scene_plan"] = scene_entries
 
@@ -329,7 +567,13 @@ def run_pipeline(
 
     def _gen_one(entry: dict) -> Scene:
         out = _stage_dialogue(
-            provider, entry, summaries, [c.model_dump() for c in characters], chapter_texts
+            provider,
+            entry,
+            summaries,
+            [c.model_dump() for c in characters],
+            chapter_texts,
+            profile,
+            language,
         )
         char_list = entry.get("characters") or []
         char_list = [c for c in char_list if c in char_id_set] or [c.id for c in characters[:1]]
@@ -339,19 +583,14 @@ def run_pipeline(
         if loc_id not in loc_id_set:
             loc_id = locations[0].id if locations else "loc_main"
 
-        dialogue: list[DialogueLine] = []
-        for line in out.get("dialogue", []) or []:
-            sp = line.get("speaker")
-            if sp not in char_id_set:
-                sp = char_list[0]
-            dialogue.append(
-                DialogueLine(
-                    speaker=sp,
-                    line=line.get("line") or "（台词占位）",
-                    emotion=line.get("emotion"),
-                    subtext=line.get("subtext"),
-                )
-            )
+        action = _clean_action(out.get("action"))
+        dialogue = _clean_dialogue(out.get("dialogue"), char_list)
+        beats = _build_beats(
+            out.get("beats"),
+            action=action,
+            dialogue=dialogue,
+            allowed_speakers=char_list,
+        )
 
         return Scene(
             id=entry.get("id") or f"scene_{len(scenes_to_results) + 1:03d}",
@@ -364,8 +603,9 @@ def run_pipeline(
             conflict=entry.get("conflict") or "角色面对压力。",
             entry_state=entry.get("entry_state"),
             exit_state=entry.get("exit_state"),
-            action=out.get("action") or [],
+            action=action,
             dialogue=dialogue,
+            beats=beats,
             adaptation_notes=AdaptationNotes(
                 reason="AI 自动生成", fidelity="compressed"
             ),
@@ -397,8 +637,8 @@ def run_pipeline(
             language=language or "zh-CN",
             adaptation=Adaptation(
                 type=adaptation_type,  # type: ignore[arg-type]
-                target_format="横屏 3 分钟短剧",
-                tone="suspense",
+                target_format=profile["target_format"],
+                tone=profile["tone"],
             ),
             source=Source(
                 chapter_count=len(chapters),

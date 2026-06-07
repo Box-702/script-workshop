@@ -356,6 +356,7 @@ function formatPatchField(item: AgentPatchOperation) {
       conflict: "冲突",
       entry_state: "入场",
       exit_state: "离场",
+      beats: "剧本流",
       action: "动作",
       dialogue: "对白",
       "adaptation_notes/reason": "说明",

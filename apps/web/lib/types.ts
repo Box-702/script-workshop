@@ -116,6 +116,16 @@ export interface DialogueLine {
   subtext?: string | null;
 }
 
+export interface ScriptBeat {
+  id: string;
+  type: "action" | "dialogue" | "cue";
+  text?: string | null;
+  speaker?: string | null;
+  line?: string | null;
+  emotion?: string | null;
+  subtext?: string | null;
+}
+
 export interface ScriptScene {
   id: string;
   title: string;
@@ -129,6 +139,7 @@ export interface ScriptScene {
   exit_state?: string | null;
   action: string[];
   dialogue: DialogueLine[];
+  beats?: ScriptBeat[];
   adaptation_notes?: { reason?: string | null; fidelity?: string | null } | null;
 }
 
