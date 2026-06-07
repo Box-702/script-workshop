@@ -29,7 +29,7 @@ function AuthCallbackContent() {
       try {
         if (code) await exchangeAuthCode(code);
         const user = await getAuthUser();
-        if (!user) throw new Error("登录状态未建立，请重新发送登录链接。");
+        if (!user) throw new Error("登录状态未建立，请重新登录。");
         router.replace(nextPath);
       } catch (err) {
         if (alive) setError((err as Error).message);

@@ -7,9 +7,10 @@ import {
   getAuthUser,
   isSupabaseConfigured,
   onAuthStateChanged,
-  signInWithEmail,
+  sendEmailOtp,
   signOut,
   type AuthUser,
+  verifyEmailOtp,
 } from "@/lib/auth";
 import {
   clearLlmSettings,
@@ -256,6 +257,8 @@ export default function SettingsPage() {
 
 function AuthPanel() {
   const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [sentEmail, setSentEmail] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -272,7 +275,7 @@ function AuthPanel() {
     return () => unsubscribe();
   }, [configured]);
 
-  async function sendMagicLink() {
+  async function sendCode() {
     const value = email.trim();
     if (!value) {
       setError("请输入邮箱。");
@@ -283,13 +286,74 @@ function AuthPanel() {
     setError(null);
     setNotice(null);
     try {
-      await signInWithEmail(value, "/settings");
-      setNotice("登录链接已发送，请查看邮箱。");
+      await sendEmailOtp(value);
+      setSentEmail(value);
+      setNotice("验证码已发送，请查看邮箱。");
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
+  }
+
+  async function verifyCode() {
+    const value = sentEmail || email.trim();
+    const token = code.trim().replace(/\s+/g, "");
+    if (!value) {
+      setError("请输入邮箱。");
+      setNotice(null);
+      return;
+    }
+    if (!token) {
+      setError("请输入邮箱验证码。");
+      setNotice(null);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await verifyEmailOtp(value, token);
+      const nextUser = await getAuthUser();
+      if (!nextUser) throw new Error("登录状态未建立，请重新获取验证码。");
+      setUser(nextUser);
+      setNotice("登录成功。");
+      setCode("");
+      setSentEmail(null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resendCode() {
+    const value = sentEmail || email.trim();
+    if (!value) {
+      setError("请输入邮箱。");
+      setNotice(null);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await sendEmailOtp(value);
+      setSentEmail(value);
+      setCode("");
+      setNotice("新的验证码已发送，请查看邮箱。");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function changeEmail() {
+    setSentEmail(null);
+    setCode("");
+    setNotice(null);
+    setError(null);
   }
 
   async function logout() {
@@ -328,17 +392,43 @@ function AuthPanel() {
       </div>
 
       {configured && !user && (
-        <div className="flex flex-col gap-2 sm:flex-row">
+        <div className="flex flex-col gap-2">
           <input
             className="input"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
+            autoComplete="email"
+            disabled={busy || Boolean(sentEmail)}
           />
-          <button type="button" className="btn-primary whitespace-nowrap" onClick={sendMagicLink} disabled={busy}>
-            {busy ? "发送中..." : "发送登录链接"}
-          </button>
+          {sentEmail && (
+            <input
+              className="input font-mono tracking-widest"
+              type="text"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="输入 6 位验证码"
+              autoComplete="one-time-code"
+              inputMode="numeric"
+              disabled={busy}
+            />
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-primary whitespace-nowrap" onClick={sentEmail ? verifyCode : sendCode} disabled={busy}>
+              {busy ? "处理中..." : sentEmail ? "登录" : "发送验证码"}
+            </button>
+            {sentEmail && (
+              <>
+                <button type="button" className="btn-ghost whitespace-nowrap" onClick={resendCode} disabled={busy}>
+                  重新发送
+                </button>
+                <button type="button" className="btn-ghost whitespace-nowrap" onClick={changeEmail} disabled={busy}>
+                  更换邮箱
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
 

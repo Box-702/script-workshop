@@ -41,8 +41,10 @@ DATABASE_URL=postgresql+psycopg://postgres:<password>@<host>:5432/postgres
 
 4. 在 `Authentication -> URL Configuration` 配置：
    - `Site URL`：Vercel 前端正式域名，例如 `https://script-workshop-web.vercel.app`
-   - `Redirect URLs`：至少加入 `https://script-workshop-web.vercel.app/auth/callback`
-   - 本地调试可另加 `http://localhost:3000/auth/callback`
+   - `Redirect URLs`：验证码登录不依赖回跳；如需兼容旧 magic link，可加入 `https://script-workshop-web.vercel.app/auth/callback`
+   - 本地旧链接兼容可另加 `http://localhost:3000/auth/callback`
+
+5. 在 `Authentication -> Email Templates` 确认登录邮件包含验证码 token，例如 `{{ .Token }}`。不要只放 magic link，否则前端验证码输入框拿不到可输入的码。
 
 > 已验证 2026-06-06：项目 `wsogpdggsmehdrujdjrx` (West US, Oregon) 配齐以上四个值后，`alembic upgrade head` 在 Transaction pooler (`aws-1-us-west-2.pooler.supabase.com:6543`) 上跑通 5 个迁移，`/api/healthz` 与 `/api/projects` 401 路径均正常返回。
 
@@ -99,7 +101,7 @@ https://script-workshop-api.onrender.com/api/healthz
 
 上线后按顺序检查：
 
-1. 打开前端 `/settings`，输入邮箱，确认 magic link 能回跳到 `/auth/callback`。
+1. 打开前端 `/settings`，输入邮箱，确认能收到邮箱验证码并完成登录。
 2. 登录后保存一个模型 key，刷新页面，确认已保存 key 仍显示尾号。
 3. 创建一个 3 章以上项目。
 4. 点击生成剧本，确认没有空白失败页；如果没有 key，应显示明确提示。
@@ -115,7 +117,7 @@ https://script-workshop-api.onrender.com/api/healthz
 检查：
 - Vercel 是否配置了 `NEXT_PUBLIC_SUPABASE_URL` 和 `NEXT_PUBLIC_SUPABASE_ANON_KEY`。
 - Render 是否配置了 `AUTH_MODE=supabase`、`SUPABASE_URL`、`SUPABASE_ANON_KEY`。
-- Supabase Redirect URLs 是否包含 Vercel 的 `/auth/callback`。
+- Supabase 邮件模板是否包含 `{{ .Token }}`，且 Vercel 环境变量是否在改完后重新部署。
 
 ### 前端请求仍打到 localhost
 
