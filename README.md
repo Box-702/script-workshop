@@ -264,7 +264,7 @@ Health:   https://script-workshop-web.vercel.app/api/healthz
 已有 Vercel 项目并且本机已登录 / link 后，可以从仓库根目录重部署前端：
 
 ```bash
-pnpm exec vercel deploy --prod --yes --cwd apps/web
+npx vercel deploy --prod --yes --cwd apps/web
 ```
 
 Render 后端配置为 `autoDeploy: true`，正常情况下推送到 Git 后会自动部署；如果需要手动重启或重部署，需要在 Render 控制台操作，或使用单独配置的 Deploy Hook。
