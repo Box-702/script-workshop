@@ -196,9 +196,15 @@ export default function EditPage() {
     try {
       const r = await api.repair(yaml);
       setYaml(r.fixed_yaml);
-      setChanges(r.changes);
+      setChanges(r.changes.map(formatRepairChange));
       setMode("yaml");
-      await revalidate(r.fixed_yaml);
+      const validation = await api.validate(r.fixed_yaml);
+      setErrors(validation.errors);
+      setNotice(
+        validation.errors.length === 0
+          ? "自动修复完成，校验已通过。"
+          : `自动修复已处理能确认的问题，但还有 ${validation.errors.length} 个需要手动确认。请看右侧校验建议。`,
+      );
     } catch (e) {
       setErrors([{ path: "<root>", message: (e as Error).message, severity: "error" }]);
     } finally {
@@ -497,11 +503,11 @@ export default function EditPage() {
           />
 
           {changes.length > 0 && (
-            <div className="card">
+            <div className="card space-y-2">
               <div className="label">最近修复</div>
-              <ul className="space-y-1 text-xs text-ink-200">
+              <ul className="space-y-1.5 text-xs text-ink-200">
                 {changes.map((change, i) => (
-                  <li key={i} className="font-mono">
+                  <li key={i} className="rounded border surface-line surface-soft px-2 py-1.5">
                     {change}
                   </li>
                 ))}
@@ -1673,6 +1679,57 @@ function snapshotLabel(value: string) {
   const trimmed = value.trim();
   if (trimmed) return trimmed;
   return `剧本快照 ${new Date().toLocaleString()}`;
+}
+
+function formatRepairChange(change: string) {
+  const remaining = change.match(/repair finished with (\d+) remaining errors/i);
+  if (remaining) return `自动修复后仍有 ${remaining[1]} 个问题，需要你手动确认。`;
+
+  if (/yaml parse error/i.test(change)) {
+    return "YAML 格式有问题，自动修复暂时读不出结构。请先按右侧校验建议修正缩进、冒号或引号。";
+  }
+
+  if (/payload is not a mapping/i.test(change)) {
+    return "最外层结构不是对象。请让源码以 script: 开头，再把剧本内容缩进放在下面。";
+  }
+
+  const snappedKnown = change.match(/^(.+): snapped to known id '([^']+)'$/i);
+  if (snappedKnown) return `已把 ${formatRepairPath(snappedKnown[1])} 对齐到已有 ID：${snappedKnown[2]}。`;
+
+  const snappedPair = change.match(/^(.+): snapped '([^']+)' -> '([^']+)'$/i);
+  if (snappedPair) return `已把 ${formatRepairPath(snappedPair[1])} 里的 ${snappedPair[2]} 改成已有 ID：${snappedPair[3]}。`;
+
+  const snappedTo = change.match(/^(.+): snapped to '([^']+)'$/i);
+  if (snappedTo) return `已把 ${formatRepairPath(snappedTo[1])} 改成已有 ID：${snappedTo[2]}。`;
+
+  const removedId = change.match(/^(.+): removed unknown id '([^']+)'$/i);
+  if (removedId) return `已从 ${formatRepairPath(removedId[1])} 移除不存在的 ID：${removedId[2]}。`;
+
+  if (/removed unknown speaker/i.test(change)) {
+    const path = change.split(":")[0] || "";
+    return `已移除 ${formatRepairPath(path)} 里找不到角色的对白或节拍。`;
+  }
+
+  if (/pruned unknown chapter ids/i.test(change)) {
+    const path = change.split(":")[0] || "";
+    return `已从 ${formatRepairPath(path)} 移除不存在的来源章节。`;
+  }
+
+  return change;
+}
+
+function formatRepairPath(path: string) {
+  const scene = path.match(/script\.scenes\[(\d+)\]/);
+  if (scene) {
+    const index = Number(scene[1]) + 1;
+    if (path.includes(".location_id")) return `第 ${index} 场的地点`;
+    if (path.includes(".characters")) return `第 ${index} 场的出场角色`;
+    if (path.includes(".dialogue")) return `第 ${index} 场的对白说话人`;
+    if (path.includes(".beats")) return `第 ${index} 场的节拍说话人`;
+    if (path.includes(".chapter_refs")) return `第 ${index} 场的来源章节`;
+    return `第 ${index} 场`;
+  }
+  return path;
 }
 
 function uniqueStrings(values: string[]) {
