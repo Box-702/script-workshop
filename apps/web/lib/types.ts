@@ -262,3 +262,9 @@ export interface ModelKeyTestResponse {
   ok: boolean;
   message: string;
 }
+
+export interface LocalDataImportSummary {
+  projects: number;
+  edit_events: number;
+  model_keys: number;
+}

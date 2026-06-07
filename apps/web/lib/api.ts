@@ -3,6 +3,7 @@ import type {
   EditEventSummary,
   ModelKeySummary,
   ModelKeyTestResponse,
+  LocalDataImportSummary,
   ProjectDetail,
   ProjectCreateResponse,
   ProjectScriptImportResponse,
@@ -90,6 +91,13 @@ export const api = {
 
   getActiveModelKey: () =>
     jfetch<ModelKeySummary | null>("/api/user/model-keys/active"),
+
+  importLocalData: (localUserId: string) =>
+    jfetch<LocalDataImportSummary>("/api/user/import-local-data", {
+      method: "POST",
+      headers: { "X-Local-User-Id": localUserId },
+      body: "{}",
+    }),
 
   saveModelKey: (body: {
     provider: "openai";

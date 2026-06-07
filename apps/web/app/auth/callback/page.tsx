@@ -2,7 +2,9 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
+import { api } from "@/lib/api";
 import { exchangeAuthCode, getAuthUser, isSupabaseConfigured } from "@/lib/auth";
+import { getLocalUserId } from "@/lib/local-user";
 
 export default function AuthCallbackPage() {
   return (
@@ -30,6 +32,7 @@ function AuthCallbackContent() {
         if (code) await exchangeAuthCode(code);
         const user = await getAuthUser();
         if (!user) throw new Error("登录状态未建立，请重新登录。");
+        await api.importLocalData(getLocalUserId());
         router.replace(nextPath);
       } catch (err) {
         if (alive) setError((err as Error).message);
