@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="zh-CN" className="h-full">
+    <html lang="zh-CN" className="h-full" data-ui-style="paper">
       <head>
         {/*
           Read the saved UI style from localStorage and apply it to
@@ -26,7 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var s=localStorage.getItem('script-workshop-ui-style');if(s==='paper'||s==='studio'){document.documentElement.dataset.uiStyle=s;}}catch(e){}})();`,
+            __html: `(function(){try{var s=localStorage.getItem('script-workshop-ui-style');document.documentElement.dataset.uiStyle=(s==='studio'||s==='paper')?s:'paper';}catch(e){document.documentElement.dataset.uiStyle='paper';}})();`,
           }}
         />
       </head>

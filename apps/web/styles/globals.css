@@ -99,8 +99,12 @@
   body:has(.editor-workspace) {
     overflow: hidden;
   }
-  body:has(.editor-workspace) main {
+  body:has(.editor-workspace) .app-main {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - 57px);
     min-height: auto;
+    overflow: hidden;
     padding-top: 12px;
     padding-bottom: 12px;
   }
@@ -465,6 +469,10 @@
   .workspace-scroll {
     scrollbar-color: rgb(var(--ink-600)) rgb(var(--ink-900));
     scrollbar-width: thin;
+    scroll-padding-bottom: 24px;
+  }
+  .editor-workspace .workspace-scroll {
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
   }
   .workspace-scroll::-webkit-scrollbar {
     width: 10px;

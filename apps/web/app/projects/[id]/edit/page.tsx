@@ -301,7 +301,7 @@ export default function EditPage() {
   }
 
   return (
-    <div className="editor-workspace flex h-[calc(100vh-78px)] min-h-0 flex-col gap-2 overflow-hidden">
+    <div className="editor-workspace flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
       <div className="panel shrink-0 overflow-visible px-3 py-2">
         <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex min-w-0 flex-col gap-2 md:flex-row md:items-center">

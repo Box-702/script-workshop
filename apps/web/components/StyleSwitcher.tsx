@@ -14,7 +14,7 @@ function readInitialStyle(): UiStyle {
     const fromDom = document.documentElement.dataset.uiStyle;
     if (fromDom === "paper" || fromDom === "studio") return fromDom;
   }
-  return "studio";
+  return "paper";
 }
 
 export function StyleSwitcher() {
