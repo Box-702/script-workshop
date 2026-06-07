@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { AgentPatchOperation, AgentRunSummary, ScriptScene } from "@/lib/types";
-import { PatchValue } from "./PatchValue";
+import { PatchComparison } from "./PatchComparison";
 
 const AGENT_INTENT_PRESETS = [
   "强化前三秒钩子",
@@ -290,12 +290,11 @@ export function AgentPanel({
                     </span>
                   </div>
                   {item.risk && item.risk.length > 0 && (
-                    <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-xs leading-5 text-amber-200">
+                    <div className="notice-warning mt-2 px-2 py-1.5 text-xs leading-5">
                       {item.risk.join(" ")}
                     </div>
                   )}
-                  <PatchValue label="修改前" value={item.before} characterNames={characterNames} />
-                  <PatchValue label="修改后" value={item.after ?? item.value} characterNames={characterNames} />
+                  <PatchComparison item={item} characterNames={characterNames} />
                 </li>
               ))}
               </ul>
