@@ -25,7 +25,7 @@
 
 ## 演示视频
 
-[【2026-06-07 20-04-25-哔哩哔哩】](https://b23.tv/IzKVJsg)
+[【项目“剧本工坊/Script Workshop”演示视频-哔哩哔哩】](https://b23.tv/6kaKKrv)
 
 ## 在线体验
 
