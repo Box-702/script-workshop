@@ -57,3 +57,32 @@ def test_supabase_mode_rejects_user_response_without_id(monkeypatch):
         deps.get_current_user(authorization="Bearer access-token")
 
     assert exc_info.value.status_code == 401
+
+
+def test_hybrid_mode_uses_supabase_token_when_present(monkeypatch):
+    monkeypatch.setattr(deps, "get_settings", lambda: _settings(auth_mode="hybrid"))
+    monkeypatch.setattr(deps, "_fetch_supabase_user", lambda token: {"id": f"user_{token}"})
+
+    user = deps.get_current_user(
+        local_user_id="local_browser",
+        authorization="Bearer access-token",
+    )
+
+    assert user.id == "user_access-token"
+
+
+def test_hybrid_mode_uses_local_user_without_token(monkeypatch):
+    monkeypatch.setattr(deps, "get_settings", lambda: _settings(auth_mode="hybrid"))
+
+    user = deps.get_current_user(local_user_id="local_browser")
+
+    assert user.id == "local_browser"
+
+
+def test_hybrid_mode_requires_local_user_without_token(monkeypatch):
+    monkeypatch.setattr(deps, "get_settings", lambda: _settings(auth_mode="hybrid"))
+
+    with pytest.raises(HTTPException) as exc_info:
+        deps.get_current_user()
+
+    assert exc_info.value.status_code == 401

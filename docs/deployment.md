@@ -24,7 +24,7 @@
 - 前端首页返回 `200`。
 - 后端直连 `/api/healthz` 返回 `{"status":"ok","version":"0.1.0"}`。
 - 前端代理 `/api/healthz` 返回 `{"status":"ok","version":"0.1.0"}`。
-- 未登录访问 `/api/projects` 返回 `401 {"detail":"missing bearer token"}`，符合预期。
+- 未登录访问前端时会进入本地模式；请求会携带浏览器本地身份 `X-Local-User-Id`。
 
 ## 1. 准备 Supabase
 
@@ -66,7 +66,9 @@ DATABASE_URL=postgresql+psycopg://postgres:<password>@<host>:5432/postgres
    | `CORS_ORIGINS` | Vercel 前端域名,例如 `https://script-workshop-web.vercel.app` |
    | `KEY_ENCRYPTION_KEY` | `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 
-   `AUTH_MODE=supabase` / `LLM_PROVIDER=openai` 等默认值已在 `render.yaml` 写死,不用手填。
+   `AUTH_MODE=hybrid` / `LLM_PROVIDER=openai` 等默认值已在 `render.yaml` 写死,不用手填。
+
+   `hybrid` 模式含义：用户登录后使用 Supabase 用户 id；未登录时使用浏览器本地身份 id。未登录项目不跨设备同步，清空浏览器数据后也可能失去原本地身份。
 
 4. **Apply** → 等部署完成。
 
@@ -103,13 +105,15 @@ https://script-workshop-api.onrender.com/api/healthz
 上线后按顺序检查：
 
 1. 打开前端 `/settings`，输入邮箱，确认能收到邮箱验证码并完成登录。
-2. 登录后保存一个模型 key，刷新页面，确认已保存 key 仍显示尾号。
-3. 创建一个 3 章以上项目。
-4. 点击生成剧本，确认没有空白失败页；如果没有 key，应显示明确提示。
-5. 进入编辑器，保存一个快照，再修改一处场景并保存第二个快照。
-6. 在快照历史里点击“对比当前”，确认能看到版本差异。
-7. 导出 YAML、JSON、Markdown，确认响应正常。
-8. 用第二个账号登录，确认看不到第一个账号的项目和模型 key。
+2. 退出登录后打开前端，确认顶部显示“当前为本地模式”，并且 `/dashboard` 不再被登录拦截。
+3. 在未登录状态保存一个浏览器本地模型 key，创建一个 3 章以上项目并生成剧本。
+4. 登录后保存一个模型 key，刷新页面，确认已保存 key 仍显示尾号。
+5. 创建一个 3 章以上项目。
+6. 点击生成剧本，确认没有空白失败页；如果没有 key，应显示明确提示。
+7. 进入编辑器，保存一个快照，再修改一处场景并保存第二个快照。
+8. 在快照历史里点击“对比当前”，确认能看到版本差异。
+9. 导出 YAML、JSON、Markdown，确认响应正常。
+10. 用第二个账号登录，确认看不到第一个账号的项目和模型 key。
 
 ## 5. 常见问题
 
@@ -117,7 +121,7 @@ https://script-workshop-api.onrender.com/api/healthz
 
 检查：
 - Vercel 是否配置了 `NEXT_PUBLIC_SUPABASE_URL` 和 `NEXT_PUBLIC_SUPABASE_ANON_KEY`。
-- Render 是否配置了 `AUTH_MODE=supabase`、`SUPABASE_URL`、`SUPABASE_ANON_KEY`。
+- Render 是否配置了 `AUTH_MODE=hybrid`、`SUPABASE_URL`、`SUPABASE_ANON_KEY`。
 - Supabase 邮件模板是否包含 `{{ .Token }}`，且 Vercel 环境变量是否在改完后重新部署。
 - 如果页面提示验证码邮件发送过于频繁，检查 Supabase Auth Rate Limits 和 SMTP 设置。
 

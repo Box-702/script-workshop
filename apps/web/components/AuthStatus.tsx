@@ -5,12 +5,19 @@ import { getAuthUser, isSupabaseConfigured, onAuthStateChanged, signOut, type Au
 
 export function AuthStatus() {
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [ready, setReady] = useState(false);
   const configured = isSupabaseConfigured();
 
   useEffect(() => {
-    if (!configured) return;
+    if (!configured) {
+      setReady(true);
+      return;
+    }
     let unsubscribe = () => {};
-    void getAuthUser().then(setUser).catch(() => setUser(null));
+    void getAuthUser()
+      .then(setUser)
+      .catch(() => setUser(null))
+      .finally(() => setReady(true));
     void onAuthStateChanged(setUser).then((next) => {
       unsubscribe = next;
     });
@@ -21,11 +28,18 @@ export function AuthStatus() {
     return <span className="hidden text-xs text-ink-500 md:inline">本地模式</span>;
   }
 
+  if (!ready) {
+    return <span className="hidden text-xs text-ink-500 md:inline">...</span>;
+  }
+
   if (!user) {
     return (
-      <a className="text-xs text-accent-400 hover:text-accent-500" href="/login">
-        登录
-      </a>
+      <span className="flex items-center gap-2 text-xs">
+        <span className="hidden text-ink-500 md:inline">本地模式</span>
+        <a className="text-accent-400 hover:text-accent-500" href="/login">
+          登录同步
+        </a>
+      </span>
     );
   }
 

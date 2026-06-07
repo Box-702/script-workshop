@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AuthStatus } from "@/components/AuthStatus";
+import { LocalModeNotice } from "@/components/LocalModeNotice";
 import { StyleSwitcher } from "@/components/StyleSwitcher";
 import "../styles/globals.css";
 
@@ -84,6 +85,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </div>
         </header>
         <main className="app-main">
+          <LocalModeNotice />
           {children}
         </main>
         <footer className="app-footer">

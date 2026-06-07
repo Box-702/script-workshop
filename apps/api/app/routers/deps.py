@@ -11,6 +11,7 @@ from .. import db as dbm
 from ..config import get_settings
 
 LOCAL_USER_ID = "local_user"
+LOCAL_USER_ID_PREFIX = "local_"
 
 
 def get_db():
@@ -34,8 +35,21 @@ def _clean_user_id(value: str | None) -> str:
     return cleaned or LOCAL_USER_ID
 
 
+def _clean_local_user_id(value: str | None) -> str:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        raise HTTPException(401, "missing bearer token or local user id")
+    if len(cleaned) > 96 or not cleaned.startswith(LOCAL_USER_ID_PREFIX):
+        raise HTTPException(401, "invalid local user id")
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+    if any(char not in allowed for char in cleaned):
+        raise HTTPException(401, "invalid local user id")
+    return cleaned
+
+
 def get_current_user(
     dev_user_id: Annotated[str | None, Header(alias="X-Dev-User-Id")] = None,
+    local_user_id: Annotated[str | None, Header(alias="X-Local-User-Id")] = None,
     authorization: Annotated[str | None, Header(alias="Authorization")] = None,
 ) -> AuthenticatedUser:
     settings = get_settings()
@@ -44,6 +58,10 @@ def get_current_user(
         return AuthenticatedUser(id=_clean_user_id(dev_user_id))
     if mode == "supabase":
         return _get_supabase_user(authorization)
+    if mode == "hybrid":
+        if _bearer_token(authorization):
+            return _get_supabase_user(authorization)
+        return AuthenticatedUser(id=_clean_local_user_id(local_user_id))
     raise HTTPException(500, f"unsupported AUTH_MODE: {settings.auth_mode}")
 
 

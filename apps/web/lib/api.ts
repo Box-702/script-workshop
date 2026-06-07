@@ -16,7 +16,8 @@ import type {
   VersionDiffSummary,
 } from "./types";
 import type { LlmSettings } from "./llm-settings";
-import { getAccessToken, isSupabaseConfigured } from "./auth";
+import { getAccessToken } from "./auth";
+import { getLocalUserId } from "./local-user";
 import { llmSettingsHeaders } from "./llm-settings";
 
 export const AUTH_REQUIRED_MESSAGE = "请先登录后继续。";
@@ -32,10 +33,8 @@ async function requestHeaders(initHeaders?: HeadersInit) {
   const headers = new Headers(initHeaders);
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const token = await getAccessToken();
-  if (isSupabaseConfigured() && !token) {
-    throw new AuthRequiredError();
-  }
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  else headers.set("X-Local-User-Id", getLocalUserId());
   return headers;
 }
 

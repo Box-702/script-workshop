@@ -16,7 +16,7 @@
 │  - services: 版本、导出、模型 key、pipeline │
 │  - providers: LLM 抽象                     │
 │  - schemas: Pydantic v2 模型               │
-│  - db: SQLAlchemy + Alembic + SQLite       │
+│  - db: SQLAlchemy + Alembic                │
 └────────────────────────────────────────────┘
                    │
                    ▼
@@ -83,6 +83,16 @@ class LLMProvider(Protocol):
 - 选择持久化在 `localStorage[script-workshop-ui-style]`，下次打开页面自动还原。
 - 自定义半透明工具类（`surface-line` / `surface-soft`）替代硬编码的 `border-white/10` / `bg-white/[0.02]`，避免 paper 主题下半透明白看不见。
 - paper 主题下 `ink` 阶反转（低编号 = 深色文字），保证浅色主题下高对比度。
+
+## 鉴权与本地模式
+
+生产建议使用 `AUTH_MODE=hybrid`：
+
+- 请求带 Supabase bearer token 时，后端通过 Supabase Auth 校验并使用真实用户 id。
+- 请求未登录时，前端生成浏览器本地身份 `X-Local-User-Id`，后端用这个 id 隔离项目数据。
+- 本地身份适合免登录试用和本地 key 模式，不提供跨设备同步；清空浏览器数据后可能失去原身份。
+
+SQLite 仍保留为本地开发和自动测试的轻量数据库。线上生产数据放在 Supabase Postgres，不依赖 SQLite 文件持久化。
 
 ## 多用户隔离 (Supabase RLS)
 
