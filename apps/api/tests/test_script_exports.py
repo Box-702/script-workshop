@@ -75,6 +75,78 @@ def test_version_markdown_export_uses_requested_version():
     assert "# Second Script" not in response.text
 
 
+def test_markdown_export_uses_stage_script_flow_format():
+    db = _session()
+    project = Project(id="proj_test", title="Test", adaptation_type="stage")
+    db.add(project)
+    db.commit()
+    stage_yaml = VALID_SCRIPT_YAML.replace(
+        "  language: en-US\n",
+        "  language: en-US\n"
+        "  adaptation:\n"
+        "    type: stage\n"
+        "    target_format: Black box stage play\n",
+    ).replace(
+        "      dialogue:\n        - speaker: char_doctor\n          line: We are closed.\n",
+        "      dialogue:\n        - speaker: char_doctor\n          line: We are closed.\n"
+        "      beats:\n"
+        "        - id: beat_001\n"
+        "          type: action\n"
+        "          text: The doctor turns off the lamp.\n"
+        "        - id: beat_002\n"
+        "          type: cue\n"
+        "          text: A hard knock from offstage.\n"
+        "        - id: beat_003\n"
+        "          type: dialogue\n"
+        "          speaker: char_doctor\n"
+        "          line: We are closed.\n",
+    )
+    create_version_from_yaml(db, project, stage_yaml)
+    client = _client(db)
+
+    response = client.get(f"/api/projects/{project.id}/script.md")
+
+    assert response.status_code == 200
+    assert "- 类型：舞台剧" in response.text
+    assert "**舞台正文**" in response.text
+    assert "（动作）The doctor turns off the lamp." in response.text
+    assert "【舞台提示】A hard knock from offstage." in response.text
+
+
+def test_markdown_export_uses_short_drama_compact_script_flow_format():
+    db = _session()
+    project = Project(id="proj_test", title="Test", adaptation_type="short_drama")
+    db.add(project)
+    db.commit()
+    short_drama_yaml = VALID_SCRIPT_YAML.replace(
+        "  language: en-US\n",
+        "  language: en-US\n"
+        "  adaptation:\n"
+        "    type: short_drama\n",
+    ).replace(
+        "      dialogue:\n        - speaker: char_doctor\n          line: We are closed.\n",
+        "      dialogue:\n        - speaker: char_doctor\n          line: We are closed.\n"
+        "      beats:\n"
+        "        - id: beat_001\n"
+        "          type: action\n"
+        "          text: Blood runs under the clinic door.\n"
+        "        - id: beat_002\n"
+        "          type: dialogue\n"
+        "          speaker: char_doctor\n"
+        "          line: Who is there?\n",
+    )
+    create_version_from_yaml(db, project, short_drama_yaml)
+    client = _client(db)
+
+    response = client.get(f"/api/projects/{project.id}/script.md")
+
+    assert response.status_code == 200
+    assert "- 类型：短剧" in response.text
+    assert "**短剧节拍**" in response.text
+    assert "- 【动作】Blood runs under the clinic door." in response.text
+    assert "- **Doctor**：Who is there?" in response.text
+
+
 def test_save_structured_json_creates_version():
     db = _session()
     project = Project(id="proj_test", title="Test", adaptation_type="short_drama")

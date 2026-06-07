@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from ..adaptation_profiles import adaptation_profile_for
+
 
 def script_to_json_text(data: dict[str, Any]) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
@@ -17,10 +19,93 @@ def _scene_heading(index: int, title: object) -> str:
     return f"### 第 {index} 场"
 
 
+def _script_adaptation(script: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    adaptation = script.get("adaptation") if isinstance(script.get("adaptation"), dict) else {}
+    adaptation_type = str(adaptation.get("type") or "other")
+    return adaptation_type, adaptation_profile_for(adaptation_type)
+
+
+def _body_label(adaptation_type: str) -> str:
+    return {
+        "short_drama": "短剧节拍",
+        "film": "剧本正文",
+        "series": "分集场景流",
+        "stage": "舞台正文",
+    }.get(adaptation_type, "剧本流")
+
+
+def _cue_label(adaptation_type: str) -> str:
+    return {
+        "film": "提示",
+        "series": "提示",
+        "stage": "舞台提示",
+        "short_drama": "提示",
+    }.get(adaptation_type, "提示")
+
+
+def _format_dialogue_line(
+    item: dict[str, Any], character_names: dict[Any, Any], *, stage_style: bool = False
+) -> str:
+    speaker = character_names.get(item.get("speaker"), item.get("speaker") or "Unknown")
+    line = str(item.get("line") or "").strip()
+    emotion = f" ({item['emotion']})" if item.get("emotion") else ""
+    subtext = f"（潜台词：{item['subtext']}）" if item.get("subtext") else ""
+    if stage_style:
+        return f"{speaker}{emotion}：{line}{subtext}"
+    return f"**{speaker}**{emotion}：{line}{subtext}"
+
+
+def _append_beat_lines(
+    lines: list[str],
+    beats: list[Any],
+    character_names: dict[Any, Any],
+    adaptation_type: str,
+) -> None:
+    lines.append(f"**{_body_label(adaptation_type)}**")
+    stage_style = adaptation_type == "stage"
+    compact_style = adaptation_type in {"short_drama", "series"}
+    for beat in beats:
+        if not isinstance(beat, dict):
+            continue
+        beat_type = beat.get("type")
+        if beat_type == "dialogue":
+            line = str(beat.get("line") or "").strip()
+            if not line:
+                continue
+            rendered = _format_dialogue_line(beat, character_names, stage_style=stage_style)
+            lines.extend([f"- {rendered}" if compact_style else rendered, ""])
+            continue
+
+        text = str(beat.get("text") or "").strip()
+        if not text:
+            continue
+        if beat_type == "cue":
+            rendered = f"【{_cue_label(adaptation_type)}】{text}"
+        elif stage_style:
+            rendered = f"（动作）{text}"
+        elif compact_style:
+            rendered = f"【动作】{text}"
+        else:
+            rendered = text
+        lines.extend([f"- {rendered}" if compact_style else rendered, ""])
+
+
 def script_to_markdown(data: dict[str, Any]) -> str:
     script = data.get("script", {}) if isinstance(data.get("script"), dict) else {}
     title = str(script.get("title") or "未命名剧本")
     lines = [f"# {title}", ""]
+    adaptation_type, profile = _script_adaptation(script)
+    adaptation = script.get("adaptation") if isinstance(script.get("adaptation"), dict) else {}
+    target_format = adaptation.get("target_format") or profile.get("target_format")
+    if profile:
+        lines.extend(
+            [
+                "## 改编规格",
+                f"- 类型：{profile.get('label')}",
+                f"- 格式：{target_format}",
+                "",
+            ]
+        )
 
     logline = script.get("logline")
     if logline:
@@ -92,34 +177,19 @@ def script_to_markdown(data: dict[str, Any]) -> str:
 
             beats = scene.get("beats") or []
             if isinstance(beats, list) and beats:
-                lines.append("**剧本流**")
-                for beat in beats:
-                    if not isinstance(beat, dict):
-                        continue
-                    beat_type = beat.get("type")
-                    if beat_type == "dialogue":
-                        speaker = character_names.get(
-                            beat.get("speaker"), beat.get("speaker") or "Unknown"
-                        )
-                        line = str(beat.get("line") or "").strip()
-                        if not line:
-                            continue
-                        emotion = f" ({beat['emotion']})" if beat.get("emotion") else ""
-                        subtext = f"（潜台词：{beat['subtext']}）" if beat.get("subtext") else ""
-                        lines.extend([f"**{speaker}**{emotion}：{line}{subtext}", ""])
-                    else:
-                        text = str(beat.get("text") or "").strip()
-                        if not text:
-                            continue
-                        prefix = "【提示】" if beat_type == "cue" else ""
-                        lines.extend([f"{prefix}{text}", ""])
+                _append_beat_lines(lines, beats, character_names, adaptation_type)
             else:
                 action = scene.get("action") or []
                 action_lines = [str(item).strip() for item in action if str(item).strip()]
                 if action_lines:
-                    lines.append("**动作**")
+                    lines.append(f"**{_body_label(adaptation_type)}**")
                     for item in action_lines:
-                        lines.extend([item, ""])
+                        if adaptation_type == "stage":
+                            lines.extend([f"（动作）{item}", ""])
+                        elif adaptation_type in {"short_drama", "series"}:
+                            lines.extend([f"- 【动作】{item}", ""])
+                        else:
+                            lines.extend([item, ""])
 
                 dialogue = scene.get("dialogue") or []
                 dialogue_lines: list[str] = []
@@ -127,15 +197,17 @@ def script_to_markdown(data: dict[str, Any]) -> str:
                     for item in dialogue:
                         if not isinstance(item, dict):
                             continue
-                        speaker = character_names.get(
-                            item.get("speaker"), item.get("speaker") or "Unknown"
-                        )
                         line = str(item.get("line") or "").strip()
                         if not line:
                             continue
-                        emotion = f" ({item['emotion']})" if item.get("emotion") else ""
-                        subtext = f"（潜台词：{item['subtext']}）" if item.get("subtext") else ""
-                        dialogue_lines.append(f"**{speaker}**{emotion}：{line}{subtext}")
+                        rendered = _format_dialogue_line(
+                            item,
+                            character_names,
+                            stage_style=adaptation_type == "stage",
+                        )
+                        if adaptation_type in {"short_drama", "series"}:
+                            rendered = f"- {rendered}"
+                        dialogue_lines.append(rendered)
                 if dialogue_lines:
                     lines.append("**对白**")
                     for item in dialogue_lines:
