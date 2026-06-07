@@ -118,10 +118,17 @@ class OpenAIProvider:
         # For Chinese output, instruct the model explicitly. For English, the
         # default instructions are sufficient.
         if lang.lower().startswith("zh"):
+            chinese_style = (
+                "简体中文" if lang.lower() in {"zh-cn", "zh-hans", "zh"} else "繁體中文"
+            )
             lang_instruction = (
-                f"所有面向用户的中文/外文自然语言值必须使用 {lang}，包括 title、logline、"
+                f"所有面向用户的自然语言值必须使用 {chinese_style}（{lang}），包括 title、logline、"
                 "summary、purpose、conflict、action、dialogue、line、emotion、subtext、"
-                "personality、goal、motivation、speech_style、adaptation_notes.reason 等。"
+                "entry_state、exit_state、personality、goal、motivation、speech_style、"
+                "adaptation_notes.reason 等。"
+                "禁止在这些字段中输出英文占位或英文短语，例如 routine monitoring、"
+                "alarmed and curious、tense、curious、unknown source。"
+                "如果源文本是中文，场景标题、状态、动作和对白都必须保持中文。"
                 "专有名词（如人名、地名、品牌）保留原文。id 字段必须保持纯 ASCII "
                 "（小写字母、数字、下划线）。"
             )

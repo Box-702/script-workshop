@@ -8,7 +8,12 @@ from test_versions import VALID_SCRIPT_YAML
 from app.db import Base, Chapter, EditEvent, GenerationRun, Project, ScriptVersion
 from app.routers import projects
 from app.routers.deps import get_db
-from app.routers.projects import _project_detail, _project_out
+from app.routers.projects import (
+    LLMRunOptions,
+    _options_for_project_language,
+    _project_detail,
+    _project_out,
+)
 
 
 def _session():
@@ -218,6 +223,15 @@ def test_project_routes_are_scoped_to_current_user():
 
     assert own_detail.status_code == 200
     assert other_detail.status_code == 404
+
+
+def test_generation_options_use_resolved_project_language():
+    options = LLMRunOptions(openai_api_key="sk-test", language="")
+
+    resolved = _options_for_project_language(options, "zh-CN")
+
+    assert resolved.language == "zh-CN"
+    assert resolved.openai_api_key == options.openai_api_key
 
 
 def test_import_script_project_creates_snapshot_without_generation_run():

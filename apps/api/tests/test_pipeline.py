@@ -347,6 +347,32 @@ def test_provider_builds_with_key():
     assert isinstance(p, OpenAIProvider)
 
 
+def test_openai_provider_chinese_prompt_bans_english_state_placeholders():
+    from app.config import Settings
+    from app.providers.openai_provider import OpenAIProvider
+
+    provider = OpenAIProvider(Settings(openai_api_key="sk-test"), language="zh-CN")
+    provider._client = object()  # type: ignore[attr-defined]
+    captured: dict[str, str] = {}
+
+    def fake_call(model: str, sys_prompt: str, user_prompt: str) -> str:
+        captured["sys_prompt"] = sys_prompt
+        return "{}"
+
+    provider._call = fake_call  # type: ignore[method-assign]
+
+    provider.generate_structured(
+        "生成场景计划",
+        {"type": "object", "properties": {}, "required": []},
+        stage=Stage.SCENE_PLAN,
+    )
+
+    assert "简体中文" in captured["sys_prompt"]
+    assert "entry_state" in captured["sys_prompt"]
+    assert "exit_state" in captured["sys_prompt"]
+    assert "routine monitoring" in captured["sys_prompt"]
+
+
 def test_friendly_generation_error_for_authentication_failure():
     class AuthError(Exception):
         status_code = 401

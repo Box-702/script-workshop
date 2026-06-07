@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException
@@ -188,6 +188,14 @@ def _fill_options_from_saved_key(
         openai_model=options.openai_model or decrypted.model,
         language=options.language,
     )
+
+
+def _options_for_project_language(
+    options: LLMRunOptions, project_language: str | None
+) -> LLMRunOptions:
+    """Ensure the LLM provider uses the project's resolved output language."""
+    language = (project_language or options.language or "zh-CN").strip() or "zh-CN"
+    return replace(options, language=language)
 
 
 @router.get("/projects", response_model=list[ProjectOut])
@@ -461,13 +469,15 @@ def _run_pipeline_task(run_id: str, llm_options: LLMRunOptions) -> None:
         cb = PersistingCallbacks()
 
         try:
+            run_language = project.language or "zh-CN"
+            provider_options = _options_for_project_language(llm_options, run_language)
             doc, artifacts = run_pipeline(
                 [ChapterSplit(c.id, c.title, c.content) for c in chapters],
                 title=project.title,
                 adaptation_type=project.adaptation_type,
                 on_progress=cb,
-                provider=_provider_from_options(llm_options),
-                language=project.language or "zh-CN",
+                provider=_provider_from_options(provider_options),
+                language=run_language,
                 run_id=run.id,
             )
             yaml_text = to_yaml_text(doc)

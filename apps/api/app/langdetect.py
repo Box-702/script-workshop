@@ -7,8 +7,9 @@ chosen one.
 Strategy:
 - Count CJK ideographs, Latin letters, Cyrillic, Arabic, Hangul.
 - Decide based on dominant script.
-- Refine Chinese into zh-CN / zh-TW using a small set of traditional-only
-  characters (taken from public-domain common-use lists).
+- Refine Chinese into zh-CN / zh-TW using simplified-only and
+  traditional-only character evidence. A single traditional-looking glyph
+  should not flip a long simplified source to zh-TW.
 
 This is intentionally a heuristic — ambiguous mixed-language text falls
 back to whichever script has the highest share, then to en-US as a safe
@@ -27,11 +28,20 @@ _LATIN_RE = re.compile(r"[A-Za-z]")
 _CYRILLIC_RE = re.compile(r"[Ѐ-ӿ]")
 _ARABIC_RE = re.compile(r"[؀-ۿ]")
 
-# Characters that are very unlikely in modern simplified Chinese writing.
-# Used to tip zh-CN vs zh-TW. Source: well-known common-use character lists.
+# Characters that are very unlikely in modern simplified/traditional Chinese
+# writing respectively. These lists are intentionally small and conservative:
+# they are used as evidence, not as a full converter.
 _TRAD_ONLY = set(
     "舊臺灣區書麵鐘蘭畫長門開頭車時觀點龍馬鳥龜"
-    "記憶體資料庫軟體網路電腦滑鼠當機當作並且"
+    "記憶體資料庫軟體網路電腦滑鼠當機當作並與"
+    "週總擠滿陳列發現後個場對說過進來沒為從"
+    "聯號環軌站螢幕聲訊號語壓斷續繼續"
+)
+_SIMP_ONLY = set(
+    "旧台区书面钟兰画长门开头车时观点龙马鸟龟"
+    "记忆体数据库软体网络电脑鼠标当机当作并与"
+    "周总挤满陈列发现后个场对说过进来没为从"
+    "联号环轨站屏幕声讯号语压断续继续"
 )
 
 
@@ -70,8 +80,12 @@ def detect_language(text: str) -> str:
     if top == "cjk":
         # zh-CN vs zh-TW
         trad_hits = sum(1 for ch in text if ch in _TRAD_ONLY)
-        # >= 1 traditional-only char + no obvious simplified dominance → zh-TW
-        if trad_hits >= 1:
+        simp_hits = sum(1 for ch in text if ch in _SIMP_ONLY)
+        cjk_count = max(1, top_count)
+        # Require sustained traditional evidence. Long simplified documents can
+        # contain isolated traditional characters from names, quotes, or copied
+        # metadata; those should still detect as zh-CN.
+        if trad_hits >= max(3, int(cjk_count * 0.005)) and trad_hits > simp_hits:
             return "zh-TW"
         return "zh-CN"
     if top == "hangul":

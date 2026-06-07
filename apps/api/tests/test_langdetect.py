@@ -9,6 +9,16 @@ def test_chinese_simplified():
     assert detect_language(text) == "zh-CN"
 
 
+def test_chinese_simplified_long_text_with_isolated_traditional_glyph():
+    text = (
+        "星港十二号环轨站在凌晨三点失去通讯。控制中心的上百块屏幕同时变成死灰色。"
+        "值班工程师周眠正在核对三号气闸的压力曲线，她抬头的时候，发现整面墙的"
+        "指示灯都在以同样的频率闪烁。这里偶尔混入一個繁體字，也不应该把整篇"
+        "简体中文误判为繁体中文。"
+    )
+    assert detect_language(text) == "zh-CN"
+
+
 def test_chinese_traditional_uses_traditional_only_chars():
     text = "臺灣的舊書攤在週末總是擠滿了人，書與舊鐘並排陳列。"
     assert detect_language(text) == "zh-TW"
