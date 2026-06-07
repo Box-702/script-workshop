@@ -13,6 +13,7 @@
     "build": "pnpm --dir apps/web build",
     "lint": "pnpm --dir apps/web lint",
     "typecheck": "pnpm --dir apps/web typecheck",
+    "supabase:otp-template": "node scripts/update-supabase-otp-template.mjs",
     "clean": "node scripts/clean.mjs"
   }
 }

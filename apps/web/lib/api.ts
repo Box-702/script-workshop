@@ -72,6 +72,19 @@ async function tfetch(url: string, init?: RequestInit): Promise<string> {
   return res.text();
 }
 
+export async function downloadBlob(url: string, init?: RequestInit): Promise<Blob> {
+  const res = await fetch(url, {
+    ...init,
+    headers: await requestHeaders(init?.headers),
+  });
+  if (!res.ok) {
+    if (res.status === 401) throw new AuthRequiredError();
+    const text = await res.text();
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return res.blob();
+}
+
 export const api = {
   listModelKeys: () => jfetch<ModelKeySummary[]>("/api/user/model-keys"),
 
