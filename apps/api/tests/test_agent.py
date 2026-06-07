@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from test_versions import VALID_SCRIPT_YAML
 
-from app.db import Base, EditEvent, Project
+from app.db import Base, Chapter, EditEvent, Project
 from app.routers import agent
 from app.routers.deps import get_db
 from app.schemas import AgentAdaptRequest
@@ -213,6 +213,58 @@ def test_create_agent_run_uses_model_patch_for_scene_rewrite():
     assert scene["action"] == ["Rain rattles the sign.", "A bloodied hand hits the glass."]
     assert scene["dialogue"][0]["line"] == "Who is out there?"
     assert scene["adaptation_notes"]["reason"] == "强化悬疑钩子，减少解释性对白。"
+
+
+def test_agent_prompt_includes_source_chapters_and_recent_edits():
+    db = _session()
+    project = Project(id="proj_test", title="Test", adaptation_type="short_drama")
+    db.add(project)
+    db.add(
+        Chapter(
+            id="chapter_001",
+            project_id=project.id,
+            title="雨夜敲门",
+            content="林屿听见门外三次敲击，雨水沿着卷帘门缝流进来。",
+            order_index=0,
+        )
+    )
+    db.commit()
+    base = create_version_from_yaml(db, project, VALID_SCRIPT_YAML)
+    db.add(
+        EditEvent(
+            id="edit_prompt_context",
+            project_id=project.id,
+            version_id=base.id,
+            edit_type="manual_save",
+            target_path="/script/scenes/0",
+            note="用户要求保留雨夜敲门的悬疑钩子。",
+            patch={"field": "conflict"},
+        )
+    )
+    db.commit()
+    provider = FakeAgentProvider(
+        {
+            "plan": ["延续原文悬疑信息"],
+            "changes": [{"scene_id": "scene_001", "conflict": "The knock conceals danger."}],
+        }
+    )
+
+    create_agent_run(
+        db,
+        project,
+        payload=AgentAdaptRequest(
+            instruction="强化悬疑但不要偏离原文",
+            base_version_id=base.id,
+            scene_ids=["scene_001"],
+        ),
+        provider=provider,
+    )
+
+    prompt = provider.calls[0]["prompt"]
+    assert "source_chapters" in prompt
+    assert "林屿听见门外三次敲击" in prompt
+    assert "recent_edits" in prompt
+    assert "用户要求保留雨夜敲门的悬疑钩子" in prompt
 
 
 def test_accept_agent_run_creates_version_and_edit_event():

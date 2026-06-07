@@ -111,8 +111,63 @@ def _fallback_patch(
     return patch
 
 
+def _text_excerpt(value: str, limit: int = 1200) -> str:
+    text = " ".join((value or "").split())
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit].rstrip()}..."
+
+
+def _source_chapter_context(
+    db: Session, project_id: str, chapter_refs: list[str]
+) -> list[dict[str, Any]]:
+    if not chapter_refs:
+        return []
+    chapters = (
+        db.query(dbm.Chapter)
+        .filter(dbm.Chapter.project_id == project_id)
+        .filter(dbm.Chapter.id.in_(chapter_refs))
+        .order_by(dbm.Chapter.order_index.asc())
+        .all()
+    )
+    return [
+        {
+            "id": chapter.id,
+            "title": chapter.title,
+            "excerpt": _text_excerpt(chapter.content),
+        }
+        for chapter in chapters
+    ]
+
+
+def _recent_edit_context(db: Session, project_id: str, limit: int = 5) -> list[dict[str, Any]]:
+    events = (
+        db.query(dbm.EditEvent)
+        .filter_by(project_id=project_id)
+        .order_by(dbm.EditEvent.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "edit_type": event.edit_type,
+            "target_path": event.target_path,
+            "note": event.note,
+            "patch_excerpt": _text_excerpt(json.dumps(event.patch, ensure_ascii=False), 500)
+            if event.patch
+            else "",
+            "created_at": event.created_at.isoformat(),
+        }
+        for event in events
+    ]
+
+
 def _build_agent_prompt(
-    version: dbm.ScriptVersion, instruction: str, scene_ids: list[str]
+    db: Session,
+    project: dbm.Project,
+    version: dbm.ScriptVersion,
+    instruction: str,
+    scene_ids: list[str],
 ) -> tuple[str, list[int]]:
     data = version.json_content
     script = data.get("script", {})
@@ -138,6 +193,15 @@ def _build_agent_prompt(
         for item in script.get("locations", [])
         if isinstance(item, dict)
     }
+    selected_scenes = [scenes[idx] for idx in selected_indexes]
+    chapter_refs = sorted(
+        {
+            str(chapter_id)
+            for scene in selected_scenes
+            for chapter_id in scene.get("chapter_refs", [])
+            if str(chapter_id).strip()
+        }
+    )
     context = {
         "script": {
             "title": script.get("title"),
@@ -147,7 +211,9 @@ def _build_agent_prompt(
         },
         "characters": characters,
         "locations": locations,
-        "selected_scenes": [scenes[idx] for idx in selected_indexes],
+        "selected_scenes": selected_scenes,
+        "source_chapters": _source_chapter_context(db, project.id, chapter_refs),
+        "recent_edits": _recent_edit_context(db, project.id),
     }
     prompt = f"""
 你是剧本改编助手。请只改 selected_scenes 中的场景，不要新增场景、角色或地点。
@@ -331,12 +397,14 @@ def _patch_from_agent_response(
 
 
 def _build_model_patch(
+    db: Session,
+    project: dbm.Project,
     version: dbm.ScriptVersion,
     instruction: str,
     scene_ids: list[str],
     provider: LLMProvider,
 ) -> tuple[list[str], list[dict[str, Any]]]:
-    prompt, selected_indexes = _build_agent_prompt(version, instruction, scene_ids)
+    prompt, selected_indexes = _build_agent_prompt(db, project, version, instruction, scene_ids)
     response = provider.generate_structured(prompt, AGENT_RESPONSE_SCHEMA, stage=Stage.AGENT)
     return _patch_from_agent_response(version, response, selected_indexes, instruction)
 
@@ -422,6 +490,8 @@ def create_agent_run(
     else:
         try:
             plan, patch = _build_model_patch(
+                db,
+                project,
                 base_version,
                 payload.instruction,
                 payload.scene_ids,
