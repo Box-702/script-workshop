@@ -23,6 +23,7 @@ import type {
 } from "@/lib/types";
 
 type EditorMode = "script" | "scene" | "yaml";
+type EntityPrefix = "char" | "loc";
 
 export default function EditPage() {
   const params = useParams<{ id: string }>();
@@ -164,7 +165,11 @@ export default function EditPage() {
 
   function addCharacterToScene(sceneId: string) {
     if (!script) return;
-    const id = nextAvailableId("char_new", script.characters.map((character) => character.id));
+    const id = nextEntityIdFromNameFallback(
+      "char",
+      `新角色 ${script.characters.length + 1}`,
+      script.characters.map((character) => character.id),
+    );
     updateScript((current) => ({
       ...current,
       characters: [
@@ -650,6 +655,10 @@ function SceneEditor({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const canDeleteScene = script.scenes.length > 1;
 
+  useEffect(() => {
+    setConfirmingDelete(false);
+  }, [scene.id]);
+
   return (
       <section className="panel flex h-full min-h-0 flex-col overflow-hidden">
         <div className="shrink-0 border-b border-ink-600/30 p-5">
@@ -697,7 +706,14 @@ function SceneEditor({
                 <button type="button" className="btn-ghost h-8 px-2 text-xs" onClick={() => setConfirmingDelete(false)}>
                   取消
                 </button>
-                <button type="button" className="btn-danger h-8 px-2 text-xs" onClick={() => deleteScene(scene.id)}>
+                <button
+                  type="button"
+                  className="btn-danger h-8 px-2 text-xs"
+                  onClick={() => {
+                    setConfirmingDelete(false);
+                    deleteScene(scene.id);
+                  }}
+                >
                   确认删除
                 </button>
               </div>
@@ -865,37 +881,41 @@ function ScriptOverview({
     }));
   }
 
+  function updateCharacterName(characterId: string, name: string) {
+    const previous = script.characters.find((item) => item.id === characterId);
+    updateScript((current) => {
+      const character = current.characters.find((item) => item.id === characterId);
+      if (!character) return current;
+      return renameCharacterInScript(current, characterId, characterId, { name });
+    });
+    if (previous) {
+      void syncEntityIdAfterNameChange("char", previous.id, previous.name, name, updateScript);
+    }
+  }
+
   function renameCharacter(characterId: string, nextId: string) {
-    const trimmed = normalizeIdInput(nextId);
-    updateScript((current) => ({
-      ...current,
-      characters: current.characters.map((character) =>
-        character.id === characterId ? { ...character, id: trimmed } : character,
-      ),
-      scenes: current.scenes.map((scene) => ({
-        ...scene,
-        characters: scene.characters.map((id) => (id === characterId ? trimmed : id)),
-        dialogue: scene.dialogue.map((line) => ({
-          ...line,
-          speaker: line.speaker === characterId ? trimmed : line.speaker,
-        })),
-        beats: scene.beats?.map((beat) =>
-          beat.type === "dialogue" && beat.speaker === characterId
-            ? { ...beat, speaker: trimmed }
-            : beat,
-        ),
-      })),
-    }));
+    void (async () => {
+      const character = script.characters.find((item) => item.id === characterId);
+      const trimmed = await normalizeEntityId(
+        "char",
+        nextId,
+        character?.name ?? "角色",
+        script.characters.map((item) => item.id),
+        characterId,
+      );
+      updateScript((current) => renameCharacterInScript(current, characterId, trimmed));
+    })();
   }
 
   function addCharacter() {
     updateScript((current) => {
-      const id = nextAvailableId("char_new", current.characters.map((item) => item.id));
+      const name = `新角色 ${current.characters.length + 1}`;
+      const id = nextEntityIdFromNameFallback("char", name, current.characters.map((item) => item.id));
       return {
         ...current,
         characters: [
           ...current.characters,
-          { id, name: `新角色 ${current.characters.length + 1}`, role: "supporting" },
+          { id, name, role: "supporting" },
         ],
       };
     });
@@ -918,26 +938,39 @@ function ScriptOverview({
     }));
   }
 
+  function updateLocationName(locationId: string, name: string) {
+    const previous = script.locations.find((item) => item.id === locationId);
+    updateScript((current) => {
+      const location = current.locations.find((item) => item.id === locationId);
+      if (!location) return current;
+      return renameLocationInScript(current, locationId, locationId, { name });
+    });
+    if (previous) {
+      void syncEntityIdAfterNameChange("loc", previous.id, previous.name, name, updateScript);
+    }
+  }
+
   function renameLocation(locationId: string, nextId: string) {
-    const trimmed = normalizeIdInput(nextId);
-    updateScript((current) => ({
-      ...current,
-      locations: current.locations.map((location) =>
-        location.id === locationId ? { ...location, id: trimmed } : location,
-      ),
-      scenes: current.scenes.map((scene) => ({
-        ...scene,
-        location_id: scene.location_id === locationId ? trimmed : scene.location_id,
-      })),
-    }));
+    void (async () => {
+      const location = script.locations.find((item) => item.id === locationId);
+      const trimmed = await normalizeEntityId(
+        "loc",
+        nextId,
+        location?.name ?? "地点",
+        script.locations.map((item) => item.id),
+        locationId,
+      );
+      updateScript((current) => renameLocationInScript(current, locationId, trimmed));
+    })();
   }
 
   function addLocation() {
     updateScript((current) => {
-      const id = nextAvailableId("loc_new", current.locations.map((item) => item.id));
+      const name = `新地点 ${current.locations.length + 1}`;
+      const id = nextEntityIdFromNameFallback("loc", name, current.locations.map((item) => item.id));
       return {
         ...current,
-        locations: [...current.locations, { id, name: `新地点 ${current.locations.length + 1}` }],
+        locations: [...current.locations, { id, name }],
       };
     });
   }
@@ -999,6 +1032,7 @@ function ScriptOverview({
                   character={character}
                   isReferenced={usedCharacterIds.has(character.id)}
                   onChange={(patch) => updateCharacter(character.id, patch)}
+                  onNameChange={(value) => updateCharacterName(character.id, value)}
                   onRename={(value) => renameCharacter(character.id, value)}
                   onDelete={() => deleteCharacter(character.id)}
                 />
@@ -1020,6 +1054,7 @@ function ScriptOverview({
                   location={location}
                   isReferenced={usedLocationIds.has(location.id)}
                   onChange={(patch) => updateLocation(location.id, patch)}
+                  onNameChange={(value) => updateLocationName(location.id, value)}
                   onRename={(value) => renameLocation(location.id, value)}
                   onDelete={() => deleteLocation(location.id)}
                 />
@@ -1036,19 +1071,21 @@ function CharacterCard({
   character,
   isReferenced,
   onChange,
+  onNameChange,
   onRename,
   onDelete,
 }: {
   character: ScriptCharacter;
   isReferenced: boolean;
   onChange: (patch: Partial<ScriptCharacter>) => void;
+  onNameChange: (value: string) => void;
   onRename: (value: string) => void;
   onDelete: () => void;
 }) {
   return (
     <div className="space-y-3">
       <div className="grid gap-3 md:grid-cols-[1fr_140px]">
-        <Field label="角色名" value={character.name} onChange={(value) => onChange({ name: value })} />
+        <Field label="角色名" value={character.name} onChange={onNameChange} />
         <div>
           <label className="label">类型</label>
           <select
@@ -1068,7 +1105,13 @@ function CharacterCard({
           </select>
         </div>
       </div>
-      <Field label="角色 ID" value={character.id} onChange={onRename} />
+      <DraftIdField
+        label="角色 ID"
+        value={character.id}
+        prefix="char"
+        sourceName={character.name}
+        onCommit={onRename}
+      />
       <div className="grid gap-3 md:grid-cols-2">
         <TextareaField
           label="目标"
@@ -1127,19 +1170,27 @@ function LocationCard({
   location,
   isReferenced,
   onChange,
+  onNameChange,
   onRename,
   onDelete,
 }: {
   location: ScriptLocation;
   isReferenced: boolean;
   onChange: (patch: Partial<ScriptLocation>) => void;
+  onNameChange: (value: string) => void;
   onRename: (value: string) => void;
   onDelete: () => void;
 }) {
   return (
     <div className="space-y-3">
-      <Field label="地点名" value={location.name} onChange={(value) => onChange({ name: value })} />
-      <Field label="地点 ID" value={location.id} onChange={onRename} />
+      <Field label="地点名" value={location.name} onChange={onNameChange} />
+      <DraftIdField
+        label="地点 ID"
+        value={location.id}
+        prefix="loc"
+        sourceName={location.name}
+        onCommit={onRename}
+      />
       <TextareaField
         label="描述"
         value={location.description ?? ""}
@@ -1182,20 +1233,18 @@ function ScriptFlowEditor({
   }
 
   function addBeat(type: ScriptBeat["type"]) {
-    const next: ScriptBeat =
-      type === "dialogue"
-        ? {
-            id: nextBeatId(beats),
-            type,
-            speaker: scene.characters[0] || "",
-            line: "",
-          }
-        : {
-            id: nextBeatId(beats),
-            type,
-            text: "",
-          };
-    commit([...beats, next]);
+    commit([...beats, createDraftBeat(nextBeatId(beats), type, scene)]);
+  }
+
+  function addBeatAfter(index: number) {
+    const sourceBeat = beats[index];
+    const next = [...beats];
+    next.splice(
+      index + 1,
+      0,
+      createDraftBeat(nextBeatId(beats), sourceBeat?.type ?? "action", scene, sourceBeat),
+    );
+    commit(next);
   }
 
   function updateBeat(index: number, patch: Partial<ScriptBeat>) {
@@ -1292,62 +1341,73 @@ function ScriptFlowEditor({
                 </span>
                 <span className="script-beat-kind">{beatTypeLabel(beat.type)}</span>
               </div>
-              <details className="script-beat-menu">
-                <summary aria-label={`打开第 ${index + 1} 个节拍操作菜单`} title="节拍操作">
-                  ⋯
-                </summary>
-                <div className="script-beat-menu-popover">
-                  <label className="script-beat-menu-label" htmlFor={`beat-type-${beat.id}`}>
-                    更改类型
-                  </label>
-                  <select
-                    id={`beat-type-${beat.id}`}
-                    className="input h-8 py-1 text-xs"
-                    value={beat.type}
-                    onChange={(e) => {
-                      updateBeat(index, normalizeBeatType(beat, e.target.value as ScriptBeat["type"], scene));
-                      closeBeatActionMenu(e.currentTarget);
-                    }}
-                  >
-                    <option value="action">动作</option>
-                    <option value="dialogue">对白</option>
-                    <option value="cue">提示</option>
-                  </select>
-                  <div className="my-1 border-t surface-line" />
-                  <button
-                    type="button"
-                    className="script-beat-menu-item"
-                    onClick={(e) => {
-                      moveBeat(index, -1);
-                      closeBeatActionMenu(e.currentTarget);
-                    }}
-                    disabled={index === 0}
-                  >
-                    上移
-                  </button>
-                  <button
-                    type="button"
-                    className="script-beat-menu-item"
-                    onClick={(e) => {
-                      moveBeat(index, 1);
-                      closeBeatActionMenu(e.currentTarget);
-                    }}
-                    disabled={index === beats.length - 1}
-                  >
-                    下移
-                  </button>
-                  <button
-                    type="button"
-                    className="script-beat-menu-item script-beat-menu-danger"
-                    onClick={(e) => {
-                      commit(beats.filter((_, i) => i !== index));
-                      closeBeatActionMenu(e.currentTarget);
-                    }}
-                  >
-                    删除
-                  </button>
-                </div>
-              </details>
+              <div className="script-beat-actions">
+                <button
+                  type="button"
+                  className="script-beat-add-after"
+                  onClick={() => addBeatAfter(index)}
+                  title="在此节拍后新增"
+                  aria-label={`在第 ${index + 1} 个节拍后新增`}
+                >
+                  +
+                </button>
+                <details className="script-beat-menu">
+                  <summary aria-label={`打开第 ${index + 1} 个节拍操作菜单`} title="节拍操作">
+                    ⋯
+                  </summary>
+                  <div className="script-beat-menu-popover">
+                    <label className="script-beat-menu-label" htmlFor={`beat-type-${beat.id}`}>
+                      更改类型
+                    </label>
+                    <select
+                      id={`beat-type-${beat.id}`}
+                      className="input h-8 py-1 text-xs"
+                      value={beat.type}
+                      onChange={(e) => {
+                        updateBeat(index, normalizeBeatType(beat, e.target.value as ScriptBeat["type"], scene));
+                        closeBeatActionMenu(e.currentTarget);
+                      }}
+                    >
+                      <option value="action">动作</option>
+                      <option value="dialogue">对白</option>
+                      <option value="cue">提示</option>
+                    </select>
+                    <div className="my-1 border-t surface-line" />
+                    <button
+                      type="button"
+                      className="script-beat-menu-item"
+                      onClick={(e) => {
+                        moveBeat(index, -1);
+                        closeBeatActionMenu(e.currentTarget);
+                      }}
+                      disabled={index === 0}
+                    >
+                      上移
+                    </button>
+                    <button
+                      type="button"
+                      className="script-beat-menu-item"
+                      onClick={(e) => {
+                        moveBeat(index, 1);
+                        closeBeatActionMenu(e.currentTarget);
+                      }}
+                      disabled={index === beats.length - 1}
+                    >
+                      下移
+                    </button>
+                    <button
+                      type="button"
+                      className="script-beat-menu-item script-beat-menu-danger"
+                      onClick={(e) => {
+                        commit(beats.filter((_, i) => i !== index));
+                        closeBeatActionMenu(e.currentTarget);
+                      }}
+                    >
+                      删除
+                    </button>
+                  </div>
+                </details>
+              </div>
             </div>
 
             {beat.type === "dialogue" ? (
@@ -1493,6 +1553,87 @@ function Field({
   );
 }
 
+function DraftIdField({
+  label,
+  value,
+  prefix,
+  sourceName,
+  onCommit,
+}: {
+  label: string;
+  value: string;
+  prefix: EntityPrefix;
+  sourceName: string;
+  onCommit: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const [suggestion, setSuggestion] = useState(() => entityIdFromNameFallback(prefix, sourceName));
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSuggestion(entityIdFromNameFallback(prefix, sourceName));
+    void entityIdFromName(prefix, sourceName).then((next) => {
+      if (!cancelled) setSuggestion(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [prefix, sourceName]);
+
+  function commit(nextValue = draft) {
+    const trimmed = nextValue.trim();
+    if (!trimmed || trimmed === value) {
+      setDraft(value);
+      return;
+    }
+    onCommit(trimmed);
+  }
+
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <label className="label mb-0">{label}</label>
+        {suggestion !== value && (
+          <button
+            type="button"
+            className="rounded px-1.5 py-0.5 text-[11px] text-ink-500 transition-colors hover:bg-ink-700 hover:text-ink-100"
+            onClick={() => {
+              setDraft(suggestion);
+              onCommit(suggestion);
+            }}
+            title={`使用 ${suggestion}`}
+          >
+            用拼音
+          </button>
+        )}
+      </div>
+      <input
+        className="input"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => commit()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+            e.currentTarget.blur();
+          }
+          if (e.key === "Escape") {
+            setDraft(value);
+            e.currentTarget.blur();
+          }
+        }}
+        spellCheck={false}
+      />
+      <div className="mt-1 text-[11px] text-ink-500">建议：{suggestion}</div>
+    </div>
+  );
+}
+
 function TextareaField({
   label,
   value,
@@ -1567,6 +1708,27 @@ function nextBeatId(beats: ScriptBeat[]) {
     return match ? Math.max(current, Number(match[1])) : current;
   }, 0);
   return `beat_${String(max + 1).padStart(3, "0")}`;
+}
+
+function createDraftBeat(
+  id: string,
+  type: ScriptBeat["type"],
+  scene: ScriptScene,
+  sourceBeat?: ScriptBeat,
+): ScriptBeat {
+  if (type === "dialogue") {
+    return {
+      id,
+      type,
+      speaker: sourceBeat?.speaker || scene.characters[0] || "",
+      line: "",
+    };
+  }
+  return {
+    id,
+    type,
+    text: "",
+  };
 }
 
 function normalizeBeat(beat: ScriptBeat, scene: ScriptScene): ScriptBeat {
@@ -1649,6 +1811,145 @@ function normalizeIdInput(value: string) {
     .toLowerCase()
     .replace(/[^a-z0-9_]/g, "_")
     .replace(/_+/g, "_");
+}
+
+function entityIdFromNameFallback(prefix: EntityPrefix, name: string) {
+  const normalized = normalizeIdInput(name).replace(/^_+|_+$/g, "");
+  return `${prefix}_${normalized || "new"}`;
+}
+
+async function entityIdFromName(prefix: EntityPrefix, name: string) {
+  const { pinyin: toPinyin } = await import("pinyin-pro");
+  const normalized = normalizeIdInput(
+    toPinyin(name, { toneType: "none", type: "array", nonZh: "consecutive" })
+      .join("_")
+      .replace(/\s+/g, "_"),
+  ).replace(/^_+|_+$/g, "");
+  return `${prefix}_${normalized || "new"}`;
+}
+
+function nextEntityIdFromNameFallback(
+  prefix: EntityPrefix,
+  name: string,
+  existingIds: string[],
+  currentId?: string,
+) {
+  return nextAvailableId(
+    entityIdFromNameFallback(prefix, name),
+    existingIds.filter((id) => id !== currentId),
+  );
+}
+
+async function nextEntityIdFromName(
+  prefix: EntityPrefix,
+  name: string,
+  existingIds: string[],
+  currentId?: string,
+) {
+  return nextAvailableId(
+    await entityIdFromName(prefix, name),
+    existingIds.filter((id) => id !== currentId),
+  );
+}
+
+async function normalizeEntityId(
+  prefix: EntityPrefix,
+  value: string,
+  fallbackName: string,
+  existingIds: string[],
+  currentId?: string,
+) {
+  const normalized = normalizeIdInput(value).replace(/^_+|_+$/g, "");
+  const withoutPrefix = normalized.replace(new RegExp(`^${prefix}_?`), "");
+  const base = withoutPrefix
+    ? `${prefix}_${withoutPrefix}`
+    : await entityIdFromName(prefix, fallbackName);
+  return nextAvailableId(base, existingIds.filter((id) => id !== currentId));
+}
+
+function shouldAutoSyncEntityId(prefix: EntityPrefix, id: string, suggested: string) {
+  return id === suggested || id === `${prefix}_new` || /^.+_new(_\d+)?$/.test(id);
+}
+
+async function syncEntityIdAfterNameChange(
+  prefix: EntityPrefix,
+  previousId: string,
+  previousName: string,
+  nextName: string,
+  updateScript: (patch: (current: ScriptDocument) => ScriptDocument) => void,
+) {
+  const previousSuggestion = await entityIdFromName(prefix, previousName);
+  if (!shouldAutoSyncEntityId(prefix, previousId, previousSuggestion)) return;
+  const nextSuggested = await entityIdFromName(prefix, nextName);
+
+  updateScript((current) => {
+    if (prefix === "char") {
+      const character = current.characters.find((item) => item.id === previousId);
+      if (!character || character.name !== nextName) return current;
+      const nextId = nextAvailableId(
+        nextSuggested,
+        current.characters.map((item) => item.id).filter((id) => id !== previousId),
+      );
+      return renameCharacterInScript(current, previousId, nextId);
+    }
+
+    const location = current.locations.find((item) => item.id === previousId);
+    if (!location || location.name !== nextName) return current;
+    const nextId = nextAvailableId(
+      nextSuggested,
+      current.locations.map((item) => item.id).filter((id) => id !== previousId),
+    );
+    return renameLocationInScript(current, previousId, nextId);
+  });
+}
+
+function renameCharacterInScript(
+  script: ScriptDocument,
+  characterId: string,
+  nextId: string,
+  patch: Partial<ScriptCharacter> = {},
+): ScriptDocument {
+  return {
+    ...script,
+    characters: script.characters.map((character) =>
+      character.id === characterId
+        ? compactCharacter({ ...character, ...patch, id: nextId })
+        : character,
+    ),
+    scenes: script.scenes.map((scene) => ({
+      ...scene,
+      characters: scene.characters.map((id) => (id === characterId ? nextId : id)),
+      dialogue: scene.dialogue.map((line) => ({
+        ...line,
+        speaker: line.speaker === characterId ? nextId : line.speaker,
+      })),
+      beats: scene.beats?.map((beat) =>
+        beat.type === "dialogue" && beat.speaker === characterId
+          ? { ...beat, speaker: nextId }
+          : beat,
+      ),
+    })),
+  };
+}
+
+function renameLocationInScript(
+  script: ScriptDocument,
+  locationId: string,
+  nextId: string,
+  patch: Partial<ScriptLocation> = {},
+): ScriptDocument {
+  return {
+    ...script,
+    locations: script.locations.map((location) =>
+      location.id === locationId
+        ? compactLocation({ ...location, ...patch, id: nextId })
+        : location,
+    ),
+    scenes: script.scenes.map((scene) => ({
+      ...scene,
+      location_id: scene.location_id === locationId ? nextId : scene.location_id,
+    })),
+  };
 }
 
 function nextAvailableId(base: string, existingIds: string[]) {
