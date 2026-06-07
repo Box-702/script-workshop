@@ -25,10 +25,10 @@ dev:
 	@$(MAKE) -j2 dev-api dev-web
 
 dev-api:
-	cd apps/api && . .venv/bin/activate && uvicorn app.main:app --reload --host $${API_HOST:-127.0.0.1} --port $${API_PORT:-8000}
+	cd apps/api && . .venv/bin/activate && AUTH_MODE="$${AUTH_MODE:-local}" DATABASE_URL="$${DATABASE_URL:-sqlite:///./data/script-workshop.db}" CORS_ORIGINS="$${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}" uvicorn app.main:app --reload --host $${API_HOST:-127.0.0.1} --port $${API_PORT:-8000}
 
 dev-web:
-	cd apps/web && $(PNPM) dev
+	cd apps/web && BACKEND_URL="$${BACKEND_URL:-http://127.0.0.1:8000}" NEXT_PUBLIC_API_BASE="$${NEXT_PUBLIC_API_BASE:-/api}" $(PNPM) dev
 
 test:
 	cd apps/api && . .venv/bin/activate && pytest

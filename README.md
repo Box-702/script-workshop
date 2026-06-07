@@ -31,6 +31,8 @@
 | 后端 API | <https://script-workshop-api.onrender.com> |
 | 健康检查 | <https://script-workshop-web.vercel.app/api/healthz> |
 
+官网适合快速体验在线版本和登录流程。当前登录使用 Supabase 邮箱验证码，免费额度和默认发信服务会有频率限制；如果遇到“验证码邮件发送过于频繁”、收信延迟或验证码邮件不可用，可以先不登录，直接使用官网的“本地模式”。本地模式会把模型 key 保存到当前浏览器，并用浏览器本地身份隔离项目；它不跨设备同步，清空浏览器数据后可能失去原本地身份。
+
 ---
 
 ## 题目要求对应
@@ -50,11 +52,13 @@
 
 依赖：Node.js >= 20，pnpm >= 9，Python >= 3.11。
 
+本地开发默认使用 SQLite 和本地鉴权模式，不需要 Supabase 登录，也不会连接线上数据库。SQLite 文件位于 `apps/api/data/script-workshop.db`；FastAPI 启动时会自动执行 Alembic 迁移。
+
 ```bash
 # 1. 复制环境变量
 cp .env.example .env
-# 可选：填 OPENAI_API_KEY 作为服务端默认 key
-# 生产：填 KEY_ENCRYPTION_KEY 加密用户保存的模型 key
+# 本地开发不必填写 Supabase 变量。
+# 可选：填 OPENAI_API_KEY 作为服务端默认 key；也可以在网页 /settings 里只保存到浏览器本地。
 
 # 2. 安装依赖
 make install
@@ -65,12 +69,24 @@ make dev
 # 后端  http://localhost:8000/docs
 ```
 
+`make dev-api` 会默认设置：
+
+```text
+AUTH_MODE=local
+DATABASE_URL=sqlite:///./data/script-workshop.db
+CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+```
+
+`make dev-web` 会默认把 Next.js 的 `/api/*` 代理到 `http://127.0.0.1:8000`。
+
 Windows 用户：
 
 ```powershell
 .\scripts\dev-api.ps1
 .\scripts\dev-web.ps1
 ```
+
+这两个 PowerShell 脚本同样会强制走本地 SQLite 默认值，因此即使根目录 `.env` 里写了生产 Supabase 配置，也不会误连线上数据库。确实要覆盖时，可以在当前 shell 里手动设置 `AUTH_MODE` 或 `DATABASE_URL`。
 
 只想跑某一端时，前后端可以完全独立启动，各自有 CHANGELOG 和部署配置：
 
@@ -79,6 +95,13 @@ pnpm --dir apps/web dev            # 仅前端
 bash apps/api/scripts/dev-api.sh   # 仅后端 (linux/macOS)
 .\apps\api\scripts\dev-api.ps1     # 仅后端 (Windows)
 ```
+
+推荐本地验证路径：
+
+1. 启动后打开 <http://localhost:3000/dashboard>。
+2. 顶部应显示“当前为本地模式”。
+3. 打开 `/settings`，把模型 key 选择“仅保存本地”。
+4. 回到 `/new` 创建项目并生成剧本。
 
 ---
 

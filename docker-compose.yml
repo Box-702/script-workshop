@@ -7,6 +7,10 @@ services:
     env_file:
       - path: .env
         required: false
+    environment:
+      AUTH_MODE: local
+      DATABASE_URL: sqlite:///./data/script-workshop.db
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
     ports:
       - "8000:8000"
     volumes:

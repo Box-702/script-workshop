@@ -14,9 +14,22 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..\..")
 Set-Location $RepoRoot
 
+function Set-DefaultEnv($Name, $Value) {
+  if (-not [Environment]::GetEnvironmentVariable($Name, "Process")) {
+    [Environment]::SetEnvironmentVariable($Name, $Value, "Process")
+  }
+}
+
+Set-DefaultEnv "AUTH_MODE" "local"
+Set-DefaultEnv "DATABASE_URL" "sqlite:///./data/script-workshop.db"
+Set-DefaultEnv "CORS_ORIGINS" "http://localhost:3000,http://127.0.0.1:3000"
+
 $Host = if ($env:API_HOST) { $env:API_HOST } else { "127.0.0.1" }
 $Port = if ($env:API_PORT) { $env:API_PORT } else { "8000" }
 $Reload = if ($env:API_RELOAD -eq "false") { @() } else { @("--reload") }
+
+Write-Host "Starting API with AUTH_MODE=$env:AUTH_MODE"
+Write-Host "Using DATABASE_URL=$env:DATABASE_URL"
 
 & ".\apps\api\.venv\Scripts\python.exe" -m uvicorn app.main:app `
   @Reload `

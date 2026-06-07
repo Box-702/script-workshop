@@ -25,10 +25,16 @@ else
 fi
 HOST="${API_HOST:-127.0.0.1}"
 PORT="${API_PORT:-8000}"
+export AUTH_MODE="${AUTH_MODE:-local}"
+export DATABASE_URL="${DATABASE_URL:-sqlite:///./data/script-workshop.db}"
+export CORS_ORIGINS="${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}"
 RELOAD_FLAG=""
 if [ "${API_RELOAD:-true}" != "false" ]; then
   RELOAD_FLAG="--reload"
 fi
+
+echo "Starting API with AUTH_MODE=$AUTH_MODE"
+echo "Using DATABASE_URL=$DATABASE_URL"
 
 exec "$PY" -m uvicorn app.main:app \
   $RELOAD_FLAG \

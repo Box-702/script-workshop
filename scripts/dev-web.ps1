@@ -22,6 +22,14 @@ if ($Listener -and $Listener.OwningProcess -ne 0) {
 }
 
 $env:NEXT_DIST_DIR = ".next-dev"
+if (-not [Environment]::GetEnvironmentVariable("BACKEND_URL", "Process")) {
+  $env:BACKEND_URL = "http://127.0.0.1:8000"
+}
+if (-not [Environment]::GetEnvironmentVariable("NEXT_PUBLIC_API_BASE", "Process")) {
+  $env:NEXT_PUBLIC_API_BASE = "/api"
+}
+
+Write-Host "Starting web with BACKEND_URL=$env:BACKEND_URL"
 
 $NextDir = Join-Path $Root "apps\web\$env:NEXT_DIST_DIR"
 if (Test-Path $NextDir) {
