@@ -36,6 +36,13 @@ export async function getAccessToken() {
   return data.session?.access_token ?? "";
 }
 
+export async function getSessionUser(): Promise<AuthUser | null> {
+  const client = await getSupabaseClient();
+  if (!client) return null;
+  const { data } = await client.auth.getSession();
+  return normalizeUser(data.session?.user ?? null);
+}
+
 export async function getAuthUser(): Promise<AuthUser | null> {
   const client = await getSupabaseClient();
   if (!client) return null;
@@ -77,11 +84,11 @@ export async function signOut() {
   if (error) throw error;
 }
 
-export async function onAuthStateChanged(callback: (user: AuthUser | null) => void) {
+export async function onAuthStateChanged(callback: (user: AuthUser | null, event: string) => void) {
   const client = await getSupabaseClient();
   if (!client) return () => {};
-  const { data } = client.auth.onAuthStateChange((_event, session) => {
-    callback(normalizeUser(session?.user ?? null));
+  const { data } = client.auth.onAuthStateChange((event, session) => {
+    callback(normalizeUser(session?.user ?? null), event);
   });
   return () => data.subscription.unsubscribe();
 }

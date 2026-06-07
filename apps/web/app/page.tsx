@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { isAuthRequiredMessage } from "@/components/AuthRequiredMessage";
 import { api } from "@/lib/api";
-import { getAuthUser, onAuthStateChanged, type AuthUser } from "@/lib/auth";
+import { getSessionUser, onAuthStateChanged, type AuthUser } from "@/lib/auth";
 import type { ProjectSummary } from "@/lib/types";
 
 type WorkspaceState = "loading" | "ready" | "auth" | "error";
@@ -17,19 +17,21 @@ export default function HomePage() {
 
   useEffect(() => {
     let alive = true;
+    let requestId = 0;
 
     async function loadWorkspace(nextUser?: AuthUser | null) {
+      const currentRequestId = ++requestId;
       setState("loading");
       setError(null);
       try {
-        const currentUser = typeof nextUser === "undefined" ? await getAuthUser() : nextUser;
+        const currentUser = typeof nextUser === "undefined" ? await getSessionUser() : nextUser;
         const nextProjects = await api.listProjects();
-        if (!alive) return;
+        if (!alive || currentRequestId !== requestId) return;
         setUser(currentUser);
         setProjects(nextProjects);
         setState("ready");
       } catch (e) {
-        if (!alive) return;
+        if (!alive || currentRequestId !== requestId) return;
         const message = (e as Error).message;
         setProjects([]);
         setState(isAuthRequiredMessage(message) ? "auth" : "error");
@@ -39,8 +41,12 @@ export default function HomePage() {
 
     void loadWorkspace();
     let unsubscribe: (() => void) | undefined;
-    onAuthStateChanged((nextUser) => {
+    onAuthStateChanged((nextUser, event) => {
       if (!alive) return;
+      if (event === "INITIAL_SESSION") {
+        setUser(nextUser);
+        return;
+      }
       setUser(nextUser);
       void loadWorkspace(nextUser);
     }).then((cleanup) => {

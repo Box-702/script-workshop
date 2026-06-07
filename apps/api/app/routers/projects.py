@@ -4,9 +4,10 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, replace
-from typing import Annotated, Any
+from typing import Annotated, Any, Final, cast
 
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .. import db as dbm
@@ -42,6 +43,7 @@ from .deps import CurrentUser, DbSession
 
 router = APIRouter(prefix="/api", tags=["projects"])
 log = logging.getLogger(__name__)
+_PROJECT_SUMMARY_UNSET: Final = object()
 
 
 @dataclass(frozen=True)
@@ -103,7 +105,23 @@ def get_project_for_user_or_404(
     return project
 
 
-def _project_out(db: Session, project: dbm.Project) -> ProjectOut:
+def _project_out(
+    db: Session,
+    project: dbm.Project,
+    *,
+    chapter_count: int | None = None,
+    version_count: int | None = None,
+    latest_project_version: dbm.ScriptVersion | None | object = _PROJECT_SUMMARY_UNSET,
+    latest_project_run: dbm.GenerationRun | None | object = _PROJECT_SUMMARY_UNSET,
+) -> ProjectOut:
+    if latest_project_version is _PROJECT_SUMMARY_UNSET:
+        latest_version_value = _latest_version(db, project.id)
+    else:
+        latest_version_value = cast(dbm.ScriptVersion | None, latest_project_version)
+    if latest_project_run is _PROJECT_SUMMARY_UNSET:
+        latest_run_value = _latest_run(db, project.id)
+    else:
+        latest_run_value = cast(dbm.GenerationRun | None, latest_project_run)
     return ProjectOut(
         id=project.id,
         owner_id=project.owner_id,
@@ -114,10 +132,10 @@ def _project_out(db: Session, project: dbm.Project) -> ProjectOut:
         current_version_id=project.current_version_id,
         created_at=project.created_at.isoformat(),
         updated_at=project.updated_at.isoformat(),
-        chapter_count=len(project.chapters),
-        version_count=len(project.versions),
-        latest_version=_version_out(_latest_version(db, project.id)),
-        latest_run=_run_summary(_latest_run(db, project.id)),
+        chapter_count=chapter_count if chapter_count is not None else len(project.chapters),
+        version_count=version_count if version_count is not None else len(project.versions),
+        latest_version=_version_out(latest_version_value or None),
+        latest_run=_run_summary(latest_run_value or None),
     )
 
 
@@ -206,7 +224,101 @@ def list_projects(db: DbSession, current_user: CurrentUser) -> list[ProjectOut]:
         .order_by(dbm.Project.updated_at.desc())
         .all()
     )
-    return [_project_out(db, project) for project in projects]
+    project_ids = [project.id for project in projects]
+    if not project_ids:
+        return []
+
+    chapter_counts = {
+        project_id: count
+        for project_id, count in (
+            db.query(dbm.Chapter.project_id, func.count(dbm.Chapter.id))
+            .filter(dbm.Chapter.project_id.in_(project_ids))
+            .group_by(dbm.Chapter.project_id)
+            .all()
+        )
+    }
+    version_counts = {
+        project_id: count
+        for project_id, count in (
+            db.query(dbm.ScriptVersion.project_id, func.count(dbm.ScriptVersion.id))
+            .filter(dbm.ScriptVersion.project_id.in_(project_ids))
+            .group_by(dbm.ScriptVersion.project_id)
+            .all()
+        )
+    }
+
+    current_version_ids = [
+        project.current_version_id
+        for project in projects
+        if project.current_version_id is not None
+    ]
+    latest_versions = {
+        version.project_id: version
+        for version in (
+            db.query(dbm.ScriptVersion)
+            .filter(dbm.ScriptVersion.id.in_(current_version_ids))
+            .all()
+            if current_version_ids
+            else []
+        )
+    }
+    missing_latest_version_project_ids = [
+        project.id for project in projects if project.id not in latest_versions
+    ]
+    if missing_latest_version_project_ids:
+        latest_version_dates = (
+            db.query(
+                dbm.ScriptVersion.project_id,
+                func.max(dbm.ScriptVersion.created_at).label("created_at"),
+            )
+            .filter(dbm.ScriptVersion.project_id.in_(missing_latest_version_project_ids))
+            .group_by(dbm.ScriptVersion.project_id)
+            .subquery()
+        )
+        for version in (
+            db.query(dbm.ScriptVersion)
+            .join(
+                latest_version_dates,
+                (dbm.ScriptVersion.project_id == latest_version_dates.c.project_id)
+                & (dbm.ScriptVersion.created_at == latest_version_dates.c.created_at),
+            )
+            .all()
+        ):
+            latest_versions[version.project_id] = version
+
+    latest_run_dates = (
+        db.query(
+            dbm.GenerationRun.project_id,
+            func.max(dbm.GenerationRun.created_at).label("created_at"),
+        )
+        .filter(dbm.GenerationRun.project_id.in_(project_ids))
+        .group_by(dbm.GenerationRun.project_id)
+        .subquery()
+    )
+    latest_runs = {
+        run.project_id: run
+        for run in (
+            db.query(dbm.GenerationRun)
+            .join(
+                latest_run_dates,
+                (dbm.GenerationRun.project_id == latest_run_dates.c.project_id)
+                & (dbm.GenerationRun.created_at == latest_run_dates.c.created_at),
+            )
+            .all()
+        )
+    }
+
+    return [
+        _project_out(
+            db,
+            project,
+            chapter_count=chapter_counts.get(project.id, 0),
+            version_count=version_counts.get(project.id, 0),
+            latest_project_version=latest_versions.get(project.id),
+            latest_project_run=latest_runs.get(project.id),
+        )
+        for project in projects
+    ]
 
 
 @router.post("/projects", response_model=ProjectCreateResponse)
