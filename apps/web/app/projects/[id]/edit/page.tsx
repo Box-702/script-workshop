@@ -302,7 +302,7 @@ export default function EditPage() {
   }
 
   return (
-    <div className="editor-workspace flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+    <div className="editor-workspace flex min-h-0 flex-col gap-2 overflow-visible xl:flex-1 xl:overflow-hidden">
       <div className="panel shrink-0 overflow-visible px-3 py-2">
         <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex min-w-0 flex-col gap-2 md:flex-row md:items-center">
@@ -358,8 +358,8 @@ export default function EditPage() {
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[300px_minmax(0,1fr)_360px]">
-        <aside className="min-h-0">
+      <div className="grid gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[300px_minmax(0,1fr)_360px]">
+        <aside className="order-2 min-h-[220px] xl:order-none xl:min-h-0">
           {script && (
             <ResourcePanel
               script={script}
@@ -370,7 +370,7 @@ export default function EditPage() {
           )}
         </aside>
 
-        <main className="min-h-0 min-w-0 overflow-hidden">
+        <main className="order-1 min-h-[640px] min-w-0 overflow-hidden xl:order-none xl:min-h-0">
           {mode === "scene" && script && selectedScene && (
             <SceneEditor
               script={script}
@@ -395,7 +395,7 @@ export default function EditPage() {
           {!script && mode !== "yaml" && <div className="card h-full text-sm text-ink-400">加载中...</div>}
         </main>
 
-        <aside className="workspace-scroll min-h-0 space-y-4 overflow-y-auto pr-1">
+        <aside className="workspace-scroll order-3 max-h-[520px] min-h-[320px] space-y-4 overflow-y-auto pr-1 xl:order-none xl:max-h-none xl:min-h-0">
           <AgentPanel
             agentBusy={agentBusy}
             saving={saving}
@@ -1087,14 +1087,15 @@ function ScriptFlowEditor({
 
       <ul className="space-y-3">
         {beats.map((beat, index) => (
-          <li key={beat.id} className="rounded-md border surface-line bg-ink-900/45 p-3">
-            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-2">
-                <span className="rounded bg-ink-800 px-2 py-1 font-mono text-[11px] text-ink-400">
+          <li key={beat.id} className={`script-beat ${beatTypeClass(beat.type)}`}>
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="script-beat-number">
                   {String(index + 1).padStart(2, "0")}
                 </span>
+                <span className="script-beat-kind">{beatTypeLabel(beat.type)}</span>
                 <select
-                  className="input h-9 w-28 text-xs"
+                  className="input h-8 w-24 py-1 text-xs"
                   value={beat.type}
                   onChange={(e) =>
                     updateBeat(index, normalizeBeatType(beat, e.target.value as ScriptBeat["type"], scene))
@@ -1105,7 +1106,7 @@ function ScriptFlowEditor({
                   <option value="cue">提示</option>
                 </select>
               </div>
-              <div className="flex gap-1">
+              <div className="flex shrink-0 gap-1">
                 <button
                   type="button"
                   className="btn-ghost h-8 px-2 text-xs"
@@ -1133,8 +1134,9 @@ function ScriptFlowEditor({
             </div>
 
             {beat.type === "dialogue" ? (
-              <div className="space-y-3">
-                <div className="grid gap-3 md:grid-cols-[180px_1fr]">
+              <div className="script-dialogue-grid">
+                <div className="script-speaker-block">
+                  <label className="label">说话人</label>
                   <select
                     className="input"
                     value={beat.speaker ?? scene.characters[0] ?? ""}
@@ -1147,27 +1149,31 @@ function ScriptFlowEditor({
                     ))}
                   </select>
                   <input
-                    className="input"
+                    className="input mt-2"
                     value={beat.emotion ?? ""}
                     onChange={(e) => updateBeat(index, { emotion: e.target.value })}
                     placeholder="情绪"
                   />
                 </div>
-                <textarea
-                  className="input min-h-[72px] text-sm leading-relaxed"
-                  value={beat.line ?? ""}
-                  onChange={(e) => updateBeat(index, { line: e.target.value })}
-                />
-                <input
-                  className="input"
-                  value={beat.subtext ?? ""}
-                  onChange={(e) => updateBeat(index, { subtext: e.target.value })}
-                  placeholder="潜台词"
-                />
+                <div className="space-y-2">
+                  <label className="label">台词</label>
+                  <textarea
+                    className="input script-dialogue-line"
+                    value={beat.line ?? ""}
+                    onChange={(e) => updateBeat(index, { line: e.target.value })}
+                    placeholder="输入角色台词"
+                  />
+                  <input
+                    className="input"
+                    value={beat.subtext ?? ""}
+                    onChange={(e) => updateBeat(index, { subtext: e.target.value })}
+                    placeholder="潜台词"
+                  />
+                </div>
               </div>
             ) : (
               <textarea
-                className="input min-h-[72px] text-sm leading-relaxed"
+                className="input script-action-textarea"
                 value={beat.text ?? ""}
                 onChange={(e) => updateBeat(index, { text: e.target.value })}
                 placeholder={beat.type === "cue" ? "灯光、音效、道具或节奏提示" : "动作描写"}
@@ -1230,6 +1236,26 @@ function LegacyStructurePreview({
         )}
       </section>
     </div>
+  );
+}
+
+function beatTypeLabel(type: ScriptBeat["type"]) {
+  return (
+    {
+      action: "动作",
+      dialogue: "对白",
+      cue: "提示",
+    }[type] ?? type
+  );
+}
+
+function beatTypeClass(type: ScriptBeat["type"]) {
+  return (
+    {
+      action: "script-beat-action",
+      dialogue: "script-beat-dialogue",
+      cue: "script-beat-cue",
+    }[type] ?? "script-beat-action"
   );
 }
 

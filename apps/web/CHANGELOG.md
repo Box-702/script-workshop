@@ -19,6 +19,7 @@
 - Home, settings, and generation progress pages now use Chinese-facing labels for the main workflow.
 
 ### Fixed
+- Made the editor workspace more usable on smaller screens, added screenplay-like styling for script-flow beats, and added Agent patch summaries with a sticky accept area.
 - Realigned the project detail info cards so labels and values share the same font size and vertical baseline, and made the status pill compact so it no longer pushes the row height.
 - Replaced hardcoded `border-white/10` and `bg-white/[0.02]` usages in the editor and project detail with theme-aware `surface-line` and `surface-soft` tokens so both UI styles render consistently.
 - Reworked paper-theme color tokens to invert the ink scale, so high-index numbers now mean "deeper text" and low-index numbers mean "background", restoring legibility in the light theme.

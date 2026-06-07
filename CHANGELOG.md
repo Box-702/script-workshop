@@ -21,6 +21,7 @@
   - Verified frontend homepage, backend `/api/healthz`, Vercel `/api/healthz` proxy, and unauthenticated `/api/projects` 401 behavior.
 
 ### Fixed
+- Improved the screenplay editor UI with script-flow beat styling, Agent patch summaries, and a mobile-friendly editor layout.
 - Preserved stable Agent beat ids when model responses provide valid new beat ids, so partial accept and diff paths keep their intended targets.
 - Updated README status text to match current implemented behavior and removed future-planning notes from the public quickstart document.
 - Updated documentation to distinguish current MVP behavior from planned Monaco/visualization enhancements.

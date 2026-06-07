@@ -62,6 +62,7 @@ export function AgentPanel({
 }) {
   const patchCount = agentRun?.patch?.length ?? 0;
   const [selectedPatchIndexes, setSelectedPatchIndexes] = useState<number[]>([]);
+  const patchSummary = summarizeAgentPatch(agentRun?.patch ?? []);
 
   useEffect(() => {
     setSelectedPatchIndexes(agentRun?.patch?.map((_, index) => index) ?? []);
@@ -230,6 +231,22 @@ export function AgentPanel({
             <span className="text-ink-500">需求：</span>
             {agentRun.user_prompt}
           </div>
+          {patchSummary.total > 0 && (
+            <div className="rounded-md border surface-line bg-ink-950/40 p-2.5">
+              <div className="mb-2 text-xs font-medium text-ink-400">改动摘要</div>
+              <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                <AgentSummaryMetric label="建议" value={patchSummary.total} />
+                <AgentSummaryMetric label="剧本流" value={patchSummary.beats} />
+                <AgentSummaryMetric label="场景" value={patchSummary.scenes} />
+                <AgentSummaryMetric label="风险" value={patchSummary.risks} tone={patchSummary.risks > 0 ? "warning" : "neutral"} />
+              </div>
+              {agentRun.status === "waiting_review" && patchCount > 1 && (
+                <div className="mt-2 text-xs text-ink-500">
+                  当前将接受 {selectedPatchIndexes.length} 项，未选中的建议会保留在本次记录里。
+                </div>
+              )}
+            </div>
+          )}
           {agentRun.error_message && (
             <div className="notice-warning px-2.5 py-2">
               {agentRun.error_message}
@@ -301,7 +318,7 @@ export function AgentPanel({
             </div>
           )}
           {agentRun.status === "waiting_review" && (
-            <div className="grid grid-cols-2 gap-2 border-t surface-line pt-3">
+            <div className="sticky bottom-0 z-10 grid grid-cols-2 gap-2 rounded-md border surface-line bg-ink-900/95 p-2 shadow-sm backdrop-blur">
               <button
                 className="btn-primary col-span-2"
                 onClick={() =>
@@ -309,7 +326,7 @@ export function AgentPanel({
                 }
                 disabled={agentBusy || saving || (patchCount > 1 && selectedPatchIndexes.length === 0)}
               >
-                {patchCount > 1 ? "接受选中并保存" : "接受并保存"}
+                {patchCount > 1 ? `接受已选 ${selectedPatchIndexes.length} 项并保存` : "接受并保存"}
               </button>
               <button className="btn-ghost" onClick={retryAgentSuggestion} disabled={agentBusy || saving}>
                 重新生成
@@ -328,6 +345,44 @@ export function AgentPanel({
       )}
     </div>
   );
+}
+
+function AgentSummaryMetric({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: number;
+  tone?: "neutral" | "warning";
+}) {
+  return (
+    <div className="rounded-md border surface-line surface-soft px-2 py-1.5">
+      <div className={tone === "warning" ? "text-sm font-semibold state-warning-text" : "text-sm font-semibold text-ink-100"}>
+        {value}
+      </div>
+      <div className="mt-0.5 text-[11px] text-ink-500">{label}</div>
+    </div>
+  );
+}
+
+function summarizeAgentPatch(patch: AgentPatchOperation[]) {
+  const sceneIds = new Set<string>();
+  let beats = 0;
+  let risks = 0;
+
+  for (const item of patch) {
+    if (item.scene_id) sceneIds.add(item.scene_id);
+    if (item.field === "beats" || String(item.path ?? "").includes("/beats/")) beats += 1;
+    if (item.risk?.length) risks += item.risk.length;
+  }
+
+  return {
+    total: patch.length,
+    beats,
+    scenes: sceneIds.size,
+    risks,
+  };
 }
 
 function formatAgentStatus(value: string) {

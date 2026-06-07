@@ -111,6 +111,16 @@
   body:has(.editor-workspace) footer {
     display: none;
   }
+  @media (max-width: 1279px) {
+    body:has(.editor-workspace) {
+      overflow: auto;
+    }
+    body:has(.editor-workspace) .app-main {
+      height: auto;
+      min-height: calc(100dvh - 57px);
+      overflow: visible;
+    }
+  }
 }
 
 @layer components {
@@ -485,6 +495,49 @@
     background: rgb(var(--ink-600));
     border-radius: 999px;
     border: 2px solid rgb(var(--ink-900));
+  }
+
+  /* Script flow editor */
+  .script-beat {
+    @apply rounded-md border p-3 transition-colors duration-150;
+    border-color: rgb(var(--line-rgb) / var(--line-alpha));
+    background: rgb(var(--ink-900) / 0.54);
+  }
+  .script-beat:hover {
+    border-color: rgb(var(--accent-400) / 0.34);
+  }
+  .script-beat-dialogue {
+    background:
+      linear-gradient(90deg, rgb(var(--accent-400) / 0.08), transparent 42%),
+      rgb(var(--ink-900) / 0.62);
+  }
+  .script-beat-cue {
+    background:
+      linear-gradient(90deg, rgb(var(--warning-bg) / 0.08), transparent 38%),
+      rgb(var(--ink-900) / 0.58);
+  }
+  .script-beat-number {
+    @apply rounded bg-ink-800 px-2 py-1 font-mono text-[11px] text-ink-400;
+  }
+  .script-beat-kind {
+    @apply rounded border px-2 py-1 text-[11px] font-medium;
+    border-color: rgb(var(--line-rgb) / var(--line-alpha));
+    color: rgb(var(--ink-300));
+    background: rgb(var(--line-rgb) / var(--line-soft-alpha));
+  }
+  .script-dialogue-grid {
+    @apply grid gap-3 md:grid-cols-[180px_minmax(0,1fr)];
+  }
+  .script-speaker-block {
+    @apply rounded-md border p-2.5;
+    border-color: rgb(var(--line-rgb) / var(--line-soft-alpha));
+    background: rgb(var(--line-rgb) / var(--line-soft-alpha));
+  }
+  .script-dialogue-line {
+    @apply min-h-[92px] text-[15px] leading-7;
+  }
+  .script-action-textarea {
+    @apply min-h-[84px] text-sm leading-7;
   }
 
   /* Details/summary reset for export menu */
