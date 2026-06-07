@@ -437,6 +437,57 @@ def test_agent_can_accept_individual_beat_suggestions():
     assert event.patch["patch"][0]["beat_id"] == "beat_002"
 
 
+def test_agent_preserves_model_supplied_new_beat_ids():
+    db = _session()
+    project = Project(id="proj_test", title="Test", adaptation_type="short_drama")
+    db.add(project)
+    db.commit()
+    base = create_version_from_yaml(db, project, SCRIPT_WITH_BEATS_YAML)
+    provider = FakeAgentProvider(
+        {
+            "plan": ["在原有节拍后补一个提示"],
+            "changes": [
+                {
+                    "scene_id": "scene_001",
+                    "beats": [
+                        {
+                            "id": "beat_001",
+                            "type": "action",
+                            "text": "Rain hits the door.",
+                        },
+                        {
+                            "id": "beat_002",
+                            "type": "dialogue",
+                            "speaker": "char_doctor",
+                            "line": "Who is outside?",
+                        },
+                        {
+                            "id": "beat_010",
+                            "type": "cue",
+                            "text": "The knocking stops at once.",
+                        },
+                    ],
+                }
+            ],
+        }
+    )
+
+    run = create_agent_run(
+        db,
+        project,
+        payload=AgentAdaptRequest(
+            instruction="保留原节拍 id 并新增提示",
+            base_version_id=base.id,
+            scene_ids=["scene_001"],
+        ),
+        provider=provider,
+    )
+
+    assert [item["beat_id"] for item in run.patch] == ["beat_002", "beat_010"]
+    assert run.patch[1]["op"] == "add"
+    assert run.patch[1]["value"]["id"] == "beat_010"
+
+
 def test_retry_agent_run_reuses_original_context_and_prompt():
     db = _session()
     project = Project(id="proj_test", title="Test", adaptation_type="short_drama")

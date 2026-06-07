@@ -12,6 +12,7 @@
 
 ## Unreleased
 ### Added
+- Added field-level Agent suggestion comparison documentation for beat-based screenplay edits.
 - Added a Vercel + Render + Supabase deployment guide with production environment variables and an acceptance checklist.
 - Added `render.yaml` (Render Blueprint) and `vercel.json` to make one-click deploys for the API and web app independent of each other.
 - Deployed production to Vercel + Render + Supabase:
@@ -20,6 +21,8 @@
   - Verified frontend homepage, backend `/api/healthz`, Vercel `/api/healthz` proxy, and unauthenticated `/api/projects` 401 behavior.
 
 ### Fixed
+- Preserved stable Agent beat ids when model responses provide valid new beat ids, so partial accept and diff paths keep their intended targets.
+- Updated README status text to match current implemented behavior and removed future-planning notes from the public quickstart document.
 - Updated documentation to distinguish current MVP behavior from planned Monaco/visualization enhancements.
 - Corrected Docker build contexts so API images include `schema/` and web images can use the monorepo pnpm lockfile.
 - Documented Vercel SSO deployment protection and `COMMIT_AUTHOR_REQUIRED` deployment blocking encountered during production setup.

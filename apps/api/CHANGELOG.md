@@ -6,6 +6,7 @@
 
 ## Unreleased
 ### Added
+- Added Agent beat-id preservation for model responses: existing valid beat ids are kept, while missing, invalid, or duplicate ids are assigned safe numeric ids.
 - Added encrypted user model key storage with list, active lookup, test, and revoke endpoints.
 - Settings now supports cloud-saved model keys while keeping browser-local BYOK mode.
 - Project generation can use a saved active model key when no request header key is present.
@@ -24,6 +25,7 @@
 - Added project deletion from the dashboard and changed failed or previously generated projects to show a regenerate action.
 
 ### Fixed
+- Fixed Agent beat cleaning so model-supplied stable ids such as `beat_010` are not silently renumbered, preserving partial-accept and diff semantics.
 - Fixed whole-script Agent scope so the web editor sends every current scene id instead of an empty scene selection.
 - Fixed Agent acceptance refresh so accepting one suggestion does not immediately reopen another pending suggestion in the review card.
 - Added API key sanity checks and clearer generation failure messages for invalid or expired model keys.

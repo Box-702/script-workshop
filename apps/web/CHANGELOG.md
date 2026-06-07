@@ -6,6 +6,7 @@
 
 ## Unreleased
 ### Added
+- Added a field-level Agent patch comparison for script-flow beat suggestions, highlighting type, speaker, text, line, emotion, and subtext changes before users accept them.
 - Added a header UI style switcher with two themes: studio (dark) and paper (light). All ink and accent colors are now driven by CSS variables and follow the selected theme, including Tailwind utility classes.
 - Added a dedicated danger panel and "确认删除" flow on the dashboard so destructive actions show inline instead of a `window.confirm` dialog.
 - Added project dashboard, project detail pages, script version metadata, version restore, and current version tracking.

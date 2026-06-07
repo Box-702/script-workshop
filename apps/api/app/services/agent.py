@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from copy import deepcopy
 from typing import Any
 
@@ -11,7 +12,7 @@ from .. import db as dbm
 from ..adaptation_profiles import adaptation_profile_for, adaptation_profile_prompt
 from ..ids import gen_id
 from ..providers.base import LLMProvider, Stage
-from ..schemas import AgentAdaptRequest
+from ..schemas import AgentAdaptRequest, normalize_id
 from ..yaml_io import to_yaml
 from .versions import create_version_from_yaml, get_version_or_404, latest_version
 
@@ -25,6 +26,8 @@ EDITABLE_SCENE_FIELDS = {
     "dialogue",
     "beats",
 }
+
+BEAT_ID_RE = re.compile(r"^beat_[0-9]{3,}$")
 
 AGENT_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -254,6 +257,7 @@ def _build_agent_prompt(
 - dialogue 中 speaker 必须使用该场景已有 characters 列表里的角色 id。
 - 优先返回 beats 来修改剧本流；beats 是动作、对白、提示按阅读顺序混排的列表。
 - 如果修改台词或动作且该场景已有 beats，请返回完整 beats，避免剧本流和兼容字段不一致。
+- 返回已有节拍时必须保留原来的 beat id；新增节拍可以省略 id，或使用未占用的 beat_数字 id。
 - action 和 dialogue 如果返回，会整体替换该场景对应列表。
 - beats 如果返回，也会同步更新 action/dialogue 兼容字段。
 - adaptation_reason 要说明这次改编为什么这么做。
@@ -300,10 +304,28 @@ def _clean_action(value: object) -> list[str] | None:
     return cleaned if cleaned else None
 
 
+def _next_available_beat_id(used_ids: set[str], start: int) -> str:
+    number = max(1, start)
+    while True:
+        candidate = f"beat_{number:03d}"
+        if candidate not in used_ids:
+            return candidate
+        number += 1
+
+
+def _clean_beat_id(value: object, used_ids: set[str], fallback_index: int) -> str:
+    if value is not None and str(value).strip():
+        candidate = normalize_id(value, "beat", fallback=str(fallback_index))
+        if BEAT_ID_RE.match(candidate) and candidate not in used_ids:
+            return candidate
+    return _next_available_beat_id(used_ids, fallback_index)
+
+
 def _clean_beats(value: object, allowed_speakers: list[str]) -> list[dict[str, Any]] | None:
     if not isinstance(value, list):
         return None
     cleaned: list[dict[str, Any]] = []
+    used_ids: set[str] = set()
     allowed = set(allowed_speakers)
     fallback_speaker = allowed_speakers[0] if allowed_speakers else ""
     for item in value:
@@ -312,10 +334,8 @@ def _clean_beats(value: object, allowed_speakers: list[str]) -> list[dict[str, A
         kind = str(item.get("type") or "").strip()
         if kind not in {"action", "dialogue", "cue"}:
             kind = "dialogue" if item.get("speaker") or item.get("line") else "action"
-        beat: dict[str, Any] = {
-            "id": f"beat_{len(cleaned) + 1:03d}",
-            "type": kind,
-        }
+        beat_id = _clean_beat_id(item.get("id"), used_ids, len(cleaned) + 1)
+        beat: dict[str, Any] = {"id": beat_id, "type": kind}
         if kind == "dialogue":
             line = str(item.get("line") or item.get("text") or "").strip()
             speaker = str(item.get("speaker") or "").strip()
@@ -334,6 +354,7 @@ def _clean_beats(value: object, allowed_speakers: list[str]) -> list[dict[str, A
             if not text:
                 continue
             beat["text"] = text
+        used_ids.add(beat_id)
         cleaned.append(beat)
     return cleaned if cleaned else None
 
