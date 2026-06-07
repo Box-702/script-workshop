@@ -4,9 +4,12 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import {
+  getAuthErrorMessage,
   getAuthUser,
   isSupabaseConfigured,
+  isAuthRateLimitError,
   onAuthStateChanged,
+  OTP_RESEND_COOLDOWN_SECONDS,
   sendEmailOtp,
   signOut,
   type AuthUser,
@@ -33,6 +36,7 @@ function LoginContent() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [resendSeconds, setResendSeconds] = useState(0);
 
   useEffect(() => {
     if (!configured) return;
@@ -43,6 +47,14 @@ function LoginContent() {
     });
     return () => unsubscribe();
   }, [configured]);
+
+  useEffect(() => {
+    if (resendSeconds <= 0) return;
+    const timer = window.setTimeout(() => {
+      setResendSeconds((value) => Math.max(0, value - 1));
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendSeconds]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -62,9 +74,11 @@ function LoginContent() {
     try {
       await sendEmailOtp(value);
       setSentEmail(value);
+      setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
       setNotice("验证码已发送，请查看邮箱。");
     } catch (err) {
-      setError((err as Error).message);
+      if (isAuthRateLimitError(err)) setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
+      setError(getAuthErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -94,7 +108,7 @@ function LoginContent() {
       setNotice("登录成功，正在跳转。");
       router.replace(nextPath);
     } catch (err) {
-      setError((err as Error).message);
+      setError(getAuthErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -114,9 +128,11 @@ function LoginContent() {
       await sendEmailOtp(value);
       setSentEmail(value);
       setCode("");
+      setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
       setNotice("新的验证码已发送，请查看邮箱。");
     } catch (err) {
-      setError((err as Error).message);
+      if (isAuthRateLimitError(err)) setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
+      setError(getAuthErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -125,6 +141,7 @@ function LoginContent() {
   function changeEmail() {
     setSentEmail(null);
     setCode("");
+    setResendSeconds(0);
     setNotice(null);
     setError(null);
   }
@@ -138,7 +155,7 @@ function LoginContent() {
       setUser(null);
       setNotice("已退出登录。");
     } catch (err) {
-      setError((err as Error).message);
+      setError(getAuthErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -207,13 +224,13 @@ function LoginContent() {
                 inputMode="numeric"
                 disabled={busy}
               />
-              <button type="button" className="text-xs text-ink-400 underline-offset-4 hover:text-ink-100 hover:underline" onClick={resendCode} disabled={busy}>
-                重新发送验证码
+              <button type="button" className="text-xs text-ink-400 underline-offset-4 hover:text-ink-100 hover:underline disabled:cursor-not-allowed disabled:opacity-60" onClick={resendCode} disabled={busy || resendSeconds > 0}>
+                {resendSeconds > 0 ? `重新发送 ${resendSeconds}s` : "重新发送验证码"}
               </button>
             </div>
           )}
-          <button type="submit" className="btn-primary w-full" disabled={busy}>
-            {busy ? "处理中..." : sentEmail ? "登录" : "发送验证码"}
+          <button type="submit" className="btn-primary w-full" disabled={busy || (!sentEmail && resendSeconds > 0)}>
+            {busy ? "处理中..." : sentEmail ? "登录" : resendSeconds > 0 ? `稍后再试 ${resendSeconds}s` : "发送验证码"}
           </button>
         </form>
       )}

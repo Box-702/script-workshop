@@ -45,6 +45,7 @@ DATABASE_URL=postgresql+psycopg://postgres:<password>@<host>:5432/postgres
    - 本地旧链接兼容可另加 `http://localhost:3000/auth/callback`
 
 5. 在 `Authentication -> Email Templates` 确认登录邮件包含验证码 token，例如 `{{ .Token }}`。不要只放 magic link，否则前端验证码输入框拿不到可输入的码。
+6. 如果线上出现 `email rate limit exceeded`，说明 Supabase Auth 发信限流已触发。生产环境建议在 `Authentication -> SMTP Settings` 配置自定义 SMTP，并在 `Authentication -> Rate Limits` 里按实际需要调整邮件/OTP 限制。
 
 > 已验证 2026-06-06：项目 `wsogpdggsmehdrujdjrx` (West US, Oregon) 配齐以上四个值后，`alembic upgrade head` 在 Transaction pooler (`aws-1-us-west-2.pooler.supabase.com:6543`) 上跑通 5 个迁移，`/api/healthz` 与 `/api/projects` 401 路径均正常返回。
 
@@ -118,6 +119,7 @@ https://script-workshop-api.onrender.com/api/healthz
 - Vercel 是否配置了 `NEXT_PUBLIC_SUPABASE_URL` 和 `NEXT_PUBLIC_SUPABASE_ANON_KEY`。
 - Render 是否配置了 `AUTH_MODE=supabase`、`SUPABASE_URL`、`SUPABASE_ANON_KEY`。
 - Supabase 邮件模板是否包含 `{{ .Token }}`，且 Vercel 环境变量是否在改完后重新部署。
+- 如果页面提示验证码邮件发送过于频繁，检查 Supabase Auth Rate Limits 和 SMTP 设置。
 
 ### 前端请求仍打到 localhost
 

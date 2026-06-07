@@ -4,9 +4,12 @@ import { useEffect, useState } from "react";
 import { AuthRequiredMessage, isAuthRequiredMessage } from "@/components/AuthRequiredMessage";
 import { api } from "@/lib/api";
 import {
+  getAuthErrorMessage,
   getAuthUser,
   isSupabaseConfigured,
+  isAuthRateLimitError,
   onAuthStateChanged,
+  OTP_RESEND_COOLDOWN_SECONDS,
   sendEmailOtp,
   signOut,
   type AuthUser,
@@ -263,6 +266,7 @@ function AuthPanel() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [resendSeconds, setResendSeconds] = useState(0);
   const configured = isSupabaseConfigured();
 
   useEffect(() => {
@@ -274,6 +278,14 @@ function AuthPanel() {
     });
     return () => unsubscribe();
   }, [configured]);
+
+  useEffect(() => {
+    if (resendSeconds <= 0) return;
+    const timer = window.setTimeout(() => {
+      setResendSeconds((value) => Math.max(0, value - 1));
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendSeconds]);
 
   async function sendCode() {
     const value = email.trim();
@@ -288,9 +300,11 @@ function AuthPanel() {
     try {
       await sendEmailOtp(value);
       setSentEmail(value);
+      setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
       setNotice("验证码已发送，请查看邮箱。");
     } catch (e) {
-      setError((e as Error).message);
+      if (isAuthRateLimitError(e)) setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
+      setError(getAuthErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -320,8 +334,9 @@ function AuthPanel() {
       setNotice("登录成功。");
       setCode("");
       setSentEmail(null);
+      setResendSeconds(0);
     } catch (e) {
-      setError((e as Error).message);
+      setError(getAuthErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -341,9 +356,11 @@ function AuthPanel() {
       await sendEmailOtp(value);
       setSentEmail(value);
       setCode("");
+      setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
       setNotice("新的验证码已发送，请查看邮箱。");
     } catch (e) {
-      setError((e as Error).message);
+      if (isAuthRateLimitError(e)) setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
+      setError(getAuthErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -352,6 +369,7 @@ function AuthPanel() {
   function changeEmail() {
     setSentEmail(null);
     setCode("");
+    setResendSeconds(0);
     setNotice(null);
     setError(null);
   }
@@ -365,7 +383,7 @@ function AuthPanel() {
       setUser(null);
       setNotice("已退出登录。");
     } catch (e) {
-      setError((e as Error).message);
+      setError(getAuthErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -415,13 +433,13 @@ function AuthPanel() {
             />
           )}
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn-primary whitespace-nowrap" onClick={sentEmail ? verifyCode : sendCode} disabled={busy}>
-              {busy ? "处理中..." : sentEmail ? "登录" : "发送验证码"}
+            <button type="button" className="btn-primary whitespace-nowrap" onClick={sentEmail ? verifyCode : sendCode} disabled={busy || (!sentEmail && resendSeconds > 0)}>
+              {busy ? "处理中..." : sentEmail ? "登录" : resendSeconds > 0 ? `稍后再试 ${resendSeconds}s` : "发送验证码"}
             </button>
             {sentEmail && (
               <>
-                <button type="button" className="btn-ghost whitespace-nowrap" onClick={resendCode} disabled={busy}>
-                  重新发送
+                <button type="button" className="btn-ghost whitespace-nowrap" onClick={resendCode} disabled={busy || resendSeconds > 0}>
+                  {resendSeconds > 0 ? `重新发送 ${resendSeconds}s` : "重新发送"}
                 </button>
                 <button type="button" className="btn-ghost whitespace-nowrap" onClick={changeEmail} disabled={busy}>
                   更换邮箱
