@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { AuthRequiredMessage, isAuthRequiredMessage } from "@/components/AuthRequiredMessage";
 import { AgentPanel } from "@/components/editor/AgentPanel";
@@ -1175,6 +1175,7 @@ function ScriptFlowEditor({
   const beats = sceneBeats(scene);
   const [draggedBeatId, setDraggedBeatId] = useState<string | null>(null);
   const [dragOverBeatId, setDragOverBeatId] = useState<string | null>(null);
+  const dragScrollFrameRef = useRef<number | null>(null);
 
   function commit(nextBeats: ScriptBeat[]) {
     updateScene(scene.id, (next) => syncSceneFromBeats(next, nextBeats));
@@ -1213,6 +1214,7 @@ function ScriptFlowEditor({
     if (!draggedBeatId || draggedBeatId === targetBeatId) {
       setDraggedBeatId(null);
       setDragOverBeatId(null);
+      cancelDragAutoScroll(dragScrollFrameRef);
       return;
     }
     const fromIndex = beats.findIndex((beat) => beat.id === draggedBeatId);
@@ -1221,6 +1223,7 @@ function ScriptFlowEditor({
     commit(moveArrayItem(beats, fromIndex, toIndex));
     setDraggedBeatId(null);
     setDragOverBeatId(null);
+    cancelDragAutoScroll(dragScrollFrameRef);
   }
 
   return (
@@ -1254,6 +1257,7 @@ function ScriptFlowEditor({
               if (!draggedBeatId) return;
               e.preventDefault();
               setDragOverBeatId(beat.id);
+              scheduleDragAutoScroll(e.currentTarget, e.clientY, dragScrollFrameRef);
             }}
             onDragLeave={() => setDragOverBeatId((current) => (current === beat.id ? null : current))}
             onDrop={(e) => {
@@ -1278,6 +1282,7 @@ function ScriptFlowEditor({
                   onDragEnd={() => {
                     setDraggedBeatId(null);
                     setDragOverBeatId(null);
+                    cancelDragAutoScroll(dragScrollFrameRef);
                   }}
                 >
                   ::
@@ -1286,43 +1291,63 @@ function ScriptFlowEditor({
                   {String(index + 1).padStart(2, "0")}
                 </span>
                 <span className="script-beat-kind">{beatTypeLabel(beat.type)}</span>
-                <select
-                  className="input h-8 w-24 py-1 text-xs"
-                  value={beat.type}
-                  onChange={(e) =>
-                    updateBeat(index, normalizeBeatType(beat, e.target.value as ScriptBeat["type"], scene))
-                  }
-                >
-                  <option value="action">动作</option>
-                  <option value="dialogue">对白</option>
-                  <option value="cue">提示</option>
-                </select>
               </div>
-              <div className="flex shrink-0 gap-1">
-                <button
-                  type="button"
-                  className="btn-ghost h-8 px-2 text-xs"
-                  onClick={() => moveBeat(index, -1)}
-                  disabled={index === 0}
-                >
-                  上移
-                </button>
-                <button
-                  type="button"
-                  className="btn-ghost h-8 px-2 text-xs"
-                  onClick={() => moveBeat(index, 1)}
-                  disabled={index === beats.length - 1}
-                >
-                  下移
-                </button>
-                <button
-                  type="button"
-                  className="btn-ghost h-8 px-2 text-xs"
-                  onClick={() => commit(beats.filter((_, i) => i !== index))}
-                >
-                  删除
-                </button>
-              </div>
+              <details className="script-beat-menu">
+                <summary aria-label={`打开第 ${index + 1} 个节拍操作菜单`} title="节拍操作">
+                  ⋯
+                </summary>
+                <div className="script-beat-menu-popover">
+                  <label className="script-beat-menu-label" htmlFor={`beat-type-${beat.id}`}>
+                    更改类型
+                  </label>
+                  <select
+                    id={`beat-type-${beat.id}`}
+                    className="input h-8 py-1 text-xs"
+                    value={beat.type}
+                    onChange={(e) => {
+                      updateBeat(index, normalizeBeatType(beat, e.target.value as ScriptBeat["type"], scene));
+                      closeBeatActionMenu(e.currentTarget);
+                    }}
+                  >
+                    <option value="action">动作</option>
+                    <option value="dialogue">对白</option>
+                    <option value="cue">提示</option>
+                  </select>
+                  <div className="my-1 border-t surface-line" />
+                  <button
+                    type="button"
+                    className="script-beat-menu-item"
+                    onClick={(e) => {
+                      moveBeat(index, -1);
+                      closeBeatActionMenu(e.currentTarget);
+                    }}
+                    disabled={index === 0}
+                  >
+                    上移
+                  </button>
+                  <button
+                    type="button"
+                    className="script-beat-menu-item"
+                    onClick={(e) => {
+                      moveBeat(index, 1);
+                      closeBeatActionMenu(e.currentTarget);
+                    }}
+                    disabled={index === beats.length - 1}
+                  >
+                    下移
+                  </button>
+                  <button
+                    type="button"
+                    className="script-beat-menu-item script-beat-menu-danger"
+                    onClick={(e) => {
+                      commit(beats.filter((_, i) => i !== index));
+                      closeBeatActionMenu(e.currentTarget);
+                    }}
+                  >
+                    删除
+                  </button>
+                </div>
+              </details>
             </div>
 
             {beat.type === "dialogue" ? (
@@ -1708,6 +1733,46 @@ function moveArrayItem<T>(items: T[], fromIndex: number, toIndex: number) {
   const [item] = next.splice(fromIndex, 1);
   next.splice(toIndex, 0, item);
   return next;
+}
+
+function closeBeatActionMenu(element: HTMLElement) {
+  element.closest("details")?.removeAttribute("open");
+}
+
+function scheduleDragAutoScroll(
+  element: HTMLElement,
+  clientY: number,
+  frameRef: { current: number | null },
+) {
+  const container = element.closest(".workspace-scroll");
+  if (!(container instanceof HTMLElement)) return;
+  const rect = container.getBoundingClientRect();
+  const edgeSize = Math.min(120, rect.height / 3);
+  const distanceToTop = clientY - rect.top;
+  const distanceToBottom = rect.bottom - clientY;
+  const direction =
+    distanceToTop < edgeSize ? -1 : distanceToBottom < edgeSize ? 1 : 0;
+
+  if (direction === 0) {
+    cancelDragAutoScroll(frameRef);
+    return;
+  }
+
+  const distance = direction < 0 ? distanceToTop : distanceToBottom;
+  const intensity = Math.max(0.2, Math.min(1, (edgeSize - distance) / edgeSize));
+  const speed = Math.round(8 + intensity * 28) * direction;
+
+  if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+  frameRef.current = requestAnimationFrame(() => {
+    container.scrollBy({ top: speed, behavior: "auto" });
+    frameRef.current = null;
+  });
+}
+
+function cancelDragAutoScroll(frameRef: { current: number | null }) {
+  if (frameRef.current === null) return;
+  cancelAnimationFrame(frameRef.current);
+  frameRef.current = null;
 }
 
 function compactCharacter(character: ScriptCharacter): ScriptCharacter {
