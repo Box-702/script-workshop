@@ -30,14 +30,24 @@ def test_current_user_uses_dev_user_header_in_local_mode(monkeypatch):
     assert user.id == "user_a"
 
 
-def test_supabase_mode_requires_bearer_token(monkeypatch):
-    monkeypatch.setattr(deps, "get_settings", lambda: _settings(auth_mode="supabase"))
+def test_strict_supabase_mode_requires_bearer_token(monkeypatch):
+    monkeypatch.setattr(deps, "get_settings", lambda: _settings(auth_mode="strict_supabase"))
 
     with pytest.raises(HTTPException) as exc_info:
         deps.get_current_user()
 
     assert exc_info.value.status_code == 401
     assert "bearer" in exc_info.value.detail
+
+
+def test_supabase_mode_requires_bearer_or_local_user(monkeypatch):
+    monkeypatch.setattr(deps, "get_settings", lambda: _settings(auth_mode="supabase"))
+
+    with pytest.raises(HTTPException) as exc_info:
+        deps.get_current_user()
+
+    assert exc_info.value.status_code == 401
+    assert "local user id" in exc_info.value.detail
 
 
 def test_supabase_mode_uses_verified_user_id(monkeypatch):
@@ -47,6 +57,14 @@ def test_supabase_mode_uses_verified_user_id(monkeypatch):
     user = deps.get_current_user(authorization="Bearer access-token")
 
     assert user.id == "user_access-token"
+
+
+def test_supabase_mode_uses_local_user_without_token(monkeypatch):
+    monkeypatch.setattr(deps, "get_settings", lambda: _settings(auth_mode="supabase"))
+
+    user = deps.get_current_user(local_user_id="local_browser")
+
+    assert user.id == "local_browser"
 
 
 def test_supabase_mode_rejects_user_response_without_id(monkeypatch):

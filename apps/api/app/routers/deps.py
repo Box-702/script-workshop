@@ -56,9 +56,9 @@ def get_current_user(
     mode = (settings.auth_mode or "local").strip().lower()
     if mode == "local":
         return AuthenticatedUser(id=_clean_user_id(dev_user_id))
-    if mode == "supabase":
+    if mode == "strict_supabase":
         return _get_supabase_user(authorization)
-    if mode == "hybrid":
+    if mode in {"supabase", "hybrid"}:
         if _bearer_token(authorization):
             return _get_supabase_user(authorization)
         return AuthenticatedUser(id=_clean_local_user_id(local_user_id))

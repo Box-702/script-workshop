@@ -86,7 +86,7 @@ class LLMProvider(Protocol):
 
 ## 鉴权与本地模式
 
-生产建议使用 `AUTH_MODE=hybrid`：
+生产建议使用 `AUTH_MODE=hybrid`。为了兼容既有部署，`AUTH_MODE=supabase` 也按同样方式工作；如果以后需要强制所有请求登录，可改为 `AUTH_MODE=strict_supabase`。
 
 - 请求带 Supabase bearer token 时，后端通过 Supabase Auth 校验并使用真实用户 id。
 - 请求未登录时，前端生成浏览器本地身份 `X-Local-User-Id`，后端用这个 id 隔离项目数据。
