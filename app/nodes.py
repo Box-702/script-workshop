@@ -1,0 +1,297 @@
+# =====================================================================
+# nodes.py —— LangGraph 图节点实现
+#
+# 每个节点都是 `(state) -> partial_update` 的函数。它们由 nodes_factory
+# 以闭包形式创建，闭包捕获本次运行所需的：store、llm、基础剧本、项目、
+# 原始文本、工具与检索器。这样状态里只放可序列化数据，依赖通过闭包注入。
+#
+# 节点编排（见 graph.py 的连接）：
+#   context -> plan(ReAct+tools) -> propose -> guard(自纠错) -> review(interrupt)
+#        -> apply -> finalize            （接受 / 编辑后接受）
+#        -> propose                       （重新生成，带反馈回到提议）
+#        -> finalize                      （拒绝）
+#
+# 这是整个项目的「人机协同」核心：Agent 只产出 patch 提议，先经 guard 自纠错，
+# 再交给用户做最终决定；接受后走 apply 生成新版本。
+# =====================================================================
+
+from __future__ import annotations
+
+import json
+from typing import Any, Callable
+
+from langchain_core.messages import HumanMessage, SystemMessage
+
+from .config import Settings
+from .domain import Script
+from .llm import LLM
+from .patch import (
+    PatchProposal,
+    apply_patch,
+    build_patch,
+    default_plan,
+    fallback_patch,
+    validate_script,
+)
+from .profiles import profile_for, profile_prompt
+from .state import (
+    STATUS_APPLIED,
+    STATUS_CONTEXTING,
+    STATUS_PLANNING,
+    STATUS_REJECTED,
+    STATUS_REVIEWING,
+    AgentState,
+)
+from .store import Project, Store
+
+# guard 自纠错循环的最大迭代次数，防止「发现问题 -> 重做」死循环。
+MAX_PROPOSE_ITERATIONS = 3
+
+
+def _selected_scenes(script: Script, scene_ids: list[str]) -> list[object]:
+    """按 scene_ids 挑选场景；为空时选全部。"""
+    if not scene_ids:
+        return list(script.scenes)
+    wanted = set(scene_ids)
+    return [s for s in script.scenes if s.id in wanted]
+
+
+def _build_context(
+    script: Script,
+    project: Project,
+    raw_text: str,
+    *,
+    scene_ids: list[str],
+    retriever: Callable[[str, int], list[str]] | None,
+) -> dict[str, Any]:
+    """把本次改编所需的上下文组织成一个字典，供提示词与工具使用。"""
+    profile = profile_for(project.adaptation_type)
+    scenes = _selected_scenes(script, scene_ids)
+    scene_list = [
+        {
+            "id": s.id,
+            "title": s.title,
+            "purpose": s.purpose,
+            "conflict": s.conflict,
+            "characters": s.characters,
+            "location_id": s.location_id,
+            "time": s.time,
+            "beats": [b.model_dump(exclude_none=True) for b in s.beats],
+        }
+        for s in scenes
+    ]
+    # 尝试用检索器给每个场景补充相关原文（可选 RAG），失败则忽略。
+    episode_sources: list[str] = []
+    if retriever is not None:
+        for s in scenes[:3]:
+            q = f"{script.title} {s.title} {s.purpose}"
+            ep = retriever(q, 2)
+            if ep:
+                episode_sources.append(f"【{s.title}】\n" + "\n".join(ep[:1]))
+    return {
+        "script": {
+            "title": script.title,
+            "logline": script.logline,
+            "themes": script.themes,
+            "language": script.language,
+            "adaptation": profile,
+        },
+        "characters": {c.id: {"name": c.name, "role": c.role, "goal": c.goal} for c in script.characters},
+        "locations": {l.id: {"name": l.name, "description": l.description} for l in script.locations},
+        "selected_scenes": scene_list,
+        "source_excerpts": episode_sources,
+        "raw_text_excerpt": " ".join((raw_text or "").split())[:2000],
+    }
+
+
+def _system_prompt(settings: Settings, script: Script) -> str:
+    """Agent 系统提示词：身份、规则、改编约束。"""
+    profile = profile_for(script.adaptation.type if script.adaptation else "other")
+    return (
+        "你是剧本改编助手。你只读取上下文并修改「选中的场景」，不要新增场景、人物或地点。\n"
+        "你必须输出结构化 JSON：先 plan 计划，再 changes 逐场景改动。\n"
+        "已有节拍必须保留原 id；新增节拍可以省略 id 或使用未占用的 beat_数字。\n"
+        "对白说话人必须是该场景已有的人物 id。\n"
+        f"改编类型 profile：\n{profile_prompt(profile, language=script.language)}\n"
+        f"输出语言：{settings.output_language}\n"
+        "不要输出整份覆盖文档，只输出真正需要更新的字段。"
+    )
+
+
+def build_nodes(
+    store: Store,
+    llm: LLM,
+    script: Script,
+    project: Project,
+    raw_text: str,
+    *,
+    settings: Settings,
+    tools: list[Any],
+    retriever: Callable[[str, int], list[str]] | None,
+) -> dict[str, Callable[[AgentState], dict[str, Any]]]:
+    """构造全部图节点。"""
+
+    def context_node(state: AgentState) -> dict[str, Any]:
+        ctx = _build_context(
+            script, project, raw_text, scene_ids=state.get("scene_ids", []), retriever=retriever
+        )
+        system = SystemMessage(content=_system_prompt(settings, script))
+        human = HumanMessage(content=f"用户改编需求：{state.get('instruction','')}")
+        return {
+            "context": ctx,
+            "model_available": llm.available,
+            "messages": [system, human],
+            "status": STATUS_CONTEXTING,
+            "steps": 0,
+        }
+
+    def plan_node(state: AgentState) -> dict[str, Any]:
+        # 没有可用模型时，跳过 ReAct 工具循环，直接给兜底计划。
+        if not llm.available:
+            return {"plan": default_plan(), "status": STATUS_PLANNING}
+        resp = llm.chat().bind_tools(tools).invoke(state["messages"])
+        return {"messages": [resp], "status": STATUS_PLANNING}
+
+    def propose_node(state: AgentState) -> dict[str, Any]:
+        instruction = state.get("instruction", "")
+        scene_ids = state.get("scene_ids", [])
+        critique = state.get("critique") or []
+        # 来自「重新生成」的反馈：先并入指令，再重新提议。
+        feedback = (state.get("decision") or {}).get("feedback") or ""
+        if feedback:
+            instruction = f"{instruction}\n（用户补充要求：{feedback}）"
+        if llm.available:
+            ctx = state.get("context") or {}
+            plan = state.get("plan") or []
+            guidance = ""
+            if critique:
+                guidance = "\n自我审阅发现以下问题，请修正后再输出：\n" + "\n".join(f"- {c}" for c in critique)
+            prompt_json = json.dumps(ctx, ensure_ascii=False, indent=2)
+            prompt = (
+                f"请针对选中场景给出结构化改编提议。用户需求：{instruction}\n"
+                f"推理计划（仅供参考）：{'；'.join(plan)}\n"
+                f"当前上下文：\n{prompt_json}{guidance}"
+            )
+            proposal = llm.structured(PatchProposal).invoke(
+                [SystemMessage(content=_system_prompt(settings, script)), HumanMessage(content=prompt)]
+            )
+            proposal_dict = proposal.model_dump(exclude_none=True)
+            plan, ops = build_patch(proposal, script, selected_scene_ids=scene_ids, instruction=instruction)
+            # 重新提议后清空上一条 critique，避免无限引用旧问题。
+            critique = []
+        else:
+            proposal_dict = None
+            plan, ops = fallback_patch(script, instruction, scene_ids)
+            critique = []
+        return {
+            "proposal": proposal_dict,
+            "plan": plan,
+            "patch": [op.model_dump(exclude_none=True) for op in ops],
+            "critique": critique,
+            "iterations": state.get("iterations", 0),
+            "status": STATUS_PLANNING,
+        }
+
+    def guard_node(state: AgentState) -> dict[str, Any]:
+        """自我审阅：先把当前 patch dry-run 应用，检查是否会破坏结构。
+
+        若发现问题且还没超过重试上限，就把问题写回 critique 并回到 propose 重做；
+        否则交给 review 交给人类。这是成熟的「先自纠错、再给人审」的坏味道防线。
+        没有模型时，兜底 patch 总是合法，因此通常一次通过。
+        """
+        from .patch import PatchOp
+
+        ops = [PatchOp.model_validate(op) for op in (state.get("patch") or [])]
+        try:
+            applied = apply_patch(script, ops)
+        except Exception as e:  # noqa: BLE001
+            return {
+                "critique": [f"应用失败：{e}"],
+                "iterations": state.get("iterations", 0) + 1,
+                "status": STATUS_PLANNING,
+            }
+        issues = [i for i in validate_script(applied) if i.severity == "error"]
+        critique = [f"{i.path}：{i.message}" for i in issues]
+        if critique and state.get("iterations", 0) < MAX_PROPOSE_ITERATIONS:
+            return {"critique": critique, "iterations": state.get("iterations", 0) + 1, "status": STATUS_PLANNING}
+        return {"critique": critique, "iterations": state.get("iterations", 0), "status": STATUS_REVIEWING}
+
+    def review_node(state: AgentState) -> dict[str, Any]:
+        # 中断：把提议（含上下文与可选动作）呈现给人类；
+        # 用户决定后通过 Command(resume=HumanDecision) 恢复。
+        from langgraph.types import interrupt
+
+        decision = interrupt(
+            {
+                "patch": state.get("patch") or [],
+                "plan": state.get("plan") or [],
+                "instruction": state.get("instruction", ""),
+                "proposal": state.get("proposal"),
+                "context": state.get("context"),
+                "choices": ["accept", "edit", "regenerate", "reject"],
+            }
+        )
+        return {"decision": decision}
+
+    def select_ops(state: AgentState) -> list[Any]:
+        """按用户选择的下标挑选 patch 操作；未选择则全接受。"""
+        from .patch import PatchOp
+
+        patch = [PatchOp.model_validate(op) for op in (state.get("patch") or [])]
+        decision = state.get("decision") or {}
+        indexes = decision.get("patch_indexes")
+        if indexes is None:
+            return patch
+        chosen = [patch[i] for i in indexes if 0 <= i < len(patch)] or patch
+        return chosen
+
+    def apply_node(state: AgentState) -> dict[str, Any]:
+        from .patch import PatchOp
+
+        decision = state.get("decision") or {}
+        # 若人类在中断处「编辑」了 patch，优先采用人工修订后的操作。
+        if decision.get("patch"):
+            ops = [PatchOp.model_validate(op) for op in decision["patch"]]
+        else:
+            ops = select_ops(state)
+        new_script = apply_patch(script, ops)
+        issues = validate_script(new_script)
+        error_issues = [i for i in issues if i.severity == "error"]
+        version = store.create_version(
+            project,
+            new_script,
+            source_type="agent_adaptation",
+            label="AI 改编",
+            notes=f"用户需求：{state.get('instruction','')}（应用 {len(ops)} 项）",
+            parent_version_id=project.current_version_id,
+            set_current=True,
+        )
+        return {
+            "status": STATUS_APPLIED,
+            "new_version_id": version.id,
+            "validation_issues": [i.model_dump() for i in issues],
+            "error": None if not error_issues else "; ".join(i.message for i in error_issues),
+        }
+
+    def finalize_node(state: AgentState) -> dict[str, Any]:
+        decision = state.get("decision") or {}
+        action = decision.get("action", "reject")
+        # accept / edit 都会真正落版，视为 applied；其余（reject/regenerate 兜底）为 rejected。
+        status = STATUS_APPLIED if action in ("accept", "edit") else STATUS_REJECTED
+        store.update_agent_run(
+            state["run_id"],
+            status=status,
+            decision=decision,
+            result_version_id=state.get("new_version_id"),
+        )
+        return {"status": status}
+
+    return {
+        "context": context_node,
+        "plan": plan_node,
+        "propose": propose_node,
+        "guard": guard_node,
+        "review": review_node,
+        "apply": apply_node,
+        "finalize": finalize_node,
+    }

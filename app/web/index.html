@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>剧本智能体 · Script Adaptation Agent</title>
+  <style>
+    :root {
+      --bg: #0f1115; --panel: #171a21; --line: #262b36; --ink: #e6e9ef;
+      --muted: #9aa3b2; --accent: #6c9bff; --ok: #3ecf8e; --warn: #ffb454;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 24px; background: var(--bg); color: var(--ink);
+      font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; line-height: 1.55;
+    }
+    header h1 { font-size: 22px; margin: 0 0 4px; }
+    header p { color: var(--muted); margin: 0 0 20px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+    .card h2 { font-size: 15px; margin: 0 0 12px; }
+    label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+    input, textarea, select {
+      width: 100%; background: #0b0d12; border: 1px solid var(--line); color: var(--ink);
+      border-radius: 8px; padding: 8px 10px; font-size: 13px; font-family: inherit;
+    }
+    textarea { min-height: 140px; resize: vertical; }
+    button {
+      background: var(--accent); color: #0b0d12; border: none; padding: 8px 14px;
+      border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; margin-top: 12px;
+    }
+    button.ghost { background: transparent; border: 1px solid var(--line); color: var(--ink); }
+    button.small { padding: 4px 8px; font-size: 12px; margin-top: 0; }
+    pre {
+      background: #0b0d12; border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+      font-size: 12px; overflow: auto; max-height: 360px; white-space: pre-wrap; word-break: break-all;
+    }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; margin: 0 6px 6px 0; border: 1px solid var(--line); }
+    .pill.ok { color: var(--ok); border-color: var(--ok); }
+    .pill.warn { color: var(--warn); border-color: var(--warn); }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .hl { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>剧本智能体 <span class="muted">Script Adaptation Agent</span></h1>
+    <p>LangGraph + LangChain + Postgres（+ 可选 Milvus RAG）· 状态图 / ReAct 工具调用 / 人机协同审阅</p>
+  </header>
+
+  <div class="grid">
+    <section class="card">
+      <h2>① 导入原著并生成剧本</h2>
+      <label>项目标题</label>
+      <input id="title" value="雨夜" />
+      <label>改编类型</label>
+      <select id="adaptType">
+        <option value="short_drama">短剧</option>
+        <option value="film">电影</option>
+        <option value="series">剧集</option>
+        <option value="stage">舞台剧</option>
+        <option value="other">自定义</option>
+      </select>
+      <label>原著文本</label>
+      <textarea id="raw" placeholder="粘贴小说 / 剧本原文（3 段以上最佳）">凌晨三点，滨江路的路灯在雨里像一团化不开的黄。林然把车停在旧楼前，熄了火，雨水顺着挡风玻璃往下淌。收音机里播着今天的新闻：城东旧货市场失火，无人伤亡。
+
+阿姐坐在里头的一把折叠椅上，背对着门：“你终于来了。”林然没答话。角落里站着一个穿红雨衣的男人，把一张照片按在桌上，照片上是失火前夜的旧货市场，里头有一扇写着十四的铁门。</textarea>
+      <button onclick="createProject()">创建项目</button>
+      <button class="ghost" onclick="generate()">生成剧本</button>
+
+      <div class="row" id="genInfo"></div>
+      <h2 style="margin-top:20px">版本 / 校验</h2>
+      <div id="versions"></div>
+    </section>
+
+    <section class="card">
+      <h2>② 让 Agent 提出改写建议</h2>
+      <label>改编指令</label>
+      <textarea id="instruction" style="min-height:70px">把对白改得更口语、节奏更紧凑，并把场景标题改得更抓人。</textarea>
+      <button onclick="runAgent()">运行 Agent</button>
+      <div id="runInfo"></div>
+
+      <h2 style="margin-top:20px">提议（可逐条接受）</h2>
+      <div id="patchBox"></div>
+      <div class="row" style="margin-top:10px">
+        <button class="ok" onclick="acceptRun()">接受全部</button>
+        <button class="ghost" onclick="rejectRun()">拒绝</button>
+        <span class="muted" id="runIdLabel"></span>
+      </div>
+      <label>重新生成（可选，给 Agent 反馈）</label>
+      <input id="feedback" placeholder="例如：对白再口语一点" />
+      <button class="ghost" onclick="regenerateRun()">↻ 重新生成</button>
+    </section>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    const api = async (path, method = "GET", body) => {
+      const res = await fetch("/api" + path, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    };
+    let currentProjectId = null;
+    let currentRunId = null;
+
+    async function createProject() {
+      try {
+        const r = await api("/projects", "POST", {
+          title: $("title").value, raw_text: $("raw").value,
+          adaptation_type: $("adaptType").value, language: "zh-CN",
+        });
+        currentProjectId = r.id;
+        $("genInfo").innerHTML = `<span class="pill ok">项目已创建 ${r.id}</span>${r.indexed_chunks ? `<span class="pill">RAG 索引 ${r.indexed_chunks} 块</span>` : ""}`;
+      } catch (e) { alert("创建失败: " + e.message); }
+    }
+
+    async function generate() {
+      if (!currentProjectId) { alert("请先创建项目"); return; }
+      try {
+        const r = await api(`/projects/${currentProjectId}/generate`, "POST", {});
+        $("genInfo").innerHTML += `<span class="pill ok">已生成版本 ${r.version_id}（模式 ${r.mode}）</span>`;
+        await loadVersions();
+      } catch (e) { alert("生成失败: " + e.message); }
+    }
+
+    async function loadVersions() {
+      if (!currentProjectId) return;
+      const vs = await api(`/projects/${currentProjectId}/versions`);
+      $("versions").innerHTML = vs.length
+        ? vs.map(v => `<span class="pill">${v.source_type} · ${v.label || ""} · ${v.id}</span>`).join("") || "<div class='muted'>暂无</div>"
+        : "<div class='muted'>暂无版本</div>";
+    }
+
+    async function runAgent() {
+      if (!currentProjectId) { alert("请先创建项目并生成版本"); return; }
+      try {
+        const r = await api(`/projects/${currentProjectId}/agent/run`, "POST", {
+          instruction: $("instruction").value, scene_ids: [],
+        });
+        currentRunId = r.run_id;
+        $("runIdLabel").textContent = "run: " + r.run_id;
+        $("runInfo").innerHTML = `<div class="row">`
+          + (r.plan || []).map(p => `<span class="pill">${p}</span>`).join("")
+          + `</div><div class="muted">状态：${r.status}${r.error ? " / " + r.error : ""}</div>`
+          + `<div class="muted">执行轨迹：${(r.steps||[]).join(" → ")}</div>`;
+        renderPatch(r.patch || []);
+      } catch (e) { alert("Agent 失败: " + e.message); }
+    }
+
+    function renderPatch(patch) {
+      $("patchBox").innerHTML = patch.length
+        ? patch.map((op, i) => {
+            const risk = (op.risk || []).map(r => `<span class="pill warn">${r}</span>`).join("");
+            const before = op.before != null ? String(typeof op.before === "object" ? JSON.stringify(op.before) : op.before) : "∅";
+            const after = op.after != null ? String(typeof op.after === "object" ? JSON.stringify(op.after) : op.after) : "∅";
+            return `<div style="border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:8px">
+              <div class="row"><span class="pill">#${i}</span><span class="pill">${op.op}</span><span class="muted">${op.path}</span></div>
+              ${risk}
+              <div class="muted" style="margin-top:4px">from: <span class="hl">${before}</span> → to: <span class="hl">${after}</span></div>
+            </div>`;
+          }).join("")
+        : "<div class='muted'>没有可落地的 patch 操作</div>";
+    }
+
+    async function acceptRun() {
+      if (!currentRunId) { alert("请先运行 Agent"); return; }
+      try {
+        const r = await api(`/agent/runs/${currentRunId}/accept`, "POST", { patch_indexes: null });
+        $("runInfo").innerHTML += `<div class="row"><span class="pill ok">已接受</span><span class="muted">新版本 ${r.new_version_id || "—"}${r.fallback ? "（兜底应用）" : ""}</span></div>`;
+        await loadVersions();
+      } catch (e) { alert("接受失败: " + e.message); }
+    }
+
+    async function rejectRun() {
+      if (!currentRunId) { alert("请先运行 Agent"); return; }
+      try {
+        await api(`/agent/runs/${currentRunId}/reject`, "POST", {});
+        $("runInfo").innerHTML += `<div class="row"><span class="pill warn">已拒绝</span></div>`;
+      } catch (e) { alert("拒绝失败: " + e.message); }
+    }
+
+    async function regenerateRun() {
+      if (!currentRunId) { alert("请先运行 Agent"); return; }
+      try {
+        const r = await api(`/agent/runs/${currentRunId}/resume`, "POST", {
+          action: "regenerate", feedback: $("feedback").value || "换个思路",
+        });
+        $("runInfo").innerHTML += `<div class="row"><span class="pill">已重新生成</span><span class="muted">轨迹：${(r.steps||[]).join(" → ")}</span></div>`;
+        renderPatch(r.patch || []);
+      } catch (e) { alert("重新生成失败: " + e.message); }
+    }
+  </script>
+</body>
+</html>

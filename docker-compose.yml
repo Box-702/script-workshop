@@ -1,33 +1,111 @@
+# =====================================================================
+# docker-compose.yml —— 本地编排
+#
+# 核心栈（默认 `docker compose up`）：
+#   postgres  业务数据（项目 / 版本 / Agent 运行记录）+ LangGraph checkpointer
+#   api       FastAPI：同时提供 REST API（/api/*）与极简 Web 页面（/）
+#
+# 可选增强（`docker compose --profile milvus up`）：
+#   etcd / minio / milvus  -> 向量库，供 Agent 的 retrieve_source 工具做 RAG。
+#   即使 Milvus 未启动，api 里的向量层也会自动退化为「内存向量 + 哈希嵌入」，
+#   因此主流程不受影响 —— 这正是「RAG 可选」的设计。
+# =====================================================================
+
 services:
+  # ---------- 业务数据库 + checkpointer ----------
+  postgres:
+    image: postgres:16-alpine
+    container_name: script-agent-postgres
+    environment:
+      POSTGRES_USER: script
+      POSTGRES_PASSWORD: script
+      POSTGRES_DB: script_agent
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U script -d script_agent"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # ---------- API + 极简 Web ----------
   api:
     build:
       context: .
-      dockerfile: apps/api/Dockerfile
-    container_name: script-workshop-api
+      dockerfile: Dockerfile
+    container_name: script-agent-api
     env_file:
       - path: .env
         required: false
     environment:
-      AUTH_MODE: local
-      DATABASE_URL: sqlite:///./data/script-workshop.db
-      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      DATABASE_URL: postgresql+psycopg://script:script@postgres:5432/script_agent
+      CHECKPOINTER: postgres
+      CHECKPOINT_DSN: postgresql://script:script@postgres:5432/script_agent
+      MILVUS_URI: http://milvus:19530
+      MILVUS_COLLECTION: script_chunks
+      ENABLE_RAG: "false"
+      API_HOST: 0.0.0.0
+      API_PORT: "8000"
     ports:
       - "8000:8000"
-    volumes:
-      - ./apps/api/data:/app/data
-      - ./apps/api/storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
-  web:
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-    container_name: script-workshop-web
+  # ---------- 可选 Milvus 向量栈（--profile milvus 时启动）----------
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    profiles: ["milvus"]
+    container_name: script-agent-etcd
+    command: >
+      etcd -advertise-client-urls=http://etcd:2379
+      -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
     environment:
-      - BACKEND_URL=http://api:8000
-      - NEXT_PUBLIC_API_BASE=/api
-    ports:
-      - "3000:3000"
-    depends_on:
-      - api
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+    volumes:
+      - etcddata:/etcd
     restart: unless-stopped
+
+  minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    profiles: ["milvus"]
+    container_name: script-agent-minio
+    command: minio server /minio_data --console-address ":9001"
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    volumes:
+      - miniodata:/minio_data
+    ports:
+      - "9001:9001"
+    restart: unless-stopped
+
+  milvus:
+    image: milvusdb/milvus:v3.0.0
+    profiles: ["milvus"]
+    container_name: script-agent-milvus
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    depends_on:
+      - etcd
+      - minio
+    ports:
+      - "19530:19530"
+    volumes:
+      - milvusdata:/var/lib/milvus
+    restart: unless-stopped
+
+
+volumes:
+  pgdata:
+  etcddata:
+  miniodata:
+  milvusdata:
