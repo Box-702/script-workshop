@@ -14,9 +14,10 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .config import Settings
 from .domain import (
@@ -59,17 +60,41 @@ class Bible(BaseModel):
     locations: list[_LocationIn] = Field(default_factory=list)
 
 
+class _BeatIn(BaseModel):
+    """容错节拍：兼容模型常用的 action/dialogue 键与 text/line 键。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str | None = None
+    type: str = "action"
+    text: str | None = None
+    line: str | None = None
+    action: str | None = None
+    dialogue: str | None = None
+    speaker: str | None = None
+    emotion: str | None = None
+    subtext: str | None = None
+
+
 class _SceneIn(BaseModel):
-    id: str
-    title: str
+    """容错场景：兼容 scene_id/scene_title/location 与 id/title/location_id。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str | None = None
+    scene_id: str | None = None
+    title: str | None = None
+    scene_title: str | None = None
     chapter_refs: list[str] = Field(default_factory=list)
-    location_id: str = "loc_main"
+    location_id: str | None = None
+    location: str | None = None
     characters: list[str] = Field(default_factory=list)
     purpose: str = "推进情节。"
     conflict: str = "角色面对压力。"
     entry_state: str | None = None
     exit_state: str | None = None
-    beats: list[dict[str, Any]] = Field(default_factory=list)
+    time: str | None = None
+    beats: list[_BeatIn] = Field(default_factory=list)
 
 
 class ScenePlan(BaseModel):
@@ -109,6 +134,20 @@ def _stage_scenes(llm: LLM, settings: Settings, *, bible: Bible, excerpts: list[
     )
 
 
+def _norm_beat_id(value: object, index: int, used: set[str]) -> str:
+    """把模型给的节拍 id 规整为 ``beat_数字``（非纯数字则回退序号，并保证唯一）。"""
+    raw = str(value or "").strip()
+    candidate = normalize_id(raw, "beat", fallback=str(index))
+    if not re.fullmatch(r"beat_[0-9]{3,}", candidate):
+        candidate = f"beat_{index:03d}"
+    n = index
+    while candidate in used:
+        n += 1
+        candidate = f"beat_{n:03d}"
+    used.add(candidate)
+    return candidate
+
+
 def generate_script(
     llm: LLM,
     settings: Settings,
@@ -130,8 +169,13 @@ def generate_script(
             excerpts = chunks[:12]
             bible = _stage_bible(llm, settings, title=title, excerpts=excerpts, prof=prof, language=language)
             plan = _stage_scenes(llm, settings, bible=bible, excerpts=excerpts, prof=prof, language=language, chunks=chunks)
+            if not plan.scenes:
+                # 思考模型输出不稳定：场景为空时重试一次。
+                plan = _stage_scenes(llm, settings, bible=bible, excerpts=excerpts, prof=prof, language=language, chunks=chunks)
+            if not plan.scenes:
+                raise ValueError("场景生成为空")
 
-            # 规整到领域模型。
+            # ---- 人物：Bible 中若没有，从节拍说话人自动补全 ----
             used_chars: set[str] = set()
             chars: list[Character] = []
             for i, c in enumerate(bible.characters):
@@ -140,9 +184,28 @@ def generate_script(
                     cid = f"{cid}_{i + 1}"[: 40]
                 used_chars.add(cid)
                 chars.append(Character(id=cid, name=c.name, role=c.role, goal=c.goal, motivation=c.motivation))
+            name_to_id = {c.name: c.id for c in chars}
+            extra_speakers: list[str] = []
+            for sc in plan.scenes:
+                for b in sc.beats or []:
+                    spk = str(b.speaker or "").strip()
+                    if spk and spk not in name_to_id and spk not in extra_speakers:
+                        extra_speakers.append(spk)
+            for spk in extra_speakers:
+                cid = normalize_id(spk, "char", fallback=f"char_{len(chars) + 1:03d}")
+                # 保证与已有角色 id 不冲突（模型常把同一人写成不同名字）。
+                if cid in used_chars:
+                    suffix = 1
+                    while f"{cid}_{suffix}" in used_chars:
+                        suffix += 1
+                    cid = f"{cid}_{suffix}"
+                used_chars.add(cid)
+                chars.append(Character(id=cid, name=spk, role="supporting"))
+                name_to_id[spk] = cid
             if not chars:
                 chars = [Character(id="char_protagonist", name="主角", role="protagonist")]
 
+            # ---- 地点 ----
             used_locs: set[str] = set()
             locs: list[Location] = []
             for i, l in enumerate(bible.locations):
@@ -154,38 +217,48 @@ def generate_script(
             if not locs:
                 locs = [Location(id="loc_main", name="主要场景")]
 
+            char_id_set = {c.id for c in chars}
             char_list = [c.id for c in chars]
             loc_id = locs[0].id
             scenes: list[Scene] = []
             for i, s in enumerate(plan.scenes or []):
-                sid = normalize_id(s.id, "scene", fallback=f"scene_{i + 1:03d}")
-                # 场景内人物规整到全局人物 id。
-                sc_chars = [normalize_id(x, "char", fallback=x) for x in s.characters]
-                sc_chars = [c for c in sc_chars if c in set(char_list)] or [char_list[0]]
+                sid = normalize_id(s.scene_id or s.id, "scene", fallback=f"scene_{i + 1:03d}")
+                s_title = s.scene_title or s.title
+                s_loc = s.location_id or s.location
+                # 场景人物：显式人物（名字/ id 均可）+ 该场景节拍的说话人。
+                sc_chars = [name_to_id.get(x, normalize_id(x, "char", fallback=x)) for x in s.characters]
+                sc_chars = [c for c in sc_chars if c in char_id_set]
+                for b in s.beats or []:
+                    spk = str(b.speaker or "").strip()
+                    sid2 = name_to_id.get(spk)
+                    if sid2 and sid2 not in sc_chars:
+                        sc_chars.append(sid2)
+                sc_chars = sc_chars or [char_list[0]]
                 beats: list[ScriptBeat] = []
+                used_beat_ids: set[str] = set()
                 for bi, b in enumerate(s.beats or []):
-                    kind = str(b.get("type") or "action")
+                    kind = str(b.type or "action")
                     if kind not in {"action", "dialogue", "cue"}:
-                        kind = "dialogue" if b.get("speaker") or b.get("line") else "action"
-                    bid = normalize_id(b.get("id"), "beat", fallback=f"beat_{bi + 1:03d}")
+                        kind = "dialogue" if (b.speaker or b.line or b.dialogue) else "action"
+                    bid = _norm_beat_id(b.id, bi + 1, used_beat_ids)
                     if kind == "dialogue":
-                        speaker = normalize_id(b.get("speaker"), "char", fallback=sc_chars[0])
-                        line = str(b.get("line") or b.get("text") or "").strip()
+                        speaker = name_to_id.get(str(b.speaker or "").strip(), sc_chars[0])
+                        line = str(b.line or b.dialogue or b.text or "").strip()
                         if not line:
                             continue
                         beats.append(ScriptBeat(id=bid, type="dialogue", speaker=speaker, line=line))
                     else:
-                        text = str(b.get("text") or b.get("line") or "").strip()
+                        text = str(b.text or b.action or b.line or "").strip()
                         if not text:
                             continue
                         beats.append(ScriptBeat(id=bid, type=kind, text=text))  # type: ignore[arg-type]
                 scenes.append(
                     Scene(
                         id=sid,
-                        title=s.title or f"第 {i + 1} 场",
+                        title=s_title or f"第 {i + 1} 场",
                         chapter_refs=s.chapter_refs or ["ch_001"],
-                        location_id=normalize_id(s.location_id, "loc", fallback=loc_id),
-                        time=s.time if hasattr(s, "time") else None,
+                        location_id=normalize_id(s_loc, "loc", fallback=loc_id),
+                        time=s.time,
                         characters=sc_chars,
                         purpose=s.purpose,
                         conflict=s.conflict,

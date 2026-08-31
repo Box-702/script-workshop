@@ -3,197 +3,781 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>剧本智能体 · Script Adaptation Agent</title>
+  <title>剧本工坊 · 对话式改编 Agent</title>
   <style>
     :root {
-      --bg: #0f1115; --panel: #171a21; --line: #262b36; --ink: #e6e9ef;
-      --muted: #9aa3b2; --accent: #6c9bff; --ok: #3ecf8e; --warn: #ffb454;
+      --bg:#0f1115; --panel:#171a21; --panel2:#13161d; --line:#262b36; --ink:#e6e9ef; --muted:#9aa3b2;
+      --accent:#6c9bff; --ok:#3ecf8e; --warn:#ffb454; --bad:#ff6b6b; --dim:#566071;
+      --act:#4aa3ff; --dlg:#3ecf8e; --cue:#c792ea; --user:#1e3a5f;
+      --md-h:#e8edf6; --code-bg:#0b0d12; --table-line:#2a3040;
     }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0; padding: 24px; background: var(--bg); color: var(--ink);
-      font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; line-height: 1.55;
-    }
-    header h1 { font-size: 22px; margin: 0 0 4px; }
-    header p { color: var(--muted); margin: 0 0 20px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
-    .card h2 { font-size: 15px; margin: 0 0 12px; }
-    label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
-    input, textarea, select {
-      width: 100%; background: #0b0d12; border: 1px solid var(--line); color: var(--ink);
-      border-radius: 8px; padding: 8px 10px; font-size: 13px; font-family: inherit;
-    }
-    textarea { min-height: 140px; resize: vertical; }
-    button {
-      background: var(--accent); color: #0b0d12; border: none; padding: 8px 14px;
-      border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; margin-top: 12px;
-    }
-    button.ghost { background: transparent; border: 1px solid var(--line); color: var(--ink); }
-    button.small { padding: 4px 8px; font-size: 12px; margin-top: 0; }
-    pre {
-      background: #0b0d12; border: 1px solid var(--line); border-radius: 8px; padding: 10px;
-      font-size: 12px; overflow: auto; max-height: 360px; white-space: pre-wrap; word-break: break-all;
-    }
-    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; margin: 0 6px 6px 0; border: 1px solid var(--line); }
-    .pill.ok { color: var(--ok); border-color: var(--ok); }
-    .pill.warn { color: var(--warn); border-color: var(--warn); }
-    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    .muted { color: var(--muted); font-size: 12px; }
-    .hl { color: var(--accent); }
+    * { box-sizing:border-box; }
+    html,body { height:100%; }
+    body { margin:0; background:var(--bg); color:var(--ink);
+      font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; line-height:1.55; font-size:14px; }
+    header { display:flex; align-items:center; gap:12px; padding:9px 16px; border-bottom:1px solid var(--line);
+      background:var(--panel); flex-wrap:wrap; }
+    header h1 { font-size:16px; margin:0; }
+    .badges { display:flex; gap:8px; flex-wrap:wrap; margin-left:auto; }
+    .badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; border:1px solid var(--line); color:var(--muted); }
+    .badge.on { color:var(--ok); border-color:var(--ok); }
+    .badge.off { color:var(--dim); }
+    .layout { display:grid; grid-template-columns:260px 1fr 320px; height:calc(100vh - 51px); }
+    /* ---- 左侧：项目树（项目 -> 对话） ---- */
+    aside { border-right:1px solid var(--line); background:var(--panel); display:flex; flex-direction:column; min-height:0; }
+    .aside-head { padding:10px 12px 6px; display:flex; align-items:center; justify-content:space-between; }
+    .aside-head h2 { font-size:12px; margin:0; color:var(--muted); font-weight:600; letter-spacing:.5px; }
+    .tree { overflow-y:auto; flex:1; padding:0 8px 12px; }
+    .proj { margin-bottom:2px; }
+    .proj-head { display:flex; align-items:center; gap:6px; padding:6px 8px; border-radius:8px; cursor:pointer; font-size:13px; }
+    .proj-head:hover { background:#1c2029; }
+    .proj-head.active { background:#1e2430; }
+    .proj-head .arrow { width:12px; color:var(--dim); font-size:10px; transition:transform .12s; }
+    .proj-head.open .arrow { transform:rotate(90deg); }
+    .proj-head .t { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
+    .proj-head .n { font-size:11px; color:var(--dim); }
+    .conv-list { margin:0 0 4px 22px; }
+    .conv { display:flex; align-items:center; gap:4px; padding:4px 8px; border-radius:7px; cursor:pointer; font-size:12.5px; color:var(--muted); }
+    .conv:hover { background:#1c2029; color:var(--ink); }
+    .conv.active { background:var(--accent); color:#0b0d12; font-weight:600; }
+    .conv .ct { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .conv .ops { display:none; gap:2px; }
+    .conv:hover .ops { display:flex; }
+    .conv .ops button { background:transparent; border:none; color:inherit; cursor:pointer; font-size:12px; padding:0 3px; opacity:.7; }
+    .conv .ops button:hover { opacity:1; }
+    .new-conv { margin:2px 0 6px 22px; }
+    .tree-empty { color:var(--dim); font-size:12px; padding:8px; }
+    /* ---- 中间：对话 ---- */
+    main { display:flex; flex-direction:column; min-height:0; min-width:0; }
+    .thread { flex:1; overflow-y:auto; padding:16px 20px 8px; }
+    .thread-inner { max-width:820px; margin:0 auto; }
+    .msg { margin-bottom:14px; display:flex; flex-direction:column; }
+    .msg.user { align-items:flex-end; }
+    .bubble { max-width:82%; padding:9px 14px; border-radius:14px; word-break:break-word; }
+    .msg.user .bubble { background:var(--user); border:1px solid #2c4d78; border-bottom-right-radius:4px; white-space:pre-wrap; }
+    .msg.assistant .bubble { background:var(--panel); border:1px solid var(--line); border-bottom-left-radius:4px; }
+    .msg.assistant .bubble.md { padding:10px 16px; }
+    .activity { display:flex; flex-direction:column; gap:3px; margin-bottom:6px; }
+    .activity .chip { font-size:11.5px; color:var(--muted); background:#10131a; border:1px solid var(--line);
+      border-radius:8px; padding:4px 10px; width:fit-content; max-width:90%; }
+    .activity .chip .fn { color:var(--act); font-weight:600; }
+    .activity .chip.ok { border-color:var(--ok); color:var(--ok); }
+    .typing { display:inline-flex; gap:4px; align-items:center; }
+    .typing i { width:6px; height:6px; border-radius:50%; background:var(--muted); animation:blink 1.2s infinite; }
+    .typing i:nth-child(2){ animation-delay:.2s } .typing i:nth-child(3){ animation-delay:.4s }
+    @keyframes blink { 0%,80%,100%{opacity:.25} 40%{opacity:1} }
+    /* Markdown 渲染样式 */
+    .md h1,.md h2,.md h3,.md h4 { color:var(--md-h); margin:14px 0 8px; line-height:1.35; }
+    .md h1 { font-size:18px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+    .md h2 { font-size:16px; } .md h3 { font-size:14.5px; } .md h4 { font-size:13.5px; }
+    .md p { margin:7px 0; }
+    .md ul,.md ol { margin:7px 0; padding-left:22px; }
+    .md li { margin:3px 0; }
+    .md strong { color:#fff; font-weight:700; }
+    .md code { background:var(--code-bg); border:1px solid var(--line); border-radius:5px; padding:1px 5px; font-size:12px; font-family:Consolas,"Courier New",monospace; color:var(--cue); }
+    .md pre { background:var(--code-bg); border:1px solid var(--line); border-radius:8px; padding:10px 12px; overflow-x:auto; margin:8px 0; }
+    .md pre code { background:none; border:none; padding:0; color:var(--ink); }
+    .md blockquote { border-left:3px solid var(--accent); margin:8px 0; padding:4px 12px; color:var(--muted); background:var(--panel2); border-radius:0 8px 8px 0; }
+    .md table { border-collapse:collapse; margin:8px 0; font-size:12.5px; width:100%; }
+    .md th,.md td { border:1px solid var(--table-line); padding:5px 10px; text-align:left; }
+    .md th { background:var(--panel2); color:var(--md-h); }
+    .md hr { border:none; border-top:1px solid var(--line); margin:12px 0; }
+    .md a { color:var(--accent); }
+    /* 卡片 */
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-top:8px; }
+    .card h3 { font-size:13px; margin:0 0 8px; color:var(--accent); }
+    .pill { display:inline-block; padding:1px 8px; border-radius:999px; font-size:11px; border:1px solid var(--line); color:var(--muted); margin:1px 3px 1px 0; }
+    .pill.act { color:var(--act); border-color:var(--act); } .pill.dlg { color:var(--dlg); border-color:var(--dlg); }
+    .pill.cue { color:var(--cue); border-color:var(--cue); } .pill.ok { color:var(--ok); border-color:var(--ok); }
+    .pill.warn { color:var(--warn); border-color:var(--warn); } .pill.bad { color:var(--bad); border-color:var(--bad); }
+    .op { border:1px solid var(--line); border-radius:10px; padding:7px 10px; margin-bottom:6px; background:#0b0d12; }
+    .op .head { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+    .op .diff { margin-top:5px; font-size:12px; color:var(--muted); }
+    .op .diff .old { color:var(--bad); text-decoration:line-through; }
+    .op .diff .new { color:var(--ok); }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .muted { color:var(--muted); font-size:12px; }
+    button { background:var(--accent); color:#0b0d12; border:none; padding:6px 12px; border-radius:8px; font-size:12.5px;
+      font-weight:600; cursor:pointer; }
+    button.ghost { background:transparent; border:1px solid var(--line); color:var(--ink); }
+    button.ok { background:var(--ok); color:#0b0d12; }
+    button.warn { background:var(--warn); color:#0b0d12; }
+    button.danger { background:var(--bad); color:#0b0d12; }
+    button.small { padding:3px 8px; font-size:11.5px; }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    input, textarea, select { background:#0b0d12; border:1px solid var(--line); color:var(--ink);
+      border-radius:8px; padding:7px 10px; font-size:13px; font-family:inherit; }
+    textarea { resize:vertical; }
+    /* 输入区 */
+    .composer { border-top:1px solid var(--line); padding:10px 20px 12px; background:var(--panel); }
+    .composer-inner { max-width:820px; margin:0 auto; display:flex; gap:10px; align-items:flex-end; }
+    .composer textarea { flex:1; min-height:42px; max-height:150px; line-height:1.5; }
+    .hint { color:var(--dim); font-size:11.5px; margin-top:5px; max-width:820px; margin-left:auto; margin-right:auto; }
+    /* ---- 右侧：文本查看面板（Codex 式） ---- */
+    .viewer { border-left:1px solid var(--line); background:var(--panel); display:flex; flex-direction:column; min-height:0; min-width:0; }
+    .viewer .v-head { padding:9px 12px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:6px; }
+    .viewer .v-head .vt { font-size:12px; color:var(--muted); font-weight:600; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .v-tabs { display:flex; gap:4px; }
+    .v-tab { padding:3px 9px; border-radius:7px; border:1px solid var(--line); cursor:pointer; font-size:11.5px; color:var(--muted); }
+    .v-tab.active { background:var(--accent); color:#0b0d12; border-color:var(--accent); font-weight:600; }
+    .v-body { flex:1; overflow-y:auto; }
+    .v-body pre { margin:0; padding:12px 14px; font-family:Consolas,"Courier New",monospace; font-size:12.5px;
+      line-height:1.7; white-space:pre-wrap; word-break:break-word; color:#d8dee9; }
+    .v-body .v-empty { color:var(--dim); font-size:12px; padding:16px; }
+    .know-row { font-size:11.5px; color:var(--muted); padding:5px 12px; border-bottom:1px dashed var(--line); }
+    .know-row b { color:var(--cue); font-weight:600; }
+    .know-kind { font-size:11px; color:var(--cue); padding:10px 12px 2px; font-weight:600; }
+    .diff-item { font-size:12px; padding:6px 12px; border-bottom:1px dashed var(--line); }
+    .diff-item .t-add { color:var(--ok); } .diff-item .t-del { color:var(--bad); } .diff-item .t-mod { color:var(--warn); }
+    .diff-item .old { color:var(--bad); text-decoration:line-through; }
+    .diff-item .new { color:var(--ok); }
+    /* ---- 新建剧本弹窗 ---- */
+    .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:center; justify-content:center; z-index:50; }
+    .modal-backdrop.show { display:flex; }
+    .modal { background:var(--panel); border:1px solid var(--line); border-radius:14px; width:520px; max-width:94vw; max-height:88vh;
+      overflow-y:auto; padding:18px 20px; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+    .modal h3 { margin:0 0 4px; font-size:16px; }
+    .modal .sub { color:var(--muted); font-size:12px; margin-bottom:14px; }
+    .modal label { display:block; font-size:12px; color:var(--muted); margin:12px 0 4px; }
+    .drop { border:1.5px dashed var(--line); border-radius:10px; padding:18px; text-align:center; color:var(--muted); font-size:12.5px; cursor:pointer; transition:border-color .15s; }
+    .drop:hover,.drop.drag { border-color:var(--accent); color:var(--ink); }
+    .drop .fn { color:var(--ok); font-weight:600; }
+    .modal .foot { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+    .modal textarea { width:100%; min-height:110px; }
+    .err { color:var(--bad); font-size:12px; margin-top:8px; display:none; }
+    details.edit-patch summary { cursor:pointer; color:var(--muted); font-size:12px; }
+    .scene { border:1px solid var(--line); border-radius:10px; padding:8px 12px; margin-bottom:8px; }
+    .scene .stitle { font-weight:600; }
+    .scene .meta { color:var(--muted); font-size:12px; }
+    .beat { margin:4px 0 0 8px; padding:3px 8px; border-left:3px solid var(--line); background:#0b0d12; border-radius:0 6px 6px 0; font-size:12.5px; }
+    .beat.act { border-color:var(--act); } .beat.dlg { border-color:var(--dlg); } .beat.cue { border-color:var(--cue); }
+    .beat .spk { color:var(--act); font-weight:600; }
+    .beat .em { color:var(--warn); font-size:12px; }
   </style>
 </head>
 <body>
   <header>
-    <h1>剧本智能体 <span class="muted">Script Adaptation Agent</span></h1>
-    <p>LangGraph + LangChain + Postgres（+ 可选 Milvus RAG）· 状态图 / ReAct 工具调用 / 人机协同审阅</p>
+    <h1>剧本工坊 <span class="muted">对话式改编 Agent</span></h1>
+    <button onclick="openNewProject()">＋ 新建剧本</button>
+    <div class="badges" id="statusBadges"></div>
   </header>
 
-  <div class="grid">
-    <section class="card">
-      <h2>① 导入原著并生成剧本</h2>
-      <label>项目标题</label>
-      <input id="title" value="雨夜" />
-      <label>改编类型</label>
-      <select id="adaptType">
-        <option value="short_drama">短剧</option>
-        <option value="film">电影</option>
-        <option value="series">剧集</option>
-        <option value="stage">舞台剧</option>
-        <option value="other">自定义</option>
-      </select>
-      <label>原著文本</label>
-      <textarea id="raw" placeholder="粘贴小说 / 剧本原文（3 段以上最佳）">凌晨三点，滨江路的路灯在雨里像一团化不开的黄。林然把车停在旧楼前，熄了火，雨水顺着挡风玻璃往下淌。收音机里播着今天的新闻：城东旧货市场失火，无人伤亡。
+  <div class="layout">
+    <!-- 左：项目树 -->
+    <aside>
+      <div class="aside-head"><h2>剧本项目</h2></div>
+      <div class="tree" id="tree"></div>
+    </aside>
 
-阿姐坐在里头的一把折叠椅上，背对着门：“你终于来了。”林然没答话。角落里站着一个穿红雨衣的男人，把一张照片按在桌上，照片上是失火前夜的旧货市场，里头有一扇写着十四的铁门。</textarea>
-      <button onclick="createProject()">创建项目</button>
-      <button class="ghost" onclick="generate()">生成剧本</button>
-
-      <div class="row" id="genInfo"></div>
-      <h2 style="margin-top:20px">版本 / 校验</h2>
-      <div id="versions"></div>
-    </section>
-
-    <section class="card">
-      <h2>② 让 Agent 提出改写建议</h2>
-      <label>改编指令</label>
-      <textarea id="instruction" style="min-height:70px">把对白改得更口语、节奏更紧凑，并把场景标题改得更抓人。</textarea>
-      <button onclick="runAgent()">运行 Agent</button>
-      <div id="runInfo"></div>
-
-      <h2 style="margin-top:20px">提议（可逐条接受）</h2>
-      <div id="patchBox"></div>
-      <div class="row" style="margin-top:10px">
-        <button class="ok" onclick="acceptRun()">接受全部</button>
-        <button class="ghost" onclick="rejectRun()">拒绝</button>
-        <span class="muted" id="runIdLabel"></span>
+    <!-- 中：对话 -->
+    <main>
+      <div class="thread" id="thread"><div class="thread-inner" id="threadInner"></div></div>
+      <div class="composer">
+        <div class="composer-inner">
+          <textarea id="input" rows="1" placeholder="说点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+          <button id="sendBtn" onclick="sendMessage()">发送</button>
+        </div>
+        <div class="hint" id="hint"></div>
       </div>
-      <label>重新生成（可选，给 Agent 反馈）</label>
-      <input id="feedback" placeholder="例如：对白再口语一点" />
-      <button class="ghost" onclick="regenerateRun()">↻ 重新生成</button>
-    </section>
+    </main>
+
+    <!-- 右：文本查看面板 -->
+    <div class="viewer" id="viewer">
+      <div class="v-head">
+        <div class="v-tabs">
+          <div class="v-tab active" onclick="showView('text')">剧本文本</div>
+          <div class="v-tab" onclick="showView('knowledge')">知识库</div>
+          <div class="v-tab" onclick="showView('diff')">版本对比</div>
+        </div>
+        <div class="vt" id="viewerTitle"></div>
+      </div>
+      <div class="v-body" id="viewText"><div class="v-empty">选择剧本项目后，这里会以「文本查看模式」显示当前剧本文本</div></div>
+      <div class="v-body" id="viewKnowledge" style="display:none"><div class="v-empty">选择项目后查看项目知识库</div></div>
+      <div class="v-body" id="viewDiff" style="display:none"><div class="v-empty">选择版本后查看改动对比</div></div>
+    </div>
+  </div>
+
+  <!-- 新建剧本弹窗 -->
+  <div class="modal-backdrop" id="newModal" onclick="if(event.target===this)closeNewProject()">
+    <div class="modal">
+      <h3>新建剧本 <span class="muted" style="font-size:12px;font-weight:400">＝ 新项目</span></h3>
+      <div class="sub">导入原著（.txt / .md / .docx）或粘贴原文，创建后自动建立项目知识库（同类走向 / 写作手法 / 作者风格）</div>
+      <label>剧名</label>
+      <input id="npTitle" placeholder="例如：雨夜" style="width:100%" />
+      <label>改编类型</label>
+      <select id="npAdapt" style="width:100%">
+        <option value="short_drama">短剧</option><option value="film">电影</option>
+        <option value="series">剧集</option><option value="stage">舞台剧</option><option value="other">自定义</option>
+      </select>
+      <label>原著文件（可拖拽）</label>
+      <div class="drop" id="npDrop" onclick="$('npFile').click()">
+        <span id="npDropText">点击选择或拖入 .txt / .md / .docx 文件</span>
+      </div>
+      <input type="file" id="npFile" accept=".txt,.md,.markdown,.docx" style="display:none" />
+      <label>或直接粘贴原文</label>
+      <textarea id="npRaw" placeholder="粘贴小说 / 剧本原文（3 段以上最佳）"></textarea>
+      <div class="err" id="npErr"></div>
+      <div class="foot">
+        <button class="ghost" onclick="closeNewProject()">取消</button>
+        <button class="ok" onclick="submitNewProject()">创建剧本</button>
+      </div>
+    </div>
   </div>
 
   <script>
     const $ = id => document.getElementById(id);
-    const api = async (path, method = "GET", body) => {
+    const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+    const api = async (path, method="GET", body) => {
       const res = await fetch("/api" + path, {
-        method,
-        headers: { "Content-Type": "application/json" },
+        method, headers: { "Content-Type": "application/json" },
         body: body ? JSON.stringify(body) : undefined,
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) { let msg = res.statusText; try { const j = await res.json(); msg = j.detail || JSON.stringify(j); } catch {} throw new Error(msg); }
       return res.json();
     };
-    let currentProjectId = null;
-    let currentRunId = null;
 
-    async function createProject() {
+    let S = {
+      pid: null, convId: null,
+      projects: [], conversations: [], versions: [],
+      checked: new Map(), streaming: false,
+      currentView: "text", preserveThread: false,
+      viewerScript: "",
+    };
+
+    // ================= Markdown 渲染（内联轻量实现，离线可用） =================
+    function inlineMd(s) {
+      return esc(s)
+        .replace(/`([^`]+)`/g, "<code>$1</code>")
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+        .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    }
+    function mdToHtml(src) {
+      const lines = String(src ?? "").replace(/\r\n/g, "\n").split("\n");
+      let html = "", i = 0, inCode = false, codeBuf = [];
+      while (i < lines.length) {
+        const line = lines[i];
+        if (/^```/.test(line.trim())) {
+          if (!inCode) { inCode = true; codeBuf = []; }
+          else { inCode = false; html += "<pre><code>" + esc(codeBuf.join("\n")) + "</code></pre>"; }
+          i++; continue;
+        }
+        if (inCode) { codeBuf.push(line); i++; continue; }
+        if (/^\|/.test(line.trim()) && i + 1 < lines.length && /^\|[\s:|-]+\|$/.test(lines[i + 1].trim()) && lines[i + 1].includes("-")) {
+          const head = line.split("|").slice(1, -1).map(s => s.trim());
+          i += 2; const rows = [];
+          while (i < lines.length && /^\|/.test(lines[i].trim())) { rows.push(lines[i].split("|").slice(1, -1).map(s => s.trim())); i++; }
+          html += "<table><thead><tr>" + head.map(h => "<th>" + inlineMd(h) + "</th>").join("") + "</tr></thead><tbody>"
+            + rows.map(r => "<tr>" + r.map(c => "<td>" + inlineMd(c) + "</td>").join("") + "</tr>").join("") + "</tbody></table>";
+          continue;
+        }
+        const h = line.match(/^(#{1,6})\s+(.*)$/);
+        if (h) { const n = h[1].length; html += `<h${n}>${inlineMd(h[2])}</h${n}>`; i++; continue; }
+        if (/^\s*(---|\*\*\*|___)\s*$/.test(line)) { html += "<hr/>"; i++; continue; }
+        if (/^>\s?/.test(line)) {
+          const buf = [];
+          while (i < lines.length && /^>\s?/.test(lines[i])) { buf.push(lines[i].replace(/^>\s?/, "")); i++; }
+          html += "<blockquote>" + buf.map(l => inlineMd(l)).join("<br/>") + "</blockquote>";
+          continue;
+        }
+        if (/^\s*[-*+]\s+/.test(line)) {
+          const buf = [];
+          while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) { buf.push(lines[i].replace(/^\s*[-*+]\s+/, "")); i++; }
+          html += "<ul>" + buf.map(l => "<li>" + inlineMd(l) + "</li>").join("") + "</ul>";
+          continue;
+        }
+        if (/^\s*\d+[.)]\s+/.test(line)) {
+          const buf = [];
+          while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) { buf.push(lines[i].replace(/^\s*\d+[.)]\s+/, "")); i++; }
+          html += "<ol>" + buf.map(l => "<li>" + inlineMd(l) + "</li>").join("") + "</ol>";
+          continue;
+        }
+        if (!line.trim()) { i++; continue; }
+        const buf = [line]; i++;
+        while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|```|>|[-*+]\s|\d+[.)]\s|\||---)/.test(lines[i].trim())) { buf.push(lines[i]); i++; }
+        html += "<p>" + buf.map(l => inlineMd(l)).join("<br/>") + "</p>";
+      }
+      if (inCode) html += "<pre><code>" + esc(codeBuf.join("\n")) + "</code></pre>";
+      return html;
+    }
+
+    // ================= 状态徽章 =================
+    async function loadStatus() {
       try {
-        const r = await api("/projects", "POST", {
-          title: $("title").value, raw_text: $("raw").value,
-          adaptation_type: $("adaptType").value, language: "zh-CN",
+        const s = await api("/status");
+        const model = s.model.available ? `模型 ${s.model.provider}(${s.model.name})` : "模型 未配置(回退)";
+        const rag = s.rag.enabled ? `RAG ${s.rag.vector_backend}·${s.rag.dim}d` : "RAG 关闭";
+        $("statusBadges").innerHTML =
+          `<span class="badge ${s.model.available?'on':'off'}">${esc(model)}</span>` +
+          `<span class="badge ${s.rag.enabled?'on':'off'}">${esc(rag)}</span>` +
+          `<span class="badge">${esc(s.storage.database.split("://")[0])}</span>` +
+          `<span class="badge">${esc(s.storage.checkpointer)}</span>`;
+      } catch (e) { $("statusBadges").innerHTML = `<span class="badge off">status: ${esc(e.message)}</span>`; }
+    }
+
+    // ================= 项目树（项目 -> 对话） =================
+    async function loadTree() {
+      S.projects = await api("/projects");
+      const tree = $("tree");
+      if (!S.projects.length) { tree.innerHTML = '<div class="tree-empty">还没有剧本项目。点右上角「＋ 新建剧本」创建一个。</div>'; return; }
+      tree.innerHTML = "";
+      for (const p of S.projects) {
+        const open = !S.pid || S.pid === p.id;
+        const wrap = document.createElement("div");
+        wrap.className = "proj";
+        wrap.innerHTML = `
+          <div class="proj-head ${S.pid === p.id ? 'active' : ''} ${open ? 'open' : ''}" onclick="toggleProject('${p.id}')">
+            <span class="arrow">▶</span><span>📁</span>
+            <span class="t" title="${esc(p.title)}">${esc(p.title)}</span>
+            <span class="n">${p.version_count}版</span>
+          </div>
+          <div class="conv-list" style="${open ? '' : 'display:none'}"></div>`;
+        tree.appendChild(wrap);
+        if (open) loadConversations(p.id, wrap.querySelector(".conv-list"));
+      }
+    }
+    async function toggleProject(pid) {
+      const head = document.querySelector(`.proj-head[onclick="toggleProject('${pid}')"]`);
+      const list = head?.nextElementSibling;
+      if (!list) return;
+      const hidden = list.style.display === "none";
+      list.style.display = hidden ? "" : "none";
+      head.classList.toggle("open", hidden);
+      if (hidden) await loadConversations(pid, list);
+    }
+    async function loadConversations(pid, container) {
+      let convs = [];
+      try { convs = await api(`/projects/${pid}/conversations`); } catch (e) { convs = []; }
+      S.conversations = convs;
+      container.innerHTML = convs.map(c => `
+        <div class="conv ${S.convId === c.id ? 'active' : ''}" onclick="selectConversation('${pid}','${c.id}')">
+          <span>💬</span>
+          <span class="ct" title="双击重命名">${esc(c.title)}</span>
+          <span class="ops">
+            <button onclick="event.stopPropagation();renameConversation('${c.id}')" title="重命名">✎</button>
+            <button onclick="event.stopPropagation();deleteConversation('${c.id}')" title="删除">🗑</button>
+          </span>
+        </div>`).join("") + `
+        <div class="new-conv"><button class="ghost small" onclick="newConversation('${pid}')">＋ 新对话</button></div>`;
+      // 当前没有选中的对话且项目已展开时，自动选中第一个
+      if (!S.convId && pid === S.pid && convs.length) selectConversation(pid, convs[0].id);
+    }
+    async function selectProject(pid) {
+      S.pid = pid; S.convId = null;
+      await loadTree();
+      await loadViewer();
+      $("hint").textContent = "已选择剧本项目。可新建对话，或直接在下方对话里提出改编需求。";
+      $("input").placeholder = "说点什么… 例如：生成初稿 / 把对白改口语一点 / 悬疑反转怎么设计？";
+    }
+    async function selectConversation(pid, convId) {
+      S.pid = pid; S.convId = convId;
+      await loadTree();
+      await loadHistory();
+      await loadViewer();
+      $("hint").textContent = S.convId ? "对话已切换（每个对话独立上下文）。" : "";
+      $("input").focus();
+    }
+    async function newConversation(pid) {
+      // 直接新建对话（自动命名，不弹窗）；hover 对话可随时重命名。
+      let count = 0;
+      try { count = (await api(`/projects/${pid}/conversations`)).length; } catch (e) { count = 0; }
+      try {
+        const c = await api(`/projects/${pid}/conversations`, "POST", { title: `对话 ${count + 1}` });
+        await selectConversation(pid, c.id);
+      } catch (e) { alert("新建对话失败：" + e.message); }
+    }
+    async function renameConversation(convId) {
+      const c = S.conversations.find(x => x.id === convId);
+      const title = prompt("重命名对话", c?.title || "");
+      if (title === null || !title.trim()) return;
+      try { await api(`/conversations/${convId}`, "PATCH", { title: title.trim() }); await loadTree(); } catch (e) { alert(e.message); }
+    }
+    async function deleteConversation(convId) {
+      const c = S.conversations.find(x => x.id === convId);
+      if (!confirm(`删除对话「${c?.title || convId}」？该对话的上下文历史会被清除。`)) return;
+      try {
+        await api(`/conversations/${convId}`, "DELETE");
+        if (S.convId === convId) S.convId = null;
+        await loadTree();
+        if (S.pid && !S.convId) await loadHistory();
+      } catch (e) { alert(e.message); }
+    }
+
+    // ================= 新建剧本弹窗 =================
+    function openNewProject() { $("newModal").classList.add("show"); $("npErr").style.display = "none"; $("npFile").value = ""; setDropText("点击选择或拖入 .txt / .md / .docx 文件"); }
+    function closeNewProject() { $("newModal").classList.remove("show"); }
+    function setDropText(t) { $("npDropText").textContent = t; }
+    $("npDrop").addEventListener("dragover", e => { e.preventDefault(); $("npDrop").classList.add("drag"); });
+    $("npDrop").addEventListener("dragleave", () => $("npDrop").classList.remove("drag"));
+    $("npDrop").addEventListener("drop", e => {
+      e.preventDefault(); $("npDrop").classList.remove("drag");
+      if (e.dataTransfer.files.length) pickFile(e.dataTransfer.files[0]);
+    });
+    $("npFile").addEventListener("change", e => { if (e.target.files.length) pickFile(e.target.files[0]); });
+    function pickFile(f) {
+      const ok = /\.(txt|md|markdown|docx)$/i.test(f.name);
+      setDropText(ok ? `📄 ${esc(f.name)}（${(f.size / 1024).toFixed(1)} KB）` : `⚠️ 不支持 ${esc(f.name)}，请选择 .txt/.md/.docx`);
+      if (!ok) { $("npFile").value = ""; return; }
+      const reader = new FileReader();
+      reader.onload = () => { S.importFile = { name: f.name, size: f.size }; };
+      reader.readAsArrayBuffer(f);
+    }
+    async function submitNewProject() {
+      const title = $("npTitle").value.trim();
+      const adapt = $("npAdapt").value;
+      const raw = $("npRaw").value.trim();
+      const err = $("npErr");
+      err.style.display = "none";
+      const file = $("npFile").files[0];
+      if (!title) { err.textContent = "请填写剧名"; err.style.display = "block"; return; }
+      if (!file && !raw) { err.textContent = "请上传文件或粘贴原文"; err.style.display = "block"; return; }
+      try {
+        const fd = new FormData();
+        fd.append("title", title);
+        fd.append("adaptation_type", adapt);
+        if (file) fd.append("file", file);
+        else fd.append("raw_text", raw);
+        const res = await fetch("/api/projects/import", { method: "POST", body: fd });
+        if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.detail || res.statusText); }
+        const r = await res.json();
+        closeNewProject();
+        $("npRaw").value = "";
+        await selectProject(r.id);
+        if (r.conversation_id) await selectConversation(r.id, r.conversation_id);
+      } catch (e) { err.textContent = "创建失败：" + e.message; err.style.display = "block"; }
+    }
+
+    // ================= 对话历史 =================
+    function welcomeHtml() {
+      return `<div class="msg assistant"><div class="bubble md">${mdToHtml(`你好，我是剧本工坊的改编 Agent 👋
+
+**开始方式**
+- 点右上角 **＋ 新建剧本**：上传 \`.txt/.md/.docx\` 或粘贴原文，创建项目并自动分析你的写作风格、注入同类剧本知识；
+- 在本对话里说 **生成初稿**，产出结构化剧本；
+- 说 **把对白改口语一点 / 节奏改紧凑** 等，我会给出可逐条审阅的改动卡片；
+- 问 **这类悬疑剧怎么设计反转？**，我检索项目知识库回答；
+- 说 **记住：我喜欢冷峻、留白的风格**，我记入项目知识库。
+
+左侧每个剧本项目下可新建多个**独立对话**，各自控制上下文，互不干扰。`)}</div></div>`;
+    }
+    async function loadHistory() {
+      let messages = [];
+      if (S.convId) {
+        try { messages = await api(`/conversations/${S.convId}/messages`); } catch (e) { messages = []; }
+      }
+      if (!messages.length && S.preserveThread) { S.preserveThread = false; return; }
+      $("threadInner").innerHTML = "";
+      if (!messages.length) {
+        $("threadInner").innerHTML = S.convId ? welcomeHtml() : '<div class="msg assistant"><div class="bubble">选择左侧项目与对话开始，或点右上角「＋ 新建剧本」。</div></div>';
+      } else {
+        for (const m of messages) renderMessage(m.role, m.content, m.events || [], m.payload || [], false);
+      }
+      scrollBottom();
+    }
+    function renderMessage(role, content, events, payloads, isStreaming) {
+      const wrap = document.createElement("div");
+      wrap.className = "msg " + (role === "user" ? "user" : "assistant");
+      let html = "";
+      if (role === "assistant" && events && events.length) {
+        html += `<div class="activity">${events.map(e => e.type === "tool_call"
+          ? `<div class="chip"><span class="fn">🔧 ${esc(e.name)}</span> ${esc(e.args || "")}</div>`
+          : `<div class="chip ok">✔ ${esc(e.name)}：${esc(e.summary || "")}</div>`).join("")}</div>`;
+      }
+      if (role === "assistant") {
+        html += `<div class="bubble md">${mdToHtml(content || "")}</div>`;
+      } else {
+        html += `<div class="bubble">${esc(content || "")}</div>`;
+      }
+      for (const p of payloads || []) html += payloadCard(p);
+      if (isStreaming && !content) html += `<div class="bubble typing"><i></i><i></i><i></i></div>`;
+      wrap.innerHTML = html;
+      $("threadInner").appendChild(wrap);
+      scrollBottom();
+      return wrap;
+    }
+
+    // ================= 载荷卡片 =================
+    const FIELD_LABEL = { title:"标题", purpose:"目的", conflict:"冲突", entry_state:"入场状态", exit_state:"离场状态",
+      action:"动作", dialogue:"对白", beats:"节拍", "adaptation_notes/reason":"改编说明", "adaptation_notes/fidelity":"忠实度" };
+    function fmtVal(v) {
+      if (v === null || v === undefined) return "∅";
+      if (typeof v === "string") return v;
+      if (Array.isArray(v)) {
+        if (!v.length) return "[]";
+        if (typeof v[0] === "string") return v.join(" / ");
+        return v.map(x => { if (typeof x === "string") return x; const o = x||{};
+          return (o.speaker ? o.speaker+"："+o.line : (o.type==="action" ? "动作: "+o.text : (o.text||o.line||JSON.stringify(o)))); }).join(" ⏎ ");
+      }
+      if (typeof v === "object") {
+        const keys = ["title","purpose","conflict","entry_state","exit_state","text","line","speaker","type","reason","fidelity"];
+        return keys.filter(k => v[k] !== undefined).map(k => `${k}=${v[k]}`).join(" ") || JSON.stringify(v);
+      }
+      return String(v);
+    }
+    function patchCard(payload) {
+      const runId = payload.run_id, patch = payload.patch || [], plan = payload.plan || [];
+      if (!S.checked.has(runId)) S.checked.set(runId, new Set());
+      const checked = S.checked.get(runId);
+      const ops = patch.map((op, i) => {
+        const field = FIELD_LABEL[op.field] || op.field || "";
+        const risk = (op.risk||[]).map(r => `<span class="pill warn">${esc(r)}</span>`).join("");
+        return `<div class="op">
+          <div class="head">
+            <input type="checkbox" onchange="toggleCheck('${runId}',${i})" ${checked.has(i)?"checked":""}>
+            <span class="pill ${op.op==='add'?'ok':op.op==='remove'?'bad':'warn'}">${op.op === 'add' ? '＋ 新增' : op.op === 'remove' ? '－ 删除' : '～ 修改'}</span>
+            <span class="pill">${esc(op.scene_title||op.scene_id||"")}</span>
+            <span class="pill">${esc(field)}</span>
+            ${op.beat_label ? `<span class="pill cue">${esc(op.beat_label)}</span>` : ""}
+            ${risk}
+          </div>
+          <div class="diff"><div><span class="old">${esc(fmtVal(op.before))}</span></div><div>→ <span class="new">${esc(fmtVal(op.after ?? op.value))}</span></div></div>
+        </div>`;
+      }).join("");
+      return `<div class="card" id="card_${runId}">
+        <h3>✍️ 改编提议（审阅）</h3>
+        <div class="row" style="margin-bottom:8px">${(plan||[]).map(p => `<span class="pill">${esc(p)}</span>`).join("")}</div>
+        <div class="muted" style="margin-bottom:6px">run: ${esc(runId)}${payload.error ? " · ⚠ " + esc(payload.error) : ""}</div>
+        ${ops || '<div class="muted">没有可落地的 patch 操作</div>'}
+        <div class="row" style="margin-top:8px">
+          <button class="ok" onclick="resumeReview('${runId}','accept',{patch_indexes:[...S.checked.get('${runId}')||[]]})">接受勾选</button>
+          <button class="ok" onclick="resumeReview('${runId}','accept',{})">接受全部</button>
+          <button class="danger" onclick="resumeReview('${runId}','reject',{})">拒绝</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <input id="fb_${runId}" placeholder="重新生成的反馈（如：再口语一点）" style="flex:1" />
+          <button class="ghost" onclick="resumeReview('${runId}','regenerate',{feedback:$('fb_${runId}').value||'换个思路'})">↻ 重新生成</button>
+        </div>
+        <details class="edit-patch" style="margin-top:6px">
+          <summary>✎ 高级：直接编辑 patch JSON 后应用</summary>
+          <textarea id="edit_${runId}" style="width:100%;min-height:110px;margin-top:6px">${esc(JSON.stringify(patch, null, 2))}</textarea>
+          <div class="row" style="margin-top:6px"><button class="ghost" onclick="applyEditPatch('${runId}')">应用编辑后的 patch</button></div>
+        </details>
+      </div>`;
+    }
+    function versionCard(payload) {
+      const issues = payload.validation_issues || [];
+      const errors = issues.filter(i => i.severity === "error");
+      return `<div class="card">
+        <h3>✅ 已生成新版本</h3>
+        <div class="row">
+          <span class="pill ok">${esc(payload.version_id || "")}</span>
+          <span class="pill ${errors.length ? 'bad' : 'ok'}">校验 error ${errors.length}</span>
+          ${payload.fallback ? `<span class="pill warn">兜底应用</span>` : ""}
+          <button class="ghost small" onclick="refreshViewerText()">查看剧本</button>
+        </div>
+      </div>`;
+    }
+    function payloadCard(p) {
+      if (!p || !p.type) return "";
+      if (p.type === "patch_review") return patchCard(p);
+      if (p.type === "version_applied") return versionCard(p);
+      return "";
+    }
+    function toggleCheck(runId, i) {
+      const set = S.checked.get(runId) || new Set();
+      if (set.has(i)) set.delete(i); else set.add(i);
+      S.checked.set(runId, set);
+    }
+
+    // ================= 审阅动作 =================
+    async function resumeReview(runId, action, opts = {}) {
+      if (S.streaming) return;
+      const meta = { intent: "resume", run_id: runId, action, patch_indexes: opts.patch_indexes ?? null, feedback: opts.feedback ?? null, patch: opts.patch ?? null };
+      renderMessage("user", action === "accept" ? (opts.patch_indexes?.length ? `接受改编提议（勾选 ${opts.patch_indexes.length} 项）` : "接受全部改编提议")
+        : action === "reject" ? "拒绝这次改编提议"
+        : action === "regenerate" ? `重新生成（反馈：${opts.feedback || "换个思路"}）` : "编辑 patch 后接受", [], []);
+      const typing = renderMessage("assistant", "", [], [], true);
+      try {
+        const r = await api("/chat", "POST", { project_id: S.pid, conversation_id: S.convId, message: "", meta });
+        typing.remove();
+        renderMessage("assistant", r.reply, r.events || [], r.payloads || [], false);
+        await loadViewer();
+      } catch (e) {
+        typing.remove();
+        renderMessage("assistant", "操作失败：" + e.message, [], [], false);
+      }
+    }
+    function applyEditPatch(runId) {
+      let patch;
+      try { patch = JSON.parse($("edit_" + runId).value); } catch (e) { return alert("patch JSON 解析失败：" + e.message); }
+      resumeReview(runId, "edit", { patch });
+    }
+
+    // ================= 发送消息（SSE 流式） =================
+    async function sendMessage() {
+      if (S.streaming) return;
+      const input = $("input");
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = ""; input.style.height = "42px";
+
+      renderMessage("user", text, [], [], false);
+      const wrap = renderMessage("assistant", "", [], [], true);
+
+      S.streaming = true; $("sendBtn").disabled = true;
+      let events = [], payloads = [];
+      const bubble = wrap.querySelector(".bubble");
+      let rawMd = "";
+      try {
+        const res = await fetch("/api/chat/stream", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ project_id: S.pid, conversation_id: S.convId, message: text, meta: null }),
         });
-        currentProjectId = r.id;
-        $("genInfo").innerHTML = `<span class="pill ok">项目已创建 ${r.id}</span>${r.indexed_chunks ? `<span class="pill">RAG 索引 ${r.indexed_chunks} 块</span>` : ""}`;
-      } catch (e) { alert("创建失败: " + e.message); }
+        if (!res.ok || !res.body) { const j = await res.json().catch(() => ({})); throw new Error(j.detail || res.statusText); }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          let idx;
+          while ((idx = buf.indexOf("\n\n")) >= 0) {
+            const frame = buf.slice(0, idx); buf = buf.slice(idx + 2);
+            const ev = parseFrame(frame);
+            if (!ev) continue;
+            if (ev.event === "tool_call" || ev.event === "tool_result") {
+              events.push(ev.data);
+              const chip = document.createElement("div");
+              chip.className = "activity";
+              chip.innerHTML = ev.event === "tool_call"
+                ? `<div class="chip"><span class="fn">🔧 ${esc(ev.data.name)}</span> ${esc(ev.data.args || "")}</div>`
+                : `<div class="chip ok">✔ ${esc(ev.data.name)}：${esc(ev.data.summary || "")}</div>`;
+              wrap.insertBefore(chip, bubble);
+            } else if (ev.event === "token") {
+              rawMd += ev.data.delta;
+              bubble.innerHTML = mdToHtml(rawMd);
+              scrollBottom();
+            } else if (ev.event === "done") {
+              payloads = ev.data.payloads || [];
+              rawMd = ev.data.reply || rawMd;
+              bubble.innerHTML = mdToHtml(rawMd);
+              for (const p of payloads) wrap.insertAdjacentHTML("beforeend", payloadCard(p));
+              if (ev.data.project_id && !S.pid) {
+                S.preserveThread = true;
+                await selectProject(ev.data.project_id);
+                S.convId = ev.data.thread_id || S.convId;
+                await loadTree();
+              }
+              if (S.pid) await loadViewer();
+            } else if (ev.event === "error") {
+              bubble.innerHTML = "<p>出错：" + esc(ev.data.message) + "</p>";
+            }
+          }
+        }
+      } catch (e) {
+        bubble.innerHTML = "<p>请求失败：" + esc(e.message) + "</p>";
+      } finally {
+        S.streaming = false; $("sendBtn").disabled = false;
+        scrollBottom();
+        await loadTree();
+      }
+    }
+    function parseFrame(frame) {
+      let event = "message", data = "";
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) data += line.slice(5).trim();
+      }
+      if (!data) return null;
+      try { return { event, data: JSON.parse(data) }; } catch { return null; }
+    }
+    function scrollBottom() {
+      const t = $("thread");
+      requestAnimationFrame(() => { t.scrollTop = t.scrollHeight; });
     }
 
-    async function generate() {
-      if (!currentProjectId) { alert("请先创建项目"); return; }
+    // ================= 右侧：文本查看面板 =================
+    function showView(name) {
+      S.currentView = name;
+      document.querySelectorAll(".v-tab").forEach(t => t.classList.toggle("active", t.textContent.trim().startsWith({ text:"剧本文本", knowledge:"知识库", diff:"版本对比" }[name])));
+      $("viewText").style.display = name === "text" ? "" : "none";
+      $("viewKnowledge").style.display = name === "knowledge" ? "" : "none";
+      $("viewDiff").style.display = name === "diff" ? "" : "none";
+      if (name === "diff") loadDiff();
+    }
+    async function refreshViewerText() { await loadViewer(); showView("text"); }
+    async function loadViewer() {
+      if (!S.pid) { $("viewerTitle").textContent = "未选择项目"; $("viewText").innerHTML = '<div class="v-empty">选择剧本项目后，这里会以「文本查看模式」显示当前剧本文本</div>'; return; }
       try {
-        const r = await api(`/projects/${currentProjectId}/generate`, "POST", {});
-        $("genInfo").innerHTML += `<span class="pill ok">已生成版本 ${r.version_id}（模式 ${r.mode}）</span>`;
-        await loadVersions();
-      } catch (e) { alert("生成失败: " + e.message); }
+        const p = S.projects.find(x => x.id === S.pid);
+        $("viewerTitle").textContent = p ? p.title : "";
+        const versions = await api(`/projects/${S.pid}/versions`);
+        S.versions = versions;
+        if (!versions.length) {
+          $("viewText").innerHTML = '<div class="v-empty">还没有剧本版本。在对话里说「生成初稿」。</div>';
+          return;
+        }
+        const t = await api(`/versions/${versions[0].id}/text`);
+        $("viewText").innerHTML = `<pre>${esc(t.text)}</pre>`;
+        loadKnowledge();
+      } catch (e) { $("viewText").innerHTML = `<div class="v-empty">加载失败：${esc(e.message)}</div>`; }
     }
-
-    async function loadVersions() {
-      if (!currentProjectId) return;
-      const vs = await api(`/projects/${currentProjectId}/versions`);
-      $("versions").innerHTML = vs.length
-        ? vs.map(v => `<span class="pill">${v.source_type} · ${v.label || ""} · ${v.id}</span>`).join("") || "<div class='muted'>暂无</div>"
-        : "<div class='muted'>暂无版本</div>";
-    }
-
-    async function runAgent() {
-      if (!currentProjectId) { alert("请先创建项目并生成版本"); return; }
+    async function loadKnowledge() {
+      if (!S.pid) return;
       try {
-        const r = await api(`/projects/${currentProjectId}/agent/run`, "POST", {
-          instruction: $("instruction").value, scene_ids: [],
-        });
-        currentRunId = r.run_id;
-        $("runIdLabel").textContent = "run: " + r.run_id;
-        $("runInfo").innerHTML = `<div class="row">`
-          + (r.plan || []).map(p => `<span class="pill">${p}</span>`).join("")
-          + `</div><div class="muted">状态：${r.status}${r.error ? " / " + r.error : ""}</div>`
-          + `<div class="muted">执行轨迹：${(r.steps||[]).join(" → ")}</div>`;
-        renderPatch(r.patch || []);
-      } catch (e) { alert("Agent 失败: " + e.message); }
+        const r = await api(`/projects/${S.pid}/knowledge`);
+        const groups = {};
+        for (const d of r.docs || []) { (groups[d.kind] = groups[d.kind] || []).push(d); }
+        const kindName = { source:"原著原文", plot_direction:"同类剧本的可能走向", technique:"同类剧本的写作手法", author_style:"作者的语言风格" };
+        $("viewKnowledge").innerHTML = Object.keys(groups).map(k => `
+          <div class="know-kind">${esc(kindName[k] || k)}（${groups[k].length}）</div>
+          ${groups[k].map(d => `<div class="know-row">${esc(d.text)}</div>`).join("")}`).join("")
+          || '<div class="v-empty">还没有知识数据</div>';
+      } catch (e) { $("viewKnowledge").innerHTML = `<div class="v-empty">${esc(e.message)}</div>`; }
     }
-
-    function renderPatch(patch) {
-      $("patchBox").innerHTML = patch.length
-        ? patch.map((op, i) => {
-            const risk = (op.risk || []).map(r => `<span class="pill warn">${r}</span>`).join("");
-            const before = op.before != null ? String(typeof op.before === "object" ? JSON.stringify(op.before) : op.before) : "∅";
-            const after = op.after != null ? String(typeof op.after === "object" ? JSON.stringify(op.after) : op.after) : "∅";
-            return `<div style="border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:8px">
-              <div class="row"><span class="pill">#${i}</span><span class="pill">${op.op}</span><span class="muted">${op.path}</span></div>
-              ${risk}
-              <div class="muted" style="margin-top:4px">from: <span class="hl">${before}</span> → to: <span class="hl">${after}</span></div>
-            </div>`;
-          }).join("")
-        : "<div class='muted'>没有可落地的 patch 操作</div>";
-    }
-
-    async function acceptRun() {
-      if (!currentRunId) { alert("请先运行 Agent"); return; }
+    async function loadDiff() {
+      $("viewDiff").innerHTML = '<div class="v-empty">加载中…</div>';
+      if (!S.pid || !S.versions.length) { $("viewDiff").innerHTML = '<div class="v-empty">还没有版本</div>'; return; }
+      const vid = S.versions[0].id;
+      const idx = S.versions.findIndex(v => v.id === vid);
+      const fromId = (idx > 0 ? S.versions[idx - 1].id : null);
       try {
-        const r = await api(`/agent/runs/${currentRunId}/accept`, "POST", { patch_indexes: null });
-        $("runInfo").innerHTML += `<div class="row"><span class="pill ok">已接受</span><span class="muted">新版本 ${r.new_version_id || "—"}${r.fallback ? "（兜底应用）" : ""}</span></div>`;
-        await loadVersions();
-      } catch (e) { alert("接受失败: " + e.message); }
+        const to = await api(`/versions/${vid}`);
+        let from = { script: { scenes: [], characters: [], locations: [] } };
+        if (fromId) from = await api(`/versions/${fromId}`);
+        const d = keyedDiff(from.script, to.script);
+        $("viewDiff").innerHTML = `<div class="muted" style="padding:6px 12px">${esc(fromId || "（空）")} → ${esc(vid)}</div>` +
+          (d.length ? d.map(x => {
+            const label = x.t === "+" ? `<span class="t-add">＋ 新增</span>` : x.t === "-" ? `<span class="t-del">－ 删除</span>` : `<span class="t-mod">～ 修改</span>`;
+            const body = x.t === "~" ? `<span class="old">${esc(fmtVal(x.before))}</span> → <span class="new">${esc(fmtVal(x.after))}</span>`
+              : `<span class="${x.t === '+' ? 't-add' : 't-del'}">${esc(fmtVal(x.before ?? x.after))}</span>`;
+            return `<div class="diff-item">${label} <b>${esc(x.p)}</b><div>${body}</div></div>`;
+          }).join("") : '<div class="v-empty">无差异</div>');
+      } catch (e) { $("viewDiff").innerHTML = `<div class="v-empty">对比失败：${esc(e.message)}</div>`; }
+    }
+    function keyedDiff(a, b) {
+      const out = [];
+      const keys = new Set([...Object.keys(a||{}), ...Object.keys(b||{})]);
+      for (const k of keys) {
+        const va = a?.[k], vb = b?.[k];
+        if (Array.isArray(va) && Array.isArray(vb)) {
+          const ma = new Map(va.filter(x=>x&&x.id).map(x=>[x.id,x]));
+          const mb = new Map(vb.filter(x=>x&&x.id).map(x=>[x.id,x]));
+          for (const [id, item] of ma) if (!mb.has(id)) out.push({ t:"-", p:`${k}/${id}`, before:item });
+          for (const [id, item] of mb) if (!ma.has(id)) out.push({ t:"+", p:`${k}/${id}`, after:item });
+          for (const [id, item] of mb) if (ma.has(id) && JSON.stringify(ma.get(id)) !== JSON.stringify(item))
+            out.push({ t:"~", p:`${k}/${id}`, before:ma.get(id), after:item });
+        } else if (JSON.stringify(va) !== JSON.stringify(vb)) {
+          out.push({ t: va === undefined ? "+" : (vb === undefined ? "-" : "~"), p:k, before:va, after:vb });
+        }
+      }
+      return out;
     }
 
-    async function rejectRun() {
-      if (!currentRunId) { alert("请先运行 Agent"); return; }
-      try {
-        await api(`/agent/runs/${currentRunId}/reject`, "POST", {});
-        $("runInfo").innerHTML += `<div class="row"><span class="pill warn">已拒绝</span></div>`;
-      } catch (e) { alert("拒绝失败: " + e.message); }
-    }
+    // ================= 输入区 =================
+    $("input").addEventListener("keydown", e => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    });
+    $("input").addEventListener("input", e => {
+      e.target.style.height = "42px";
+      e.target.style.height = Math.min(150, e.target.scrollHeight) + "px";
+    });
 
-    async function regenerateRun() {
-      if (!currentRunId) { alert("请先运行 Agent"); return; }
-      try {
-        const r = await api(`/agent/runs/${currentRunId}/resume`, "POST", {
-          action: "regenerate", feedback: $("feedback").value || "换个思路",
-        });
-        $("runInfo").innerHTML += `<div class="row"><span class="pill">已重新生成</span><span class="muted">轨迹：${(r.steps||[]).join(" → ")}</span></div>`;
-        renderPatch(r.patch || []);
-      } catch (e) { alert("重新生成失败: " + e.message); }
-    }
+    // ================= 启动 =================
+    loadStatus().then(async () => {
+      await loadTree();
+    }).catch(e => console.error(e));
   </script>
 </body>
 </html>

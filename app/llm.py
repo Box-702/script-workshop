@@ -31,18 +31,37 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class LLM:
-    """聊天模型封装。``available`` 表示是否真正可以调用模型。"""
+    """聊天模型封装。``available`` 表示是否真正可以调用模型。
+
+    模型来源按优先级：
+      1. OPENAI_*（OpenAI 或任意兼容 base_url）；
+      2. DEEPSEEK_*（DeepSeek 原生，走其 OpenAI 兼容协议）。
+    """
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        self.provider_label = "local-fallback"
         self._model: ChatOpenAI | None = None
-        if settings.model_available:
-            # 用 ChatOpenAI 走 OpenAI 兼容协议；任何 base_url 都能适配。
+        if settings.openai_api_key.strip():
+            self.provider_label = "openai-compatible"
             self._model = ChatOpenAI(
                 model=settings.openai_model,
                 api_key=settings.openai_api_key,
-                base_url=settings.openai_base_url,
+                base_url=settings.openai_base_url.rstrip("/"),
                 temperature=0.4,
+            )
+        elif settings.deepseek_api_key.strip():
+            self.provider_label = "deepseek"
+            # DeepSeek V3.x/V4 支持 thinking 开关；默认关闭深度思考可显著降低延迟
+            # （单次 ~50s -> ~10s）。注意：必须用 extra_body 透传（model_kwargs
+            # 会被 langchain 展开成 kwargs 而报错）。
+            extra = {"thinking": {"type": "enabled" if settings.deepseek_thinking else "disabled"}}
+            self._model = ChatOpenAI(
+                model=settings.deepseek_model,
+                api_key=settings.deepseek_api_key,
+                base_url=settings.deepseek_base_url.rstrip("/"),
+                temperature=0.4,
+                extra_body=extra,
             )
 
     @property
@@ -59,12 +78,13 @@ class LLM:
     def structured(self, schema: type[T]) -> Any:
         """返回一个接受消息、输出 ``schema`` 实例的结构化可运行对象。
 
-        用 ``function_calling`` 方式做结构化输出：对 OpenAI 兼容服务最稳，
-        DeepSeek / Qwen 等也都支持 function calling。
+        用 ``json_mode``（response_format=json_object）做结构化输出：
+        对 OpenAI 兼容服务最稳，且 DeepSeek 的思考模式（thinking）不支持
+        强制 tool_choice，不能走 function_calling。
         """
         if self._model is None:
-            raise RuntimeError("模型未配置。请在 .env 中设置 OPENAI_API_KEY。")
-        return self._model.with_structured_output(schema, method="function_calling")
+            raise RuntimeError("模型未配置。请在 .env 中设置 OPENAI_API_KEY 或 DEEPSEEK_API_KEY。")
+        return self._model.with_structured_output(schema, method="json_mode")
 
     def system_prompt(self) -> str:
         """构造统一的系统提示词，包括语言约束与输出规范。"""

@@ -20,7 +20,7 @@ import re
 from copy import deepcopy
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .domain import (
     DialogueLine,
@@ -51,9 +51,13 @@ class DialogueChange(BaseModel):
 
 
 class BeatChange(BaseModel):
-    """提议中的节拍。已有节拍必须保留原 id，新增可省略 id。"""
+    """提议中的节拍。已有节拍必须保留原 id，新增可省略 id。
+
+    兼容模型常见的 ``beat_id`` 写法（部分模型用 beat_id 而非 id）。
+    """
 
     id: str | None = None
+    beat_id: str | None = None
     type: Literal["action", "dialogue", "cue"] = "action"
     text: str | None = None
     speaker: str | None = None
@@ -63,7 +67,10 @@ class BeatChange(BaseModel):
 
 
 class SceneChange(BaseModel):
-    """对单个场景的改写提议。只返回真正需要改的字段。"""
+    """对单个场景的改写提议。只返回真正需要改的字段。
+
+    兼容模型常见的 ``updates`` 写法（部分模型用 updates 而非 beats）。
+    """
 
     scene_id: str
     title: str | None = None
@@ -74,15 +81,26 @@ class SceneChange(BaseModel):
     action: list[str] | None = None
     dialogue: list[DialogueChange] | None = None
     beats: list[BeatChange] | None = None
+    updates: list[BeatChange] | None = None
     adaptation_reason: str | None = None
     fidelity: str | None = None
 
 
 class PatchProposal(BaseModel):
-    """Agent 的结构化输出：计划 + 逐场景改动。"""
+    """Agent 的结构化输出：计划 + 逐场景改动。
 
-    plan: list[str] = Field(default_factory=list)
+    ``plan`` 兼容字符串或数组（部分模型把计划写成一段话）。
+    """
+
+    plan: list[str] | str = Field(default_factory=list)
     changes: list[SceneChange] = Field(default_factory=list)
+
+    @field_validator("plan", mode="before")
+    @classmethod
+    def _plan_to_list(cls, v: object) -> object:
+        if isinstance(v, str):
+            return [v] if v.strip() else []
+        return v
 
 
 # ---------- 规范化后的 patch 操作 ----------
@@ -180,11 +198,11 @@ def _clean_beats(value: object, allowed: list[str]) -> list[dict[str, Any]] | No
             continue
         kind = str(item.get("type") or "").strip()
         if kind not in {"action", "dialogue", "cue"}:
-            kind = "dialogue" if item.get("speaker") or item.get("line") else "action"
-        beat_id = _clean_beat_id(item.get("id"), used_ids, len(out) + 1)
+            kind = "dialogue" if item.get("speaker") or item.get("line") or item.get("dialogue") else "action"
+        beat_id = _clean_beat_id(item.get("id") or item.get("beat_id"), used_ids, len(out) + 1)
         beat: dict[str, Any] = {"id": beat_id, "type": kind}
         if kind == "dialogue":
-            line = str(item.get("line") or item.get("text") or "").strip()
+            line = str(item.get("line") or item.get("dialogue") or item.get("text") or "").strip()
             speaker = str(item.get("speaker") or "").strip()
             if speaker not in allowed_set:
                 speaker = fallback
@@ -197,7 +215,7 @@ def _clean_beats(value: object, allowed: list[str]) -> list[dict[str, Any]] | No
                 if text:
                     beat[key] = text
         else:
-            text = str(item.get("text") or item.get("line") or "").strip()
+            text = str(item.get("text") or item.get("action") or item.get("line") or "").strip()
             if not text:
                 continue
             beat["text"] = text
@@ -389,8 +407,9 @@ def build_patch(
                 if op:
                     ops.append(op)
 
-        if change.beats is not None:
-            beats = _clean_beats([b.model_dump(exclude_none=True) for b in change.beats], allowed)
+        raw_beats = change.beats if change.beats is not None else change.updates
+        if raw_beats is not None:
+            beats = _clean_beats([b.model_dump(exclude_none=True) for b in raw_beats], allowed)
             if beats is not None:
                 beats_were_set = True
                 ops.extend(_beat_patch_ops(idx, scene, beats))

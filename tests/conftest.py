@@ -40,12 +40,16 @@ def tmp_db_path(tmp_path_factory: pytest.TempPathFactory) -> str:
 @pytest.fixture()
 def settings() -> Settings:
     # 显式控制：内存 checkpoint、无 RAG、无模型 key。
+    # 注意：必须用构造函数参数置空（空字符串环境变量会被 pydantic 视为未设置，
+    # 无法覆盖 .env 里真实配置的 DEEPSEEK_API_KEY）。
     return Settings(
         DATABASE_URL="sqlite:///./data/_unused.db",
         CHECKPOINTER="memory",
         ENABLE_RAG=False,
         EMBEDDING_PROVIDER="hashing",
         OPENAI_API_KEY="",
+        DEEPSEEK_API_KEY="",
+        ZHIPUAI_API_KEY="",
         CHECKPOINT_DSN="",
     )
 

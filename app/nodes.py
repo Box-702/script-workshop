@@ -63,6 +63,7 @@ def _build_context(
     *,
     scene_ids: list[str],
     retriever: Callable[[str, int], list[str]] | None,
+    knowledge_retriever: Callable[[str, int, list[str] | None], list[dict]] | None = None,
 ) -> dict[str, Any]:
     """把本次改编所需的上下文组织成一个字典，供提示词与工具使用。"""
     profile = profile_for(project.adaptation_type)
@@ -88,6 +89,20 @@ def _build_context(
             ep = retriever(q, 2)
             if ep:
                 episode_sources.append(f"【{s.title}】\n" + "\n".join(ep[:1]))
+    # 项目级「改编知识」：同类剧本走向 / 写作手法 / 作者风格（始终尝试，失败忽略）。
+    knowledge: dict[str, list[str]] = {}
+    if knowledge_retriever is not None:
+        for kind, query in (
+            ("plot_direction", "同类剧本可能的剧情走向"),
+            ("technique", "同类剧本常用的写作手法"),
+            ("author_style", "作者的语言风格"),
+        ):
+            try:
+                hits = knowledge_retriever(query, 2, [kind])
+            except Exception:  # noqa: BLE001
+                hits = []
+            if hits:
+                knowledge[kind] = [f"{h.get('text', '')}（来源：{h.get('source', '')}）" for h in hits]
     return {
         "script": {
             "title": script.title,
@@ -100,18 +115,37 @@ def _build_context(
         "locations": {l.id: {"name": l.name, "description": l.description} for l in script.locations},
         "selected_scenes": scene_list,
         "source_excerpts": episode_sources,
+        "knowledge": knowledge,
         "raw_text_excerpt": " ".join((raw_text or "").split())[:2000],
     }
 
 
 def _system_prompt(settings: Settings, script: Script) -> str:
-    """Agent 系统提示词：身份、规则、改编约束。"""
+    """Agent 系统提示词：身份、规则、改编约束、输出格式示例。"""
     profile = profile_for(script.adaptation.type if script.adaptation else "other")
     return (
         "你是剧本改编助手。你只读取上下文并修改「选中的场景」，不要新增场景、人物或地点。\n"
-        "你必须输出结构化 JSON：先 plan 计划，再 changes 逐场景改动。\n"
         "已有节拍必须保留原 id；新增节拍可以省略 id 或使用未占用的 beat_数字。\n"
         "对白说话人必须是该场景已有的人物 id。\n"
+        "上下文 context.knowledge 里带有该项目知识库检索到的同类剧本走向、写作手法与作者风格，"
+        "改写时请自然借鉴这些知识与作者风格，保持原味，但不要照抄。\n"
+        "请严格按以下 JSON 结构输出，字段名不要改动：\n"
+        '{\n'
+        '  "plan": ["计划步骤一", "计划步骤二"],\n'
+        '  "changes": [\n'
+        '    {\n'
+        '      "scene_id": "scene_001",\n'
+        '      "title": "新场景标题（可选）",\n'
+        '      "beats": [\n'
+        '        {"id": "beat_001", "type": "action", "text": "动作描述"},\n'
+        '        {"id": "beat_002", "type": "dialogue", "speaker": "char_xxx", "line": "台词", "emotion": "情绪", "subtext": "潜台词"}\n'
+        '      ],\n'
+        '      "adaptation_reason": "为什么这么改"\n'
+        '    }\n'
+        '  ]\n'
+        '}\n'
+        "注意：plan 必须是字符串数组；改动节拍用 beats 数组，不要用 updates；"
+        "只有确实要改的字段才返回。\n"
         f"改编类型 profile：\n{profile_prompt(profile, language=script.language)}\n"
         f"输出语言：{settings.output_language}\n"
         "不要输出整份覆盖文档，只输出真正需要更新的字段。"
@@ -128,12 +162,18 @@ def build_nodes(
     settings: Settings,
     tools: list[Any],
     retriever: Callable[[str, int], list[str]] | None,
+    knowledge_retriever: Callable[[str, int, list[str] | None], list[dict]] | None = None,
 ) -> dict[str, Callable[[AgentState], dict[str, Any]]]:
     """构造全部图节点。"""
 
     def context_node(state: AgentState) -> dict[str, Any]:
         ctx = _build_context(
-            script, project, raw_text, scene_ids=state.get("scene_ids", []), retriever=retriever
+            script,
+            project,
+            raw_text,
+            scene_ids=state.get("scene_ids", []),
+            retriever=retriever,
+            knowledge_retriever=knowledge_retriever,
         )
         system = SystemMessage(content=_system_prompt(settings, script))
         human = HumanMessage(content=f"用户改编需求：{state.get('instruction','')}")

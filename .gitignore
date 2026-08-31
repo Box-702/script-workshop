@@ -26,6 +26,9 @@ data/
 .mypy_cache/
 pytest-cache-files-*/
 
+# 开发工具脚本。
+clear_db.py
+
 # 编辑器 / 系统。
 .idea/
 .vscode/

@@ -93,10 +93,14 @@ def start_agent_run(
         plan = payload.get("plan") or []
         patch = payload.get("patch") or []
     except Exception as e:  # noqa: BLE001
-        log.exception("Agent 运行失败：%s", e)
-        plan = ["读取当前剧本版本与用户选择范围。", "模型运行失败，请重试或检查配置。"]
-        patch = []
-        status = "failed"
+        # 模型出错时不直接失败：降级为「可审阅的说明性 patch」，并记录错误。
+        log.warning("Agent 运行失败，降级为说明性建议：%s", e)
+        from .patch import fallback_patch
+
+        fb_plan, fb_ops = fallback_patch(base_version.script, instruction, scene_ids)
+        plan = fb_plan + [f"（模型调用失败，已保留说明性建议：{e}）"]
+        patch = [op.model_dump(exclude_none=True) for op in fb_ops]
+        status = "reviewing"
         error = str(e)
 
     store.create_agent_run(

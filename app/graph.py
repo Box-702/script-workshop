@@ -99,6 +99,25 @@ def make_retriever(settings: Settings, vector: VectorStore, embedder: Any, proje
     return _retrieve
 
 
+def make_knowledge_retriever(vector: VectorStore, embedder: Any, project: Project) -> Retriever | None:
+    """构造「改编知识」检索器（同类剧本走向 / 写作手法 / 作者风格）。
+
+    知识库与向量后端解耦：无论是否开启 Milvus（内存后端也可用），
+    只要项目被索引进过知识库，改编工作流就能检索到相关知识。
+    """
+    from .knowledge import retrieve_knowledge
+
+    def _retrieve(query: str, k: int, kinds: list[str] | None = None) -> list[dict]:
+        try:
+            return retrieve_knowledge(
+                vector, embedder, project_id=project.id, query=query, k=k, kinds=kinds
+            )
+        except Exception:  # noqa: BLE001
+            return []
+
+    return _retrieve
+
+
 def _route_after_plan(state: AgentState) -> str:
     """plan 节点之后路由：有工具调用则进 tools，否则进入 propose。"""
     if not state.get("model_available", False):
@@ -170,6 +189,7 @@ class _GraphBuilder:
     def compile(self) -> Any:
         """构建并编译 Agent 图。"""
         retriever = make_retriever(self.settings, self.vector, self.embedder, self.project)
+        knowledge_retriever = make_knowledge_retriever(self.vector, self.embedder, self.project)
         tools = build_tools(self.base_script, self.project, self.store, self.raw_text, retriever=retriever)
         nodes = build_nodes(
             self.store,
@@ -180,6 +200,7 @@ class _GraphBuilder:
             settings=self.settings,
             tools=tools,
             retriever=retriever,
+            knowledge_retriever=knowledge_retriever,
         )
 
         graph = StateGraph(AgentState)

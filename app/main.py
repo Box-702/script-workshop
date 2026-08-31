@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 
 from .api import router as api_router
-from .config import get_settings
+from .config import apply_langsmith_env, get_settings
 
 # 站点根目录（app/web）。
 _WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -24,6 +24,8 @@ _WEB_DIR = Path(__file__).resolve().parent / "web"
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    # 启动时注入 LangSmith 监控环境变量（LANGSMITH_* -> LANGCHAIN_*）。
+    apply_langsmith_env(settings)
     app = FastAPI(
         title="剧本智能体（Script Adaptation Agent）",
         version="0.2.0",

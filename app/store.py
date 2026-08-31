@@ -72,6 +72,7 @@ class Project(Base):
 
     versions: Mapped[list["ScriptVersion"]] = relationship(back_populates="project")
     agent_runs: Mapped[list["AgentRun"]] = relationship(back_populates="project")
+    conversations: Mapped[list["Conversation"]] = relationship(back_populates="project")
 
 
 class ScriptVersion(Base):
@@ -144,6 +145,52 @@ class AgentRun(Base):
     @property
     def decision(self) -> dict[str, Any] | None:
         return json.loads(self.decision_json) if self.decision_json else None
+
+
+class Conversation(Base):
+    """项目下的一个对话（会话线程）。
+
+    一个项目 = 一个剧本文件夹，其下可以新建多个对话；每个对话独立保存
+    消息历史，从而独立控制 Agent 的上下文（互不干扰）。
+    """
+
+    __tablename__ = "conversations"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    title: Mapped[str] = mapped_column(default="新对话")
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+    updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
+
+    project: Mapped[Project] = relationship(back_populates="conversations")
+
+
+class ChatMessage(Base):
+    """对话式 Agent 的消息记录。
+
+    ``thread_id`` 是这条消息所属会话的 id（等于 Conversation.id），
+    一个项目下的多个对话彼此隔离；还没有项目的全局对话用 ``global``。
+    ``payload`` / ``events`` 保存该条助手消息附带的结构化数据
+    （审阅卡片、工具轨迹等），供前端渲染。
+    """
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    thread_id: Mapped[str] = mapped_column(index=True)
+    role: Mapped[str] = mapped_column(default="user")  # user | assistant
+    content: Mapped[str] = mapped_column(default="")
+    payload_json: Mapped[str] = mapped_column(default="[]")
+    events_json: Mapped[str] = mapped_column(default="[]")
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+
+    @property
+    def payload(self) -> list[dict[str, Any]]:
+        return json.loads(self.payload_json or "[]")
+
+    @property
+    def events(self) -> list[dict[str, Any]]:
+        return json.loads(self.events_json or "[]")
 
 
 # ---------- 会话 / 初始化 ----------
@@ -320,3 +367,89 @@ class Store:
                 .order_by(desc(AgentRun.created_at))
                 .all()
             )
+
+    # ---- ChatMessage（对话式 Agent）----
+
+    def save_chat_message(
+        self,
+        *,
+        thread_id: str,
+        role: str,
+        content: str,
+        payload: list[dict[str, Any]] | None = None,
+        events: list[dict[str, Any]] | None = None,
+    ) -> ChatMessage:
+        with self.session() as s:
+            m = ChatMessage(
+                id=gen_id("msg"),
+                thread_id=thread_id,
+                role=role,
+                content=content,
+                payload_json=json.dumps(payload or [], ensure_ascii=False),
+                events_json=json.dumps(events or [], ensure_ascii=False),
+            )
+            s.add(m)
+            s.commit()
+            s.refresh(m)
+            return m
+
+    def list_chat_messages(self, thread_id: str, limit: int = 200) -> list[ChatMessage]:
+        with self.session() as s:
+            return (
+                s.query(ChatMessage)
+                .filter_by(thread_id=thread_id)
+                .order_by(ChatMessage.created_at.asc())
+                .limit(limit)
+                .all()
+            )
+
+    # ---- Conversation（项目下的对话线程）----
+
+    def create_conversation(self, project_id: str, title: str = "新对话") -> Conversation:
+        with self.session() as s:
+            c = Conversation(id=gen_id("conv"), project_id=project_id, title=title)
+            s.add(c)
+            s.commit()
+            s.refresh(c)
+            return c
+
+    def get_conversation(self, conversation_id: str) -> Conversation | None:
+        with self.session() as s:
+            return s.get(Conversation, conversation_id)
+
+    def list_conversations(self, project_id: str) -> list[Conversation]:
+        with self.session() as s:
+            return (
+                s.query(Conversation)
+                .filter_by(project_id=project_id)
+                .order_by(Conversation.updated_at.desc())
+                .all()
+            )
+
+    def rename_conversation(self, conversation_id: str, title: str) -> Conversation | None:
+        with self.session() as s:
+            c = s.get(Conversation, conversation_id)
+            if not c:
+                return None
+            c.title = title
+            c.updated_at = _now()
+            s.commit()
+            s.refresh(c)
+            return c
+
+    def delete_conversation(self, conversation_id: str) -> bool:
+        with self.session() as s:
+            c = s.get(Conversation, conversation_id)
+            if not c:
+                return False
+            s.query(ChatMessage).filter_by(thread_id=conversation_id).delete()
+            s.delete(c)
+            s.commit()
+            return True
+
+    def ensure_default_conversation(self, project_id: str) -> Conversation:
+        """项目没有对话时自动建一个「默认对话」，保证任何项目都能直接开聊。"""
+        convs = self.list_conversations(project_id)
+        if convs:
+            return convs[0]
+        return self.create_conversation(project_id, title="默认对话")

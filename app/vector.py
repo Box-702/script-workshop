@@ -21,6 +21,9 @@ from __future__ import annotations
 
 import hashlib
 import math
+import re
+from collections import Counter
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from .config import Settings
@@ -45,6 +48,8 @@ class VectorStore(Protocol):
     def search(self, query_vec: list[float], *, project_id: str, k: int = 4) -> list[dict[str, Any]]: ...
 
     def delete_project(self, project_id: str) -> None: ...
+
+    def list_project(self, project_id: str) -> list[dict[str, Any]]: ...
 
     def reset(self) -> None: ...
 
@@ -95,22 +100,23 @@ class HashingEmbedder:
 class OpenAIEmbedder:
     """基于 langchain OpenAIEmbeddings 的嵌入器（OpenAI 兼容接口）。
 
-    维度在首次嵌入时探测（有些模型允许 `dimensions` 参数缩维），
-    从而与 Milvus collection 维度保持一致。
+    构造时用一次探测嵌入拿到模型**真实输出维度**，确保 Milvus collection
+    的维度与向量一致（不同模型维度不同：embedding-3=2048、text-embedding-3-small=1536）。
+    探测失败（如网络不可达）时退回声明维度，方便离线降级。
     """
 
     def __init__(self, *, api_key: str, base_url: str, model: str, dim: int) -> None:
         from langchain_openai import OpenAIEmbeddings
 
         self._dim = dim
-        # 优先尝试显式 dimensions；若模型不支持则退化为不带该参数。
-        try:
-            self._client = OpenAIEmbeddings(
-                model=model, api_key=api_key, base_url=base_url, dimensions=dim
-            )
-        except Exception:  # noqa: BLE001
-            self._client = OpenAIEmbeddings(model=model, api_key=api_key, base_url=base_url)
+        self._client = OpenAIEmbeddings(model=model, api_key=api_key, base_url=base_url)
         self._dims: int | None = None
+        try:
+            probe = self._client.embed_documents(["探"])
+            if probe:
+                self._dims = len(probe[0])
+        except Exception:  # noqa: BLE001
+            self._dims = None
 
     @property
     def dim(self) -> int:
@@ -124,15 +130,30 @@ class OpenAIEmbedder:
 
 
 def build_embedder(settings: Settings) -> Embedder:
-    """按配置构造嵌入器。openai 需要 key；否则回退为离线哈希。"""
-    if (
-        settings.embedding_provider == "openai"
-        and settings.embedding_api_key.strip()
-    ):
+    """按配置构造嵌入器。
+
+    优先级：
+      1. EMBEDDING_PROVIDER=hashing   -> 离线哈希嵌入（无 key 演示用）；
+      2. EMBEDDING_API_KEY            -> OpenAI 兼容嵌入（显式 EMBEDDING_* 生效）；
+      3. ZHIPUAI_API_KEY              -> 智谱 embedding-3（OpenAI 兼容）；
+      4. 都没有                         -> 离线哈希嵌入。
+    注意：不能用「默认值 or 智谱值」的方式取 base_url，否则默认的 OpenAI
+    地址会盖过智谱地址（默认值永远非空）。
+    """
+    if settings.embedding_provider == "hashing":
+        return HashingEmbedder(dim=settings.embedding_dim)
+    if settings.embedding_api_key.strip():
         return OpenAIEmbedder(
             api_key=settings.embedding_api_key,
-            base_url=settings.embedding_base_url,
+            base_url=settings.embedding_base_url.rstrip("/"),
             model=settings.embedding_model,
+            dim=settings.embedding_dim,
+        )
+    if settings.zhipuai_api_key.strip():
+        return OpenAIEmbedder(
+            api_key=settings.zhipuai_api_key,
+            base_url=settings.zhipuai_base_url.rstrip("/"),
+            model=settings.zhipuai_model,
             dim=settings.embedding_dim,
         )
     return HashingEmbedder(dim=settings.embedding_dim)
@@ -155,6 +176,9 @@ class InMemoryVectorStore:
 
     def delete_project(self, project_id: str) -> None:
         self._rows = [r for r in self._rows if r.get("project_id") != project_id]
+
+    def list_project(self, project_id: str) -> list[dict[str, Any]]:
+        return [dict(r) for r in self._rows if r.get("project_id") == project_id]
 
     def reset(self) -> None:
         self._rows = []
@@ -194,21 +218,54 @@ class MilvusVectorStore:
     """
 
     def __init__(self, *, uri: str, collection: str, dim: int, user: str = "", password: str = "") -> None:
-        from pymilvus import DataType, MilvusClient
+        from pymilvus import MilvusClient
 
         self._client = MilvusClient(uri=uri, user=user, password=password)
         self._collection = collection
         self._dim = dim
         if not self._client.has_collection(collection):
-            self._client.create_collection(
-                collection_name=collection,
-                dimension=dim,
-                primary_field_name="id",
-                id_type="string",
-                metric_type="COSINE",
-                enable_dynamic_field=True,
-                max_length=512,
-            )
+            self._create_collection(dim)
+        elif self._existing_dim() != dim:
+            # 集合维度与当前嵌入维度不一致（换过嵌入模型）时自愈：删除重建。
+            self._client.drop_collection(collection)
+            self._create_collection(dim)
+
+    def _existing_dim(self) -> int | None:
+        """读取集合里向量字段的维度；读不到时返回 None。
+
+        注意：pymilvus 3.x 里 str(DataType.FLOAT_VECTOR) 返回数字 "101"，
+        必须用 DataType(...).name 拿枚举名来识别向量字段。
+        """
+        from pymilvus import DataType
+
+        try:
+            desc = self._client.describe_collection(self._collection)
+            for field in desc.get("fields", []):
+                ftype = field.get("type")
+                if isinstance(ftype, str):
+                    name = ftype.lower()
+                else:
+                    try:
+                        name = DataType(ftype).name.lower()
+                    except Exception:  # noqa: BLE001
+                        name = str(ftype).lower()
+                if name.endswith("_vector") or "vector" in name:
+                    params = field.get("params") or {}
+                    return int(params.get("dim") or 0)
+        except Exception:  # noqa: BLE001
+            return None
+        return None
+
+    def _create_collection(self, dim: int) -> None:
+        self._client.create_collection(
+            collection_name=self._collection,
+            dimension=dim,
+            primary_field_name="id",
+            id_type="string",
+            metric_type="COSINE",
+            enable_dynamic_field=True,
+            max_length=512,
+        )
 
     def upsert(self, rows: list[dict[str, Any]]) -> None:
         if not rows:
@@ -220,6 +277,12 @@ class MilvusVectorStore:
                 "text": r["text"],
                 "project_id": str(r.get("project_id") or ""),
                 "chapter_index": int(r.get("chapter_index") or 0),
+                "kind": str(r.get("kind") or "source"),
+                "source": str(r.get("source") or ""),
+                "chapter": str(r.get("chapter") or ""),
+                "char_offset": int(r.get("char_offset") or 0),
+                "doc_id": str(r.get("doc_id") or ""),
+                "keywords": ",".join(r.get("keywords") or []) if isinstance(r.get("keywords"), list) else str(r.get("keywords") or ""),
             }
             for r in rows
         ]
@@ -231,6 +294,31 @@ class MilvusVectorStore:
             filter=f'project_id == "{project_id}"',
         )
 
+    def list_project(self, project_id: str) -> list[dict[str, Any]]:
+        try:
+            res = self._client.query(
+                collection_name=self._collection,
+                filter=f'project_id == "{project_id}"',
+                output_fields=["text", "project_id", "chapter_index", "kind", "source", "chapter", "char_offset", "doc_id", "keywords"],
+                limit=10000,  # pymilvus query 默认 limit 较小，需显式放大以免截断
+            )
+            return [
+                {
+                    "text": str(e.get("text") or ""),
+                    "project_id": str(e.get("project_id") or ""),
+                    "chapter_index": int(e.get("chapter_index") or 0),
+                    "kind": str(e.get("kind") or "source"),
+                    "source": str(e.get("source") or ""),
+                    "chapter": str(e.get("chapter") or ""),
+                    "char_offset": int(e.get("char_offset") or 0),
+                    "doc_id": str(e.get("doc_id") or ""),
+                    "keywords": str(e.get("keywords") or ""),
+                }
+                for e in (res or [])
+            ]
+        except Exception:  # noqa: BLE001
+            return []
+
     def reset(self) -> None:
         self._client.drop_collection(self._collection)
 
@@ -239,14 +327,25 @@ class MilvusVectorStore:
             collection_name=self._collection,
             data=[query_vec],
             limit=k,
-            output_fields=["text", "project_id", "chapter_index"],
+            output_fields=["text", "project_id", "chapter_index", "kind", "source", "chapter", "char_offset", "doc_id", "keywords"],
             filter=f'project_id == "{project_id}"',
         )
         hits: list[dict[str, Any]] = []
         for item in res[0] if res else []:
             entity = item.get("entity") or item  # pymilvus 返回可能是 dict 或对象
             text = entity.get("text") if isinstance(entity, dict) else getattr(entity, "text", "")
-            hits.append({"text": text, "score": item.get("distance", 0.0)})
+            hits.append(
+                {
+                    "text": text,
+                    "score": item.get("distance", 0.0),
+                    "kind": entity.get("kind") if isinstance(entity, dict) else getattr(entity, "kind", "source"),
+                    "source": entity.get("source") if isinstance(entity, dict) else getattr(entity, "source", ""),
+                    "chapter": entity.get("chapter") if isinstance(entity, dict) else getattr(entity, "chapter", ""),
+                    "char_offset": entity.get("char_offset") if isinstance(entity, dict) else getattr(entity, "char_offset", 0),
+                    "doc_id": entity.get("doc_id") if isinstance(entity, dict) else getattr(entity, "doc_id", ""),
+                    "keywords": entity.get("keywords") if isinstance(entity, dict) else getattr(entity, "keywords", ""),
+                }
+            )
         return hits
 
 
@@ -274,18 +373,265 @@ def build_vector_store(settings: Settings, embedder: Embedder) -> VectorStore:
 
 
 # ---------- RAG 工具 ----------
+#
+# 检索质量优化的核心：
+#   1. 结构化切片：识别中文章节标题，按句子边界组装语义块（不切断句子），
+#      并预计算关键词、章节名、原文偏移；
+#   2. 干净嵌入：文档向量只用正文本身，不把标题反复拼进每个向量稀释语义；
+#   3. 混合检索：向量召回 + 关键词重叠打分 + 来源加权；
+#   4. 重排 + MMR 多样性 + 去重 + 阈值，保证返回「相关且彼此不重复」的片段。
+
+
+# 中文章节标题模式（第一章 / 第1章 / 序章 / 楔子 / 尾声 / 番外 / Chapter 1 …）。
+_CHAPTER_RE = re.compile(
+    r"^\s*(第[零一二三四五六七八九十百千万0-9]+[章节卷回部集]|"
+    r"Chapter\s*\d+|序章|楔子|尾声|番外|引子|后记|前言)[^\n]{0,30}$"
+)
+
+# 句子边界（中文标点 + 换行）。
+_SENT_RE = re.compile(r"[^。！？!?；;…]+[。！？!?；;…]*")
+
+# 常见虚字 / 停用字（用于关键词提取时过滤无意义 n-gram）。
+_STOP_CHARS = set(
+    "的了是在我你他她它们这那和与就都也不很把被对为从向到着过之其而或且但若如因所及"
+    "吗呢啊哦吧呀么什怎怎什么要会能可有个没很"
+    "一二三四五六七八九十百千万"
+)
+
+
+@dataclass
+class Chunk:
+    """一个结构化的原文切片（语义完整、可追溯）。"""
+
+    text: str
+    chapter: str = ""            # 所属章节标题
+    chapter_index: int = 0       # 章节序号
+    start: int = 0               # 原文字符偏移
+    keywords: list[str] = field(default_factory=list)
+
+
+def _char_ngrams(text: str, n: int = 2) -> set[str]:
+    """字符 n-gram 特征（中文无空格，用字符 n-gram 近似关键词）。"""
+    t = re.sub(r"[^\u4e00-\u9fa5A-Za-z0-9]", "", str(text or "").lower())
+    grams: set[str] = set()
+    for i in range(len(t) - n + 1):
+        g = t[i : i + n]
+        if all(c in _STOP_CHARS for c in g):
+            continue
+        grams.add(g)
+    return grams
+
+
+def _extract_keywords(text: str, top: int = 12) -> list[str]:
+    """按频率提取字符 2-gram 关键词（离线、无需分词器）。"""
+    t = re.sub(r"[^\u4e00-\u9fa5A-Za-z0-9]", "", str(text or ""))
+    counts: Counter[str] = Counter()
+    for i in range(len(t) - 1):
+        g = t[i : i + 2]
+        if all(c in _STOP_CHARS for c in g):
+            continue
+        counts[g] += 1
+    return [g for g, _ in counts.most_common(top)]
+
+
+def _split_sentences(line: str) -> list[str]:
+    parts = [p.strip() for p in _SENT_RE.findall(line or "") if p.strip()]
+    return parts or ([line.strip()] if line.strip() else [])
+
+
+def _make_chunk(sents: list[str], chapter: str, chapter_index: int, start: int) -> Chunk:
+    text = "".join(sents).strip()
+    return Chunk(text=text, chapter=chapter, chapter_index=chapter_index, start=start, keywords=_extract_keywords(text))
+
+
+def split_chunks(
+    text: str,
+    *,
+    target_size: int = 500,
+    max_size: int = 800,
+    overlap_sentences: int = 1,
+) -> list[Chunk]:
+    """结构化切片：章节感知 + 句子边界 + 语义完整。
+
+    推理：中文脚本/小说的自然语义单元是「章节 -> 段落 -> 句子」。
+    固定字符数切片会切断句子、拆散一个场景，检索回来的片段残缺。
+    这里先按章节标题分段，再按句子组装成 ~target_size 的块（不切断句子），
+    相邻块重叠 overlap_sentences 句，保证跨块语义连贯。
+    """
+    if not text:
+        return []
+    # 1) 章节分段：识别标题行，把后续内容归到该章节。
+    segments: list[tuple[str, int, list[str]]] = []
+    cur_chapter, cur_ci, cur_sents = "", 0, []
+
+    def _flush() -> None:
+        nonlocal cur_sents
+        if cur_sents:
+            segments.append((cur_chapter, cur_ci, cur_sents))
+            cur_sents = []
+
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if _CHAPTER_RE.match(stripped) and len(stripped) <= 40:
+            _flush()
+            cur_chapter = stripped
+            cur_ci += 1
+            continue
+        cur_sents.extend(_split_sentences(line))
+    _flush()
+
+    # 2) 章节内按句子组装语义块。
+    chunks: list[Chunk] = []
+    offset = 0
+    for chap, ci, sents in segments:
+        buf: list[str] = []
+        buf_len = 0
+        for sent in sents:
+            buf.append(sent)
+            buf_len += len(sent)
+            # 达到目标长度且不止一句时收口；单句超长才允许超出。
+            if buf_len >= target_size and len(buf) >= 2:
+                chunks.append(_make_chunk(buf, chap, ci, offset))
+                offset += buf_len
+                keep = buf[-overlap_sentences:] if overlap_sentences > 0 else []
+                buf = keep[:]
+                buf_len = sum(len(s) for s in buf)
+            elif buf_len >= max_size:
+                chunks.append(_make_chunk(buf, chap, ci, offset))
+                offset += buf_len
+                keep = buf[-overlap_sentences:] if overlap_sentences > 0 else []
+                buf = keep[:]
+                buf_len = sum(len(s) for s in buf)
+        if buf:
+            chunks.append(_make_chunk(buf, chap, ci, offset))
+            offset += buf_len
+    return chunks
 
 
 def chunk_text(text: str, *, chunk_size: int = 800, overlap: int = 120) -> list[str]:
-    """把原始文本切成带重叠的块，便于向量化与检索。"""
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    """兼容旧接口：返回纯文本块列表（内部走结构化切片）。"""
+    target = max(200, chunk_size - overlap) if chunk_size > 200 else 400
+    return [c.text for c in split_chunks(text, target_size=target, max_size=chunk_size, overlap_sentences=1)]
 
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=overlap,
-        separators=["\n\n", "\n", "。", "！", "？", ".", " ", ""],
-    )
-    return [c.strip() for c in splitter.split_text(text) if c.strip()]
+
+def _text_fingerprint(text: str) -> str:
+    return hashlib.md5(str(text or "").encode("utf-8")).hexdigest()[:16]
+
+
+def _text_sim(a: dict[str, Any], b: dict[str, Any]) -> float:
+    """文本级相似度（字符 2-gram Jaccard），用于 MMR 多样性项。"""
+    ga = _char_ngrams(str(a.get("text") or ""))
+    gb = _char_ngrams(str(b.get("text") or ""))
+    if not ga or not gb:
+        return 0.0
+    return len(ga & gb) / len(ga | gb)
+
+
+def _keyword_overlap(query_grams: set[str], hit: dict[str, Any]) -> float:
+    """查询关键词与命中片段关键词的重叠比例（0~1）。"""
+    kws = hit.get("keywords")
+    if isinstance(kws, list):
+        kg = set(kws)
+    else:
+        kg = {x for x in str(kws or "").split(",") if x}
+    if not kg:
+        kg = _char_ngrams(str(hit.get("text") or ""))
+    if not query_grams or not kg:
+        return 0.0
+    return len(query_grams & kg) / len(query_grams)
+
+
+def hybrid_retrieve(
+    vector: VectorStore,
+    embedder: Embedder,
+    *,
+    project_id: str,
+    query: str,
+    k: int = 4,
+    kinds: list[str] | None = None,
+    context: str | None = None,
+    diversity: float = 0.3,
+    candidate_mult: int = 5,
+) -> list[dict[str, Any]]:
+    """混合检索：向量召回 -> 关键词加权 -> 归一化重排 -> MMR 多样性 -> 去重。
+
+    返回结构化命中（text/kind/source/chapter/char_offset/score/keywords）。
+    """
+    if not query:
+        return []
+    try:
+        q_text = f"{query}\n{context}" if context else query
+        vec = embedder.embed([q_text])[0]
+        cand_k = max(k * candidate_mult, k + 8, 12)
+        hits = vector.search(vec, project_id=project_id, k=cand_k)
+    except Exception:  # noqa: BLE001
+        return []
+
+    if kinds:
+        wanted = set(kinds)
+        hits = [h for h in hits if str(h.get("kind") or "") in wanted]
+
+    if not hits:
+        return []
+
+    # 语义分 min-max 归一化（hashing 等低分场景下用相对分更稳）。
+    scores = [float(h.get("score") or 0.0) for h in hits]
+    lo, hi = min(scores), max(scores)
+    span = (hi - lo) or 1.0
+    query_grams = _char_ngrams(query)
+
+    for h in hits:
+        sem = (float(h.get("score") or 0.0) - lo) / span
+        kw = _keyword_overlap(query_grams, h)
+        # 用户显式记忆（source=user）优先于种子知识。
+        src_boost = 0.05 if str(h.get("source") or "").startswith("user") else 0.0
+        h["_sem"] = sem
+        h["_kw"] = kw
+        h["_final"] = 0.7 * sem + 0.3 * kw + src_boost
+
+    hits.sort(key=lambda h: h["_final"], reverse=True)
+
+    # 去重（文本指纹）+ 低相关过滤。
+    seen: set[str] = set()
+    dedup: list[dict[str, Any]] = []
+    for h in hits:
+        if h["_final"] < 0.08:  # 语义和关键词都很弱 -> 噪声
+            continue
+        fp = _text_fingerprint(str(h.get("text") or ""))
+        if fp in seen:
+            continue
+        seen.add(fp)
+        dedup.append(h)
+
+    # MMR：在「相关度」与「多样性」之间折中，避免返回同一走向的重复表述。
+    selected: list[dict[str, Any]] = []
+    pool = dedup[:]
+    while pool and len(selected) < k:
+        best, best_val = None, -1.0
+        for h in pool:
+            div = max((_text_sim(h, s) for s in selected), default=0.0)
+            val = (1.0 - diversity) * h["_final"] - diversity * div
+            if val > best_val:
+                best_val, best = val, h
+        if best is None:
+            break
+        selected.append(best)
+        pool.remove(best)
+
+    out: list[dict[str, Any]] = []
+    for h in selected:
+        out.append(
+            {
+                "text": str(h.get("text") or ""),
+                "kind": str(h.get("kind") or "source"),
+                "source": str(h.get("source") or ""),
+                "chapter": str(h.get("chapter") or ""),
+                "char_offset": int(h.get("char_offset") or 0),
+                "keywords": h.get("keywords") or [],
+                "score": round(h["_final"], 4),
+            }
+        )
+    return out
 
 
 def index_project(
@@ -295,20 +641,31 @@ def index_project(
     project_id: str,
     raw_text: str,
     title: str,
+    kind: str = "source",
 ) -> int:
-    """把一个项目的原始文本切块、嵌入并写入向量库。返回写入的块数。"""
-    chunks = chunk_text(raw_text or "")
+    """把一个项目的原始文本结构化切块、干净嵌入并写入向量库。返回写入的块数。
+
+    优化：向量只用正文本身（不再把标题拼进每个块稀释语义）；
+    标题/章节/偏移/关键词作为元数据保存，供检索与前端定位。
+    """
+    chunks = split_chunks(raw_text or "")
     if not chunks:
         return 0
-    # 用「标题 + 块」进行嵌入，提升检索的上下文质量。
-    vectors = embedder.embed([f"{title}\n{c}" for c in chunks])
+    # 干净嵌入：纯正文（标题等元数据不进向量）。
+    vectors = embedder.embed([c.text for c in chunks])
     rows = [
         {
             "id": f"{project_id}_{i:04d}",
             "vector": vectors[i],
-            "text": chunks[i],
+            "text": chunks[i].text,
             "project_id": project_id,
-            "chapter_index": i,
+            "chapter_index": chunks[i].chapter_index,
+            "chapter": chunks[i].chapter,
+            "char_offset": chunks[i].start,
+            "kind": kind,
+            "source": "raw_text",
+            "doc_id": f"{project_id}:{kind}:{i}",
+            "keywords": chunks[i].keywords,
         }
         for i in range(len(chunks))
     ]
@@ -324,7 +681,6 @@ def retrieve(
     query: str,
     k: int = 4,
 ) -> list[str]:
-    """按查询向量检索最相关的原文片段。"""
-    vec = embedder.embed([query])[0]
-    hits = vector.search(vec, project_id=project_id, k=k)
+    """按查询检索最相关的原文片段（混合检索，返回纯文本）。"""
+    hits = hybrid_retrieve(vector, embedder, project_id=project_id, query=query, k=k)
     return [str(h.get("text") or "") for h in hits if str(h.get("text") or "")]
