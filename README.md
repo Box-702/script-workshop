@@ -1,99 +1,56 @@
-# 🎬 剧本智能体 · Script Adaptation Agent
+# 剧本智能体（Script Adaptation Agent）
 
-<p align="center">
-  <strong>基于 LangGraph 的剧本改编 Agent 工作台</strong><br>
-  <em>有状态、可工具调用、可人机协同的 AI 剧本改写系统</em>
-</p>
+基于 LangGraph 的剧本改编 Agent 工作台。它不是一次性生成工具，而是一套有状态、可调用工具、可人机协同的改写系统：AI 给出可解释、可逐条选择、可回滚的修改建议，由人来决定接受、编辑或拒绝。
 
-<p align="center">
-  <img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python 3.12+">
-  <img src="https://img.shields.io/badge/langgraph-1.x-green.svg" alt="LangGraph 1.x">
-  <img src="https://img.shields.io/badge/langchain-1.x-green.svg" alt="LangChain 1.x">
-  <img src="https://img.shields.io/badge/fastapi-0.115+-teal.svg" alt="FastAPI">
-  <img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="MIT License">
-  <img src="https://img.shields.io/badge/tests-26%20passed-brightgreen.svg" alt="Tests">
-</p>
+- Python 3.12+ / LangGraph 1.x / LangChain 1.x / FastAPI
+- 后端 FastAPI（REST + 流式对话），前端 Vue 3 + Vite
+- 可选 Postgres（业务库 + checkpointer）与 Milvus（RAG 向量库）
 
----
+## 为什么做这个项目
 
-## ✨ 项目亮点
+市面上常见的剧本工具大多是「一次性生成」：输入小说，吐出一份剧本，结束。这类工具价值有限，因为：
 
-> **Agent 的正确位置不是替用户覆盖文本，而是给出可解释、可选择、可回滚的建议。**
+1. 一次生成的剧本仍需要人工继续修改；
+2. AI 无脑覆盖会破坏作者已有的结构；
+3. 没有版本、没有回滚，也说不清「这条改动到底改了什么」。
 
-| 特性 | 说明 |
-|------|------|
-| 🔄 **状态图编排** | LangGraph StateGraph + 条件边，模型是否用工具、用户接受/拒绝都用边表达 |
-| 🛠️ **ReAct 工具调用** | Agent 自主决定查看场景/检索原文/查版本/校验 |
-| 👤 **人机协同** | `interrupt` 暂停，`Command.resume` 恢复；支持接受/编辑/重新生成/拒绝 |
-| 🛡️ **自我审阅** | `guard` 节点先 dry-run 应用并自纠错，再交给人类 |
-| 📝 **结构化输出** | patch 是原子操作，可逐条审、逐条接受、可回滚 |
-| 💬 **对话式交互** | Codex/DSH 风格，通过自然语言完成整套流程 |
-| 🧠 **项目级知识 RAG** | 每个项目维护「同类走向/写作手法/作者风格」三类记忆 |
-| 📤 **剧本导出** | 一键导出标准剧本为 `.txt / .md / .docx`（Word 可直接打开） |
-| ✏️ **直接编辑剧本** | 内置剧本编辑器：所见即所得改台词/动作/场景，保存成新版本（复用 patch 引擎） |
-| 📚 **编剧圣经/设定** | 右侧「编剧设定」面板维护人物小传、时间线、伏笔清单，自动写入工作目录 |
-| 🏷️ **版本里程碑** | 给版本打 草稿/候选/终稿 标记，一键「定为终稿」 |
-| 📁 **工作目录三选一** | 默认落盘 / 指定真实文件夹 / 仅应用内不落盘，可随时切换 |
-| 📂 **本地文件浏览** | 右侧「本地文件」面板直接查看/下载 `data/<剧名>/` 里的剧本文件 |
-| 📁 **真实工作目录** | 关联电脑磁盘文件夹，导入/生成/导出自动归入 `01_原稿 / 02_版本 / 03_导出 / 04_知识库`，形成结构化工作流程 |
-| 💾 **持久化 + 可观测** | Postgres 存业务数据 + checkpointer；`graph.stream` 采集节点级执行轨迹 |
+这个项目把重心从「AI 一次生成」移到「AI 如何安全、可控地参与改写」，这才是 Agent 的核心命题。
 
----
+## 功能
 
-## 📖 为什么做这个项目
+- **状态图编排**：LangGraph StateGraph + 条件边，模型是否用工具、用户是否接受都用边来表达。
+- **ReAct 工具调用**：Agent 自主决定查看场景详情、检索原文、查版本历史、校验。
+- **人机协同**：`interrupt` 暂停图执行，`Command.resume` 恢复；支持接受 / 编辑 / 重新生成 / 拒绝四种决策。
+- **自我审阅**：`guard` 节点先 dry-run 应用并自纠错，再交给人类。
+- **结构化输出**：patch 是原子操作，可逐条审、逐条接受、可回滚。
+- **对话式交互**：用自然语言完成从导入、改编到审阅的整套流程。
+- **项目级知识 RAG**：每个项目维护「同类走向 / 写作手法 / 作者风格」三类记忆。
+- **剧本导出**：一键导出为 `.txt / .md / .docx`。
+- **剧本编辑器**：直接改台词、动作、场景，保存成新版本（复用 patch 引擎）。
+- **编剧设定**：项目面板维护人物小传、时间线、伏笔清单。
+- **版本里程碑**：给版本打「草稿 / 候选 / 终稿」标记，一键定为终稿。
+- **工作目录**：默认落盘，或指定真实磁盘文件夹，或仅应用内不落盘。
+- **本地文件浏览**：直接查看 / 下载 `data/<剧名>/` 下的剧本文件。
+- **持久化 + 可观测**：Postgres 存业务数据与 checkpointer；`graph.stream` 采集节点级执行轨迹。
 
-市面上的「脚本工具」大多是**一次性生成器**：输入小说 → 吐一份剧本 → 结束。它的价值其实很有限，因为：
+## 架构
 
-1. 一次生成的剧本永远需要人继续改；
-2. AI 无脑覆盖会毁掉作者已有的结构；
-3. 没有版本、没有回滚、没有「这条改动到底改了什么」。
-
-所以本项目把重心从「AI 一次生成」挪到 **AI 如何安全、可控地参与改写**，这正是 **Agent（智能体）** 的核心命题。
-
----
-
-## 🏗️ 架构总览
-
-```
-┌────────────────────────────────────────────────────────────┐
-│  Web（Vue 3 + Vite 单页）    REST API (FastAPI)              │
-│  frontend/src/components <-> app/api.py（含 SSE 流式对话）   │
-└──────────────────────────────┬─────────────────────────────┘
-                               │
-   ┌───────────────────────────▼───────────────────────────┐
-   │  app/chat.py  对话式 Agent（ChatConductor）              │
-   │  工具：create_project / generate_script / run_adaptation│
-   │        / resume(确定性) / ask / remember / overview    │
-   │  记忆：app/knowledge.py  项目级改编知识 RAG               │
-   └───────────────────────────┬───────────────────────────┘
-                               │
-   ┌───────────────────────────▼───────────────────────────┐
-   │  app/agent.py  运行服务：启动运行 / 恢复审阅 / 兜底      │
-   │                                                       │
-   │  ┌──────────────── LangGraph 图 ─────────────────┐    │
-   │  │  context → plan →(ReAct 循环)→ propose →      │    │
-   │  │                 plan → tools → plan …     │    │
-   │  │  propose → review(interrupt) → apply→finalize │    │
-   │  │                    │(拒绝)→ finalize             │    │
-   │  └──────────────────────────────────────────────┘    │
-   │      app/nodes.py   app/tools.py   app/state.py        │
-   │      + app/generation.py （线性生成流水线）            │
-   └──────────────────────────┬───────────────────────────┘
-                              │
-        ┌─────────────────────┼──────────────────────┐
-        │  Postgres（业务数据+checkpointer）│  Milvus（可选 RAG）│
-        │  app/store.py、graph.py        │  app/vector.py      │
-        └────────────────────────────────┴──────────────────┘
-```
+- `app/api.py`：REST 路由 + SSE 流式对话，对外提供 `/api/*`。
+- `app/chat.py`：对话式 Agent（ChatConductor），持有工具集并编排对话。
+- `app/agent.py`：运行服务，负责启动运行、恢复审阅与兜底。
+- `app/graph.py` + `app/nodes.py` + `app/tools.py` + `app/state.py`：把节点和边组装成 LangGraph StateGraph，接入 checkpointer 实现中断与恢复。
+- `app/store.py`：业务持久化（SQLAlchemy，Postgres / SQLite）。
+- `app/vector.py`：向量检索层（Milvus，不可用时退化为内存向量 + 哈希嵌入）。
+- `frontend/`：Vue 3 + Vite 单页，`/api` 请求代理到后端。
 
 ### LangGraph 图拓扑
 
 ```text
 START → context → plan ──(有工具调用)──> tools → plan   (ReAct 循环)
                         └──(无工具调用)──> propose → guard(自纠错)
-                                                 │(有问题，未超限)└→ propose（重做循环）
-                                                 │(通过)          └→ review(interrupt)
-                                                                    │
+                                                  │(有问题，未超限)└→ propose（重做循环）
+                                                  │(通过)          └→ review(interrupt)
+                                                                     │
                        ┌──(accept/edit)───────┬─┴──────────┬─┐
                        ▼                      │            │ │
                      apply ──> finalize ──> END          │ │
@@ -102,14 +59,11 @@ START → context → plan ──(有工具调用)──> tools → plan   (ReAc
                        └──(reject)──────────> finalize ──> END
 ```
 
----
+## 快速开始
 
-## 🚀 快速开始
+应用在本机直接运行（uvicorn / vite）。Docker 只用来提供基础设施：Postgres（业务库 + checkpointer）与可选的 Milvus 向量库。不插数据库也能跑通演示链路。
 
-> 应用在本机直接运行（uvicorn / vite），Docker 只用来提供基础设施：
-> Postgres（业务库 + checkpointer）与可选的 Milvus 向量库。不插数据库也能跑通演示链路。
-
-### 方式 A：本机运行（推荐，零基础设施）
+### 方式一：本机运行（零基础设施）
 
 ```bash
 # 1. 安装依赖（建议先 conda activate langgraph）
@@ -133,11 +87,11 @@ cd frontend && npm install && npm run dev
 npm run build
 ```
 
-> 💡 `ENABLE_RAG=false`、`OPENAI_API_KEY=` 留空时全部走本地回退，链路依然闭环。
+`ENABLE_RAG=false`、`OPENAI_API_KEY=` 留空时，全部走本地回退，链路依然闭环。
 
-### 方式 B：用 Docker 提供基础设施（Postgres / 可选 Milvus）
+### 方式二：用 Docker 提供基础设施（Postgres / 可选 Milvus）
 
-应用仍在本机跑，Docker 只负责数据库。适合要用 Postgres checkpointer 做跨重启恢复、或启用 Milvus RAG 的场景。
+应用仍在本机跑，Docker 只负责数据库。适合要用 Postgres checkpointer 实现跨重启恢复，或启用 Milvus RAG 的场景。
 
 ```bash
 # 1. 准备环境变量
@@ -161,11 +115,13 @@ uvicorn app.main:app --port 8000
 cd frontend && npm install && npm run build
 ```
 
-> 💡 两种方式访问入口相同：**Web** http://localhost:8000 · **API 文档** http://localhost:8000/docs · **健康检查** http://localhost:8000/api/healthz
+两种方式访问入口相同：
 
----
+- Web：http://localhost:8000
+- API 文档（Swagger）：http://localhost:8000/docs
+- 健康检查：http://localhost:8000/api/healthz
 
-## 📁 项目结构
+## 项目结构
 
 ```
 Script Workshop/
@@ -222,32 +178,30 @@ Script Workshop/
 └── data/                     # 本地数据（gitignore）
 ```
 
-### 各模块职责
+### 主要模块职责
 
 | 文件 | 职责 |
 |------|------|
-| `app/chat.py` | **对话式 Agent**：ChatConductor 图 + 工具集 + SSE 流式对话 |
-| `app/knowledge.py` | **项目级改编知识 RAG**：题材识别、作者风格提取、同类剧本种子库 |
-| `app/importer.py` | **原著文件导入**：解析 `.txt / .md / .docx` |
+| `app/chat.py` | 对话式 Agent：ChatConductor 图 + 工具集 + SSE 流式对话 |
+| `app/knowledge.py` | 项目级改编知识 RAG：题材识别、作者风格提取、同类剧本种子库 |
+| `app/importer.py` | 原著文件导入：解析 `.txt / .md / .docx` |
 | `app/state.py` | 图状态（AgentState）+ 人类决策模型 |
-| `app/graph.py` | 把节点/边组装成 StateGraph，接入 checkpointer |
+| `app/graph.py` | 把节点 / 边组装成 StateGraph，接入 checkpointer |
 | `app/nodes.py` | 图节点：context / plan / propose / guard / review / apply / finalize |
 | `app/tools.py` | ReAct 工具：剧本概况、场景详情、原文、版本历史、校验 |
 | `app/patch.py` | patch 引擎：结构化提议 → 操作清单 → 应用 → 校验 |
 | `app/domain.py` | 剧本领域模型（Script / Scene / Character / Beat） |
-| `app/export.py` | **剧本导出**：把 Script 渲染为标准剧本 `.txt / .md / .docx` |
-| `app/workspace.py` | **工作目录**：真实磁盘文件夹 + `01_原稿/02_版本/03_导出/04_知识库` 结构化分格 |
+| `app/export.py` | 剧本导出：渲染为标准剧本 `.txt / .md / .docx` |
+| `app/workspace.py` | 工作目录：真实磁盘文件夹 + `01_原稿/02_版本/03_导出/04_知识库` 结构化分格 |
 | `app/llm.py` | 模型接入（OpenAI 兼容 + DeepSeek 原生） |
-| `app/generation.py` | 线性生成流水线（故事圣经 → 场景/节拍） |
-| `app/vector.py` | 向量检索层：嵌入器 + Milvus/内存后端 |
+| `app/generation.py` | 线性生成流水线（故事圣经 → 场景 / 节拍） |
+| `app/vector.py` | 向量检索层：嵌入器 + Milvus / 内存后端 |
 | `app/store.py` | 业务持久化（SQLAlchemy + Postgres/SQLite） |
 | `app/agent.py` | Agent 运行服务：start / resume / get |
 
----
+## API 速览
 
-## 🔌 API 速览
-
-### 对话式 API
+### 对话式接口
 
 | 端点 | 说明 |
 |------|------|
@@ -256,36 +210,32 @@ Script Workshop/
 | `GET /api/conversations/{id}/messages` | 读取消息历史 |
 | `GET /api/projects/{id}/conversations` | 列出项目对话 |
 | `POST /api/projects/{id}/conversations` | 新建对话 |
-| `POST /api/projects/import` | **新建剧本**：上传文件或粘贴原文 |
+| `POST /api/projects/import` | 新建剧本：上传文件或粘贴原文 |
 | `GET /api/versions/{id}/text` | 返回标准剧本排版文本 |
-| `GET /api/versions/{id}/export?fmt=txt\|md\|docx` | **导出剧本**为 .txt / .md / .docx 文件（并写入工作目录 `03_导出`） |
-| `POST /api/versions/{id}/apply` | **内置编辑器**：应用字段级改动，生成「手动编辑」新版本 |
-| `POST /api/versions/{id}/milestone` | 给版本打里程碑标记（草稿/候选/终稿） |
+| `GET /api/versions/{id}/export?fmt=txt|md|docx` | 导出剧本为 .txt / .md / .docx（并写入工作目录 `03_导出`） |
+| `POST /api/versions/{id}/apply` | 应用字段级改动，生成「手动编辑」新版本 |
+| `POST /api/versions/{id}/milestone` | 给版本打里程碑标记（草稿 / 候选 / 终稿） |
 | `GET /api/workspace` | 查看当前工作目录配置与落盘模式 |
 | `POST /api/workspace` | 设置工作目录（`root` + `persist`；persist=false 为仅应用内不落盘） |
-| `GET/PUT /api/projects/{id}/notes` | 读取/保存「编剧圣经 / 设定备忘」 |
+| `GET/PUT /api/projects/{id}/notes` | 读取 / 保存「编剧圣经 / 设定备忘」 |
 | `GET /api/projects/{id}/files` | 列出项目本地剧本文件（按 `01原稿/02版本/03导出/04知识库` 分组） |
-| `GET /api/projects/{id}/files/{path}` | 读取/预览某个本地剧本文件（文本内联，附件下载，防目录穿越） |
+| `GET /api/projects/{id}/files/{path}` | 读取 / 预览某个本地剧本文件（文本内联，附件下载，防目录穿越） |
 | `POST /api/projects/{id}/structure` | 把原稿与最新版本落盘到工作目录并返回目录树 |
 | `GET /api/projects/{id}/knowledge` | 查看项目知识库 |
 
-### 改编工作流 API
+### 改编工作流接口
 
 | 端点 | 说明 |
 |------|------|
 | `POST /api/projects/{project_id}/agent/run` | 启动改编运行 |
-| `POST /api/agent/runs/{run_id}/resume` | 恢复审阅（接受/编辑/重新生成/拒绝） |
+| `POST /api/agent/runs/{run_id}/resume` | 恢复审阅（接受 / 编辑 / 重新生成 / 拒绝） |
 | `GET /api/agent/runs/{run_id}` | 查看运行状态 |
 
----
+## 工作目录（默认落盘，自动创建）
 
-## 📁 工作目录（默认落盘，自动创建）
+默认把剧本以「文件」形式落盘到项目下的 `data/` 目录（不存在会自动创建）；数据库承担聊天与 Agent 工作流（对话、消息、Agent 运行记录、项目与版本的结构化数据）。这样可以直接在资源管理器里翻剧本文件，应用内的编辑 / 审阅仍走数据库的结构化模型。
 
-**默认把剧本以「文件」形式落盘到项目下的 `data/` 目录**，`data/` 不存在时自动创建；数据库承担聊天与 Agent 工作流（对话、消息、Agent 运行记录、项目与版本的结构化数据）。这样你能直接去资源管理器里翻剧本文件，应用里的编辑/审阅还走数据库的结构化模型。
-
-> 产出目录随项目自动生成，用「导入 → 生成 → 导出」串成结构化工作流程：
-
-```text
+```
 data/
   <剧名>/
     01_原稿/     原著 / 原始文本（导入时写入）
@@ -297,17 +247,15 @@ data/
 
 - 导入原著 → 自动写入 `01_原稿`；
 - 生成初稿 / 接受改编 → 自动写入 `02_版本`；
-- 点击「⤓ 导出」→ 下载，并同时写入 `03_导出`；
-- 右侧面板「⤷ 同步到工作目录」→ 手动把原稿 + 最新版本落盘。
+- 点击导出 → 下载，并同时写入 `03_导出`；
+- 右侧面板「同步到工作目录」→ 手动把原稿 + 最新版本落盘。
 
-> 默认 `WORKSPACE_PERSIST=true`（落盘到 `data/`）；可用 `WORKSPACE_ROOT` 换个目录，或设 `WORKSPACE_PERSIST=false` 改为仅应用内。`data/` 已在 `.gitignore` 中，不会进版本库。落盘失败不影响主流程（数据库仍是权威数据源）。
+默认 `WORKSPACE_PERSIST=true`（落盘到 `data/`）；可用 `WORKSPACE_ROOT` 换个目录，或设 `WORKSPACE_PERSIST=false` 改为仅应用内。`data/` 已在 `.gitignore` 中，不会进版本库。落盘失败不影响主流程（数据库仍是权威数据源）。
 
----
-
-## 🧪 运行测试
+## 运行测试
 
 ```bash
-# 运行全部测试（26 个）
+# 运行全部测试
 python -m pytest tests -q
 
 # 运行特定测试
@@ -315,46 +263,14 @@ python -m pytest tests/test_agent.py -v
 python -m pytest tests/test_patch.py -v
 ```
 
----
-
-## 💡 面试讲稿大纲
-
-1. **痛点**：一次生成的剧本没法安全地后续修改，AI 无脑覆盖会毁掉作者结构。
-2. **方案**：用 LangGraph 把「改写」建模成有状态、可中断的 Agent 流程，并以**对话形式**呈现。
-3. **亮点 1 · 状态图 + 条件边**：模型是否用工具、用户接受/编辑/重新生成/拒绝，都用边来表达。
-4. **亮点 2 · ReAct + 工具**：Agent 自主决定查看场景/检索原文/查版本/校验。
-5. **亮点 3 · 人机协同**：`interrupt` 暂停，`Command.resume` 恢复；支持四种决策。
-6. **亮点 4 · 自我审阅**：`guard` 节点先 dry-run 应用并自纠错，再交给人类。
-7. **亮点 5 · 结构化输出**：patch 是原子操作，可逐条审、逐条接受、可回滚。
-8. **亮点 6 · 对话式编排**：Codex/DSH 风格，审阅动作走确定性路径。
-9. **亮点 7 · 项目级知识 RAG**：每个项目维护三类记忆，改编与问答都参考。
-10. **亮点 8 · 持久化 + 可观测**：Postgres + checkpointer；`graph.stream` 采集执行轨迹。
-
-> **一句话总结**：用 LangGraph 编排了一套「会推理、会查证、会停下来等人类决定、并把决定安全落库」的 Agent 工作流，并且把它包成了像 Codex 一样可以直接对话使用的产品形态。
-
----
-
-## 🗺️ 后续演进方向
-
-- [ ] 把生成流水线也升级为 LangGraph 图
-- [ ] 增加角色弧光、时间线一致性等多场景全局检查工具
-- [ ] 版本 diff 复用 `patch` 的字段级对比
-- [ ] 知识库支持跨项目借阅
-- [ ] 对话支持多模态输入（PDF / 网页）
-- [ ] Milvus 检索支持跨项目、混合检索
-
----
-
-## 📄 许可证
+## 许可证
 
 本项目采用 [MIT 许可证](LICENSE)。
 
----
-
-## 🙏 致谢
+## 致谢
 
 - [LangGraph](https://github.com/langchain-ai/langgraph) - 有状态 Agent 编排框架
 - [LangChain](https://github.com/langchain-ai/langchain) - LLM 应用开发框架
 - [FastAPI](https://github.com/tiangolo/fastapi) - 现代 Python Web 框架
-- [PostgreSQL](https://www.postgresql.org/) - 强大的关系型数据库
+- [PostgreSQL](https://www.postgresql.org/) - 关系型数据库
 - [Milvus](https://github.com/milvus-io/milvus) - 向量数据库
