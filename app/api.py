@@ -13,23 +13,27 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import agent as agent_svc
 from . import chat as chat_svc
-from .config import Settings
+from .config import Settings, get_settings
 from .deps import embedder, llm, settings, store, vector
 from .domain import Script, normalize_adaptation_type
+from .export import EXPORT_FORMATS, export_script, script_to_screenplay
 from .generation import generate_script
 from .importer import parse_file
 from .knowledge import index_project_knowledge
 from .patch import validate_script
 from .vector import index_project
+from .workspace import SUBDIRS, configure_root, current_workspace, pick_directory
 
 router = APIRouter(prefix="/api")
 
@@ -122,12 +126,52 @@ def _version_dict(version: Any, *, with_content: bool = False) -> dict[str, Any]
         "source_type": version.source_type,
         "label": version.label,
         "notes": version.notes,
+        "milestone": getattr(version, "milestone", None),
         "created_at": version.created_at.isoformat(),
     }
     if with_content:
         data["script"] = _script_to_dict(version.script)
         data["validation"] = [i.model_dump() for i in validate_script(version.script)]
     return data
+
+
+# ---------- 工作目录写入（失败不阻断主流程）----------
+
+
+def _workspace() -> Any:
+    """取当前工作目录实例（未配置/仅应用内时，写文件会静默跳过）。"""
+    return current_workspace(settings().effective_workspace_root, settings().workspace_persist)
+
+
+def _proj_title(raw_title: str) -> str:
+    """把任意标题清洗成适合做文件名的安全文本。"""
+    text = str(raw_title or "").strip() or "未命名剧本"
+    text = re.sub(r'[<>:"\\|?*]', "_", text)
+    return text[:80] or "未命名剧本"
+
+
+def _persist_original(project: Any) -> None:
+    """把项目原著写入工作目录的「01_原稿」。"""
+    ws = _workspace()
+    if not ws.configured:
+        return
+    try:
+        ws.save_original(project.title, _proj_title(project.title) + ".txt", project.raw_text)
+    except Exception:  # noqa: BLE001
+        pass  # 落盘失败不影响主流程
+
+
+def _persist_version(project: Any, version: Any, *, label: str | None = None) -> None:
+    """把一份剧本版本写入工作目录的「02_版本」。"""
+    ws = _workspace()
+    if not ws.configured:
+        return
+    try:
+        text = script_to_screenplay(version.script)
+        name = f"{_proj_title(project.title)}_v{(version.label or label or '').strip() or 'version'}"
+        ws.save_version(project.title, name, text)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ---------- 项目 ----------
@@ -142,6 +186,7 @@ def create_project(payload: ProjectCreate) -> dict[str, Any]:
         language=payload.language,
         raw_text=payload.raw_text,
     )
+    _persist_original(p)
     # 可选 RAG：把原始文本分块写入向量库（Milvus 或内存）。
     if cfg.enable_rag:
         try:
@@ -168,6 +213,24 @@ def get_project(project_id: str) -> dict[str, Any]:
     return _project_dict(p)
 
 
+@router.delete("/projects/{project_id}")
+def delete_project(project_id: str) -> dict[str, Any]:
+    """"删除项目及其所有对话、消息、版本，并清理磁盘上的工作目录文件夹。"""
+    p = store().get_project(project_id)
+    if not p:
+        raise HTTPException(404, "项目不存在")
+    title = p.title
+    store().delete_project(project_id)
+    # 清理磁盘上该项目的工作目录（原稿/版本/导出/知识库）——失败不影响主流程。
+    ws = _workspace()
+    if ws.configured:
+        try:
+            ws.remove_project(title)
+        except Exception:  # noqa: BLE001
+            pass
+    return {"ok": True, "deleted": project_id}
+
+
 @router.post("/projects/{project_id}/generate")
 def generate(project_id: str, payload: GenerateRequest) -> dict[str, Any]:
     p = store().get_project(project_id)
@@ -187,7 +250,16 @@ def generate(project_id: str, payload: GenerateRequest) -> dict[str, Any]:
         parent_version_id=p.current_version_id,
         set_current=True,
     )
-    return {"version_id": version.id, "mode": artifacts.get("mode"), "validation": [i.model_dump() for i in validate_script(script)]}
+    _persist_version(p, version)
+    warnings = []
+    if artifacts.get("mode") == "local-fallback":
+        warnings.append("未配置可用模型，本次生成的是本地演示剧本；配置 OPENAI/DEEPSEEK key 可生成真实剧本。")
+    return {
+        "version_id": version.id,
+        "mode": artifacts.get("mode"),
+        "validation": [i.model_dump() for i in validate_script(script)],
+        "warnings": warnings,
+    }
 
 
 @router.get("/projects/{project_id}/versions")
@@ -204,6 +276,66 @@ def get_version(version_id: str) -> dict[str, Any]:
     if not v:
         raise HTTPException(404, "版本不存在")
     return _version_dict(v, with_content=True)
+
+
+class MilestoneSet(BaseModel):
+    milestone: str | None = None  # draft | candidate | final | None(清除)
+
+
+@router.post("/versions/{version_id}/milestone")
+def set_milestone(version_id: str, payload: MilestoneSet) -> dict[str, Any]:
+    """给版本打里程碑标记（草稿/候选/终稿）。用于「定稿」管理。"""
+    allowed = {None, "draft", "candidate", "final"}
+    if payload.milestone not in allowed:
+        raise HTTPException(400, "milestone 需为 draft/candidate/final 或 null")
+    v = store().set_version_milestone(version_id, payload.milestone)
+    if not v:
+        raise HTTPException(404, "版本不存在")
+    return {"ok": True, "version_id": version_id, "milestone": v.milestone}
+
+
+class ApplyEdit(BaseModel):
+    """built-in 剧本编辑器的改动：一组字段级操作（set/add/remove，见 patch.PatchOp）。"""
+    ops: list[dict] = Field(default_factory=list)
+
+
+@router.post("/versions/{version_id}/apply")
+def apply_edit(version_id: str, payload: ApplyEdit) -> dict[str, Any]:
+    """把编辑器产生的字段级改动应用到一个版本上，生成新版本（source_type=manual_edit）。"""
+    from .patch import PatchOp, apply_patch, validate_script
+
+    v = store().get_version(version_id)
+    if not v:
+        raise HTTPException(404, "版本不存在")
+    project = store().get_project(v.project_id)
+    if not project:
+        raise HTTPException(404, "项目不存在")
+    try:
+        ops = [PatchOp.model_validate(op) for op in payload.ops]
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"改动格式错误：{e}") from e
+    if not ops:
+        raise HTTPException(400, "没有可应用的改动")
+    try:
+        new_script = apply_patch(v.script, ops)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"应用改动失败：{e}") from e
+    issues = validate_script(new_script)
+    errors = [i for i in issues if i.severity == "error"]
+    if errors:
+        raise HTTPException(400, f"改动校验失败：{errors[0].message}")
+    nv = store().create_version(
+        project,
+        new_script,
+        source_type="manual_edit",
+        label="手动编辑",
+        notes=f"基于 {version_id} 手动编辑（{len(ops)} 项改动）",
+        parent_version_id=version_id,
+        set_current=True,
+        milestone="draft",
+    )
+    _persist_version(project, nv)
+    return {"version_id": nv.id, "validation": [i.model_dump() for i in issues]}
 
 
 # ---------- Agent 运行 ----------
@@ -459,10 +591,20 @@ async def import_project(
         language=language,
         raw_text=text,
     )
-    counts = index_project_knowledge(
-        vector(), embedder(), project_id=p.id, raw_text=text, title=p.title, llm=llm(), language=language
-    )
+    _persist_original(p)
+    # RAG 启用时才索引知识库（嵌入接口有额度要求）；关闭时跳过，主流程不受影响。
+    counts = {}
+    if get_settings().enable_rag:
+        try:
+            counts = index_project_knowledge(
+                vector(), embedder(), project_id=p.id, raw_text=text, title=p.title, llm=llm(), language=language
+            )
+        except Exception:
+            pass  # 嵌入失败不影响项目创建
     conv = store().ensure_default_conversation(p.id)
+    warnings = []
+    if get_settings().enable_rag and not counts:
+        warnings.append("知识抽取未生成条目（可能未配置嵌入模型）；不影响主流程。")
     return {
         "id": p.id,
         "title": p.title,
@@ -471,6 +613,7 @@ async def import_project(
         "raw_len": len(text),
         "indexed": counts,
         "source_file": source_file,
+        "warnings": warnings,
     }
 
 
@@ -478,34 +621,8 @@ async def import_project(
 
 
 def _script_to_screenplay(script: Script) -> str:
-    """把结构化剧本渲染成可读的剧本文本（供文本查看模式展示）。"""
-    locs = {l.id: l.name for l in script.locations}
-    chars = {c.id: c.name for c in script.characters}
-    lines = [
-        f"《{script.title}》",
-        f"类型：{script.adaptation.type if script.adaptation else '其他'} · 语言：{script.language}",
-        f"梗概：{script.logline}",
-    ]
-    if script.themes:
-        lines.append("主题：" + "、".join(script.themes))
-    lines.append("")
-    for i, sc in enumerate(script.scenes, 1):
-        loc = locs.get(sc.location_id, sc.location_id)
-        lines.append(f"—— 第 {i} 场 · {sc.title}（{loc}）" + (f" · {sc.time}" if sc.time else ""))
-        lines.append(f"目的：{sc.purpose}")
-        lines.append(f"冲突：{sc.conflict}")
-        lines.append("")
-        for b in sc.beats:
-            if b.type == "dialogue":
-                speaker = chars.get(b.speaker, b.speaker or "")
-                emotion = f"（{b.emotion}）" if b.emotion else ""
-                lines.append(f"{speaker}{emotion}：{b.line}")
-            elif b.type == "cue":
-                lines.append(f"〔提示〕{b.text}")
-            else:
-                lines.append(f"【动作】{b.text}")
-        lines.append("")
-    return "\n".join(lines).rstrip()
+    """把结构化剧本渲染成标准剧本格式（Screenplay Format）。委托 export 模块。"""
+    return script_to_screenplay(script)
 
 
 @router.get("/versions/{version_id}/text")
@@ -519,6 +636,115 @@ def version_text(version_id: str) -> dict[str, Any]:
         "title": v.script.title,
         "text": _script_to_screenplay(v.script),
     }
+
+
+@router.get("/versions/{version_id}/export")
+def export_version(version_id: str, fmt: str = "txt") -> Response:
+    """导出某版本文本为 .txt / .md / .docx 文件，并同步写入工作目录的「03_导出」。"""
+    v = store().get_version(version_id)
+    if not v:
+        raise HTTPException(404, "版本不存在")
+    fmt = (fmt or "txt").lower()
+    if fmt not in EXPORT_FORMATS:
+        raise HTTPException(400, f"不支持的导出格式：{fmt}，可选：{'/'.join(EXPORT_FORMATS)}")
+    try:
+        data, ext = export_script(v.script, fmt)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+    base = f"{_proj_title(v.script.title)}_v{version_id}"
+    filename = f"{base}{ext}"
+    # HTTP 头只能放 latin-1：中文文件名用 RFC 5987 的 filename* 编码，另附 ASCII 兜底。
+    ascii_name = re.sub(r"[^\x20-\x7e]", "_", filename) or filename
+    encoded = quote(filename)
+    headers = {
+        "Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded}"
+    }
+    media_type = EXPORT_FORMATS[fmt]["mime"]
+
+    # 同步写入工作目录（03_导出）——失败不影响下载本身。
+    ws = _workspace()
+    if ws.configured:
+        try:
+            ws.save_export(v.script.title, base, data, ext)
+        except Exception:  # noqa: BLE001
+            pass
+
+    return Response(content=data, media_type=media_type, headers=headers)
+
+
+# ---------- 工作目录（真实关联磁盘文件夹）----------
+
+
+class WorkspaceSet(BaseModel):
+    root: str = Field(default="", min_length=0)
+    persist: bool = Field(default=True)  # False = 仅应用内、不落盘文件
+
+
+@router.get("/workspace")
+def get_workspace() -> dict[str, Any]:
+    """返回当前工作目录配置（含根路径、落盘模式与目录结构说明）。"""
+    ws = _workspace()
+    info = ws.info(settings().effective_workspace_root)
+    # 已配置时附带一份结构说明文字。
+    info["structure"] = (
+        "\n".join(f"{code}/  <-  {label}" for code, label in SUBDIRS)
+        if ws.configured
+        else None
+    )
+    return info
+
+
+@router.get("/workspace/select")
+def select_workspace_directory() -> dict[str, Any]:
+    """弹出系统原生文件夹选择对话框（Windows），选择即设为工作目录。
+
+    注意：这是**阻塞式**调用——服务端会弹出一个原生「选择文件夹」窗口，等用户
+    选完返回。取消时返回 cancelled=True，不改变工作目录。
+    """
+    ws = _workspace()
+    initial = str(ws.root) if ws.root else None
+    try:
+        path = pick_directory(initial)
+    except RuntimeError as e:
+        raise HTTPException(400, str(e)) from e
+    if not path:
+        return {"cancelled": True, "path": None}
+    # 选择文件夹即切到「落盘」模式。
+    ws = configure_root(path, persist=True)
+    return {"cancelled": False, "path": path, **ws.info(settings().effective_workspace_root)}
+
+
+@router.post("/workspace")
+def set_workspace(payload: WorkspaceSet) -> dict[str, Any]:
+    """设置 / 更新工作目录。persist=False 表示「仅应用内」模式（不写磁盘，数据库照常存）。"""
+    root = (payload.root or "").strip()
+    try:
+        ws = configure_root(root, payload.persist)
+        if ws.persist:
+            ws.ensure_root()
+            ws._write_readme()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"无法创建工作目录：{e}") from e
+    return {"ok": True, **ws.info(settings().effective_workspace_root)}
+
+
+@router.post("/projects/{project_id}/structure")
+def project_structure(project_id: str) -> dict[str, Any]:
+    """把某项目的原稿与最新版本落盘到工作目录，返回目录树文本。"""
+    p = store().get_project(project_id)
+    if not p:
+        raise HTTPException(404, "项目不存在")
+    ws = _workspace()
+    if not ws.persist:
+        raise HTTPException(400, "当前为「仅应用内」模式，不写入磁盘；可切换到落盘模式后重试")
+    if not ws.root:
+        raise HTTPException(400, "工作目录未配置，请先设置工作目录")
+    _persist_original(p)
+    latest = store().latest_version(p)
+    if latest:
+        _persist_version(p, latest)
+    return {"project_id": project_id, "structure": ws.tree_text(p.title), "root": ws.info()["root"]}
 
 
 @router.get("/projects/{project_id}/knowledge")
@@ -546,9 +772,97 @@ def list_project_knowledge(project_id: str) -> dict[str, Any]:
     }
 
 
+# ---------- 本地剧本文件（查看 / 下载）----------
+
+
+def _file_mime(ext: str) -> str:
+    ext = (ext or "").lower()
+    if ext in {".txt", ".md", ".markdown"}:
+        return "text/plain; charset=utf-8"
+    if ext == ".docx":
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    if ext == ".pdf":
+        return "application/pdf"
+    return "application/octet-stream"
+
+
+@router.get("/projects/{project_id}/files")
+def list_project_files(project_id: str) -> dict[str, Any]:
+    """列出某项目在磁盘上的剧本文件（按 01_原稿/02_版本/03_导出/04_知识库 分组）。"""
+    p = store().get_project(project_id)
+    if not p:
+        raise HTTPException(404, "项目不存在")
+    ws = _workspace()
+    if not ws.persist:
+        return {"project_id": project_id, "persist": False, "configured": False, "root": None, "folders": []}
+    data = ws.list_project_files(p.title)
+    return {
+        "project_id": project_id,
+        "persist": True,
+        "configured": True,
+        "root": (data or {}).get("root"),
+        "folders": (data or {}).get("folders", []),
+    }
+
+
+@router.get("/projects/{project_id}/files/{relpath:path}")
+def get_project_file(project_id: str, relpath: str) -> FileResponse:
+    """读取/预览某项目下的一个剧本文件（文本内联预览，其它附件下载）。"""
+    p = store().get_project(project_id)
+    if not p:
+        raise HTTPException(404, "项目不存在")
+    ws = _workspace()
+    if not ws.persist:
+        raise HTTPException(400, "当前为「仅应用内」模式，未落盘文件")
+    path = ws.resolve_file(p.title, relpath)
+    if not path:
+        raise HTTPException(404, "文件不存在")
+    ext = path.suffix.lower()
+    inline = ext in {".txt", ".md", ".markdown"}
+    filename = path.name
+    ascii_name = re.sub(r"[^\x20-\x7e]", "_", filename) or filename
+    encoded = quote(filename)
+    disposition = ("inline" if inline else "attachment")
+    headers = {
+        "Content-Disposition": f"{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded}"
+    }
+    return FileResponse(path, media_type=_file_mime(ext), headers=headers)
+
+
 @router.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok"}
+
+
+# ---------- 编剧圣经 / 设定备忘 ----------
+
+
+class NotesSet(BaseModel):
+    notes: str = Field(default="")
+
+
+@router.get("/projects/{project_id}/notes")
+def get_notes(project_id: str) -> dict[str, Any]:
+    p = store().get_project(project_id)
+    if not p:
+        raise HTTPException(404, "项目不存在")
+    return {"project_id": project_id, "notes": store().get_project_notes(project_id)}
+
+
+@router.put("/projects/{project_id}/notes")
+def set_notes(project_id: str, payload: NotesSet) -> dict[str, Any]:
+    p = store().get_project(project_id)
+    if not p:
+        raise HTTPException(404, "项目不存在")
+    store().set_project_notes(project_id, payload.notes)
+    # 同步到工作目录的「04_知识库」——失败不影响主流程。
+    ws = _workspace()
+    if ws.configured:
+        try:
+            ws.save_note(p.title, "编剧圣经_设定.md", payload.notes)
+        except Exception:  # noqa: BLE001
+            pass
+    return {"project_id": project_id, "ok": True}
 
 
 @router.get("/status")
@@ -574,5 +888,10 @@ def status() -> dict[str, Any]:
             "database": cfg.database_url.split("://")[0],
             "checkpointer": cfg.checkpointer,
         },
+        "workspace": {
+            "persist": cfg.workspace_persist,
+            "root": cfg.effective_workspace_root,
+        },
+        "mode": "full" if llm_.available else "demo",
         "langsmith": bool(cfg.langsmith_tracing and cfg.langsmith_api_key),
     }

@@ -84,6 +84,16 @@ class Settings(BaseSettings):
     api_port: int = Field(default=8000, alias="API_PORT")
     output_language: str = Field(default="zh-CN", alias="OUTPUT_LANGUAGE")
 
+    # ---------- 工作目录（默认落盘到项目下 data/，不存在会自动创建） ----------
+    # 剧本以「文件」形式存到 data/<剧名>/01原稿 等子目录；数据库承担聊天与 Agent 工作流。
+    # 不想落盘时，可设 WORKSPACE_PERSIST=false（仅应用内）。
+    workspace_root: str = Field(default="", alias="WORKSPACE_ROOT")
+    workspace_persist: bool = Field(default=True, alias="WORKSPACE_PERSIST")
+
+    @property
+    def effective_workspace_root(self) -> str:
+        return self.workspace_root.strip() or str(_PROJECT_ROOT / "data")
+
     # 兼容性：.env 中值被引号包裹时自动去引号（常见手写失误）。
     @field_validator("*", mode="before")
     @classmethod

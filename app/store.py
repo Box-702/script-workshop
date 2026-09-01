@@ -65,6 +65,7 @@ class Project(Base):
     adaptation_type: Mapped[str] = mapped_column(default="short_drama")
     language: Mapped[str] = mapped_column(default="zh-CN")
     raw_text: Mapped[str] = mapped_column(default="")
+    notes: Mapped[str] = mapped_column(default="")  # 编剧圣经 / 设定备忘（自由文本）
     status: Mapped[str] = mapped_column(default="ready")
     current_version_id: Mapped[str | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(default=_now)
@@ -83,9 +84,10 @@ class ScriptVersion(Base):
     id: Mapped[str] = mapped_column(primary_key=True)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
     parent_version_id: Mapped[str | None] = mapped_column(default=None)
-    source_type: Mapped[str] = mapped_column(default="generation")  # generation|agent_adaptation|import
+    source_type: Mapped[str] = mapped_column(default="generation")  # generation|agent_adaptation|import|manual_edit
     label: Mapped[str | None] = mapped_column(default=None)
     notes: Mapped[str | None] = mapped_column(default=None)
+    milestone: Mapped[str | None] = mapped_column(default=None)  # draft|candidate|final
     content_json: Mapped[str] = mapped_column(default="{}")
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
@@ -214,6 +216,30 @@ class Store:
         )
         self.session_factory = sessionmaker(bind=self.engine, expire_on_commit=False)
         Base.metadata.create_all(self.engine)
+        self._ensure_columns()
+
+    def _ensure_columns(self) -> None:
+        """轻量迁移：给已存在的表补缺失列（如 milestone / notes）。
+
+        新库由 create_all 直接建出含新列的表；老库（如已有 dev.db）不会自动加列，
+        这里用 ALTER TABLE 补齐，避免启动后查询这些列报错。
+        """
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(self.engine)
+            tables = set(insp.get_table_names())
+            cols_proj = {c["name"] for c in insp.get_columns("projects")} if "projects" in tables else set()
+            if "notes" not in cols_proj:
+                with self.engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE projects ADD COLUMN notes VARCHAR"))
+            cols_ver = {c["name"] for c in insp.get_columns("script_versions")} if "script_versions" in tables else set()
+            if "milestone" not in cols_ver:
+                with self.engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE script_versions ADD COLUMN milestone VARCHAR"))
+        except Exception:  # noqa: BLE001
+            # 表不存在或已是最新：迁移失败不阻塞启动。
+            pass
 
     def session(self):
         return self.session_factory()
@@ -237,9 +263,42 @@ class Store:
         with self.session() as s:
             return s.get(Project, project_id)
 
+    def delete_project(self, project_id: str) -> None:
+        """删除项目及其所有关联数据（对话、消息、版本、运行记录）。"""
+        with self.session() as s:
+            # 删除对话消息（ChatMessage.thread_id 存的是 Conversation.id）
+            convs = s.query(Conversation).filter_by(project_id=project_id).all()
+            for c in convs:
+                s.query(ChatMessage).filter_by(thread_id=c.id).delete()
+            # 删除对话
+            s.query(Conversation).filter_by(project_id=project_id).delete()
+            # 删除版本
+            s.query(ScriptVersion).filter_by(project_id=project_id).delete()
+            # 删除运行记录
+            s.query(AgentRun).filter_by(project_id=project_id).delete()
+            # 删除项目
+            s.query(Project).filter_by(id=project_id).delete()
+            s.commit()
+
     def list_projects(self) -> list[Project]:
         with self.session() as s:
             return s.query(Project).order_by(desc(Project.created_at)).all()
+
+    def get_project_notes(self, project_id: str) -> str:
+        p = self.get_project(project_id)
+        return p.notes if p else ""
+
+    def set_project_notes(self, project_id: str, notes: str) -> Project | None:
+        """保存项目的编剧圣经 / 设定备忘（自由文本）。"""
+        with self.session() as s:
+            p = s.get(Project, project_id)
+            if not p:
+                return None
+            p.notes = notes
+            p.updated_at = _now()
+            s.commit()
+            s.refresh(p)
+            return p
 
     # ---- ScriptVersion ----
     def create_version(
@@ -252,6 +311,7 @@ class Store:
         notes: str | None = None,
         parent_version_id: str | None = None,
         set_current: bool = True,
+        milestone: str | None = None,
     ) -> ScriptVersion:
         with self.session() as s:
             v = ScriptVersion(
@@ -261,6 +321,7 @@ class Store:
                 source_type=source_type,
                 label=label,
                 notes=notes,
+                milestone=milestone,
                 content_json=script.model_dump_json(exclude_none=True),
             )
             s.add(v)
@@ -299,6 +360,17 @@ class Store:
                 .order_by(desc(ScriptVersion.created_at))
                 .first()
             )
+
+    def set_version_milestone(self, version_id: str, milestone: str | None) -> ScriptVersion | None:
+        """给某版本打里程碑标记（draft/candidate/final）。传 None 清除。"""
+        with self.session() as s:
+            v = s.get(ScriptVersion, version_id)
+            if not v:
+                return None
+            v.milestone = milestone
+            s.commit()
+            s.refresh(v)
+            return v
 
     # ---- AgentRun ----
     def create_agent_run(

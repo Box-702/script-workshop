@@ -30,11 +30,16 @@ from app.vector import HashingEmbedder, build_vector_store  # noqa: E402
 
 
 @pytest.fixture()
-def tmp_db_path(tmp_path_factory: pytest.TempPathFactory) -> str:
-    # 用项目内的 data 目录建临时库，避免沙箱对系统临时目录的写入限制。
+def tmp_db_path(tmp_path_factory: pytest.TempPathFactory):
+    # 用项目内的 data 目录建临时库（沙箱可能拒绝系统临时目录）；用后即删，避免残留。
     d = Path(__file__).resolve().parent.parent / "data"
     d.mkdir(parents=True, exist_ok=True)
-    return (d / f"test_{os.getpid()}_{time.time_ns()}.db").as_posix()
+    path = d / f"test_{os.getpid()}_{time.time_ns()}.db"
+    yield path.as_posix()
+    try:
+        Path(path).unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 @pytest.fixture()
@@ -57,7 +62,13 @@ def settings() -> Settings:
 @pytest.fixture()
 def store(tmp_db_path) -> Store:
     db_url = f"sqlite:///{tmp_db_path}"
-    return Store(db_url)
+    s = Store(db_url)
+    yield s
+    # 用完即释放连接，让 tmp_db_path 能顺利删掉临时库文件（Windows 上文件未被打开才能删）。
+    try:
+        s.engine.dispose()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 @pytest.fixture()

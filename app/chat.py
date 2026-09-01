@@ -366,7 +366,9 @@ def load_history(store: Store, conversation_id: str | None) -> list[dict[str, An
             "id": m.id,
             "role": m.role,
             "content": m.content,
-            "payload": m.payload,
+            # 字段名与前端契约保持一致：payloads（复数）。此前误作 payload（单数），
+            # 历史消息里的审阅卡片载荷从未被前端读到。
+            "payloads": m.payload,
             "events": m.events,
             "created_at": m.created_at.isoformat(),
         }
