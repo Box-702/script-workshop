@@ -1,13 +1,13 @@
 # =====================================================================
-# docker-compose.yml —— 本地编排
+# docker-compose.yml —— 基础设施编排（应用在本机运行）
 #
-# 核心栈（默认 `docker compose up`）：
+# 应用（FastAPI + Vue）在本机用 uvicorn / vite 直接跑，
+# 这里只用 Docker 提供它依赖的基础设施：
 #   postgres  业务数据（项目 / 版本 / Agent 运行记录）+ LangGraph checkpointer
-#   api       FastAPI：同时提供 REST API（/api/*）与极简 Web 页面（/）
 #
-# 可选增强（`docker compose --profile milvus up`）：
+# 可选（`docker compose --profile milvus up`）：
 #   etcd / minio / milvus  -> 向量库，供 Agent 的 retrieve_source 工具做 RAG。
-#   即使 Milvus 未启动，api 里的向量层也会自动退化为「内存向量 + 哈希嵌入」，
+#   即使 Milvus 未启动，app 里的向量层也会自动退化为「内存向量 + 哈希嵌入」，
 #   因此主流程不受影响 —— 这正是「RAG 可选」的设计。
 # =====================================================================
 
@@ -29,31 +29,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    restart: unless-stopped
-
-  # ---------- API + 极简 Web ----------
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: script-agent-api
-    env_file:
-      - path: .env
-        required: false
-    environment:
-      DATABASE_URL: postgresql+psycopg://script:script@postgres:5432/script_agent
-      CHECKPOINTER: postgres
-      CHECKPOINT_DSN: postgresql://script:script@postgres:5432/script_agent
-      MILVUS_URI: http://milvus:19530
-      MILVUS_COLLECTION: script_chunks
-      ENABLE_RAG: "false"
-      API_HOST: 0.0.0.0
-      API_PORT: "8000"
-    ports:
-      - "8000:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
     restart: unless-stopped
 
   # ---------- 可选 Milvus 向量栈（--profile milvus 时启动）----------

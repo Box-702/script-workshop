@@ -106,37 +106,13 @@ START → context → plan ──(有工具调用)──> tools → plan   (ReAc
 
 ## 🚀 快速开始
 
-### 方式 A：Docker Compose（推荐）
+> 应用在本机直接运行（uvicorn / vite），Docker 只用来提供基础设施：
+> Postgres（业务库 + checkpointer）与可选的 Milvus 向量库。不插数据库也能跑通演示链路。
+
+### 方式 A：本机运行（推荐，零基础设施）
 
 ```bash
-# 1. 准备环境变量
-cp .env.example .env
-# 编辑 .env，填入你的 API Key（可选，不填也能跑通演示链路）
-
-# 2. 启动（Postgres + API）
-docker compose up --build
-
-# 3. 访问
-# Web（对话式单页）: http://localhost:8000
-# API 文档（Swagger）: http://localhost:8000/docs
-# 健康检查: http://localhost:8000/api/healthz
-```
-
-**可选：启用 Milvus RAG（生产级向量检索）**
-
-```bash
-# 额外拉起 Milvus 向量栈
-docker compose --profile milvus up -d
-# 并在 .env 里设置：
-#   ENABLE_RAG=true
-#   EMBEDDING_PROVIDER=openai
-#   EMBEDDING_API_KEY=your_key
-```
-
-### 方式 B：本地开发
-
-```bash
-# 1. 安装依赖
+# 1. 安装依赖（建议先 conda activate langgraph）
 pip install -e ".[dev]"
 
 # 2. 配置环境变量（可选，不配也能跑通演示）
@@ -146,10 +122,10 @@ export CHECKPOINTER="memory"
 # 3. 运行命令行演示
 python -m app.cli
 
-# 4. 启动 API（后端）
+# 4. 启动 API（后端，托管 REST + 前端构建产物）
 uvicorn app.main:app --port 8000 --reload
 
-# 5. 启动前端（Vue 3 + Vite，开发模式，/api 自动代理到 8000）
+# 5. 启动前端（Vue 3 + Vite，开发模式 /api 自动代理到 8000）
 cd frontend && npm install && npm run dev
 # 打开 http://localhost:5173
 
@@ -157,7 +133,35 @@ cd frontend && npm install && npm run dev
 npm run build
 ```
 
-> 💡 `ENABLE_RAG=false`、`OPENAI_API_KEY=` 留空时，全部走本地回退，链路依然闭环。
+> 💡 `ENABLE_RAG=false`、`OPENAI_API_KEY=` 留空时全部走本地回退，链路依然闭环。
+
+### 方式 B：用 Docker 提供基础设施（Postgres / 可选 Milvus）
+
+应用仍在本机跑，Docker 只负责数据库。适合要用 Postgres checkpointer 做跨重启恢复、或启用 Milvus RAG 的场景。
+
+```bash
+# 1. 准备环境变量
+cp .env.example .env
+
+# 2. 启动 Postgres（默认）
+docker compose up -d
+
+# （可选）额外拉起 Milvus 向量栈
+docker compose --profile milvus up -d
+# 并在 .env 里设置：ENABLE_RAG=true、EMBEDDING_PROVIDER=openai、EMBEDDING_API_KEY=your_key
+
+# 3. 本机安装依赖并连 Postgres 启动
+pip install -e ".[dev]"
+export DATABASE_URL="postgresql+psycopg://script:script@localhost:5432/script_agent"
+export CHECKPOINTER="postgres"
+export CHECKPOINT_DSN="postgresql://script:script@localhost:5432/script_agent"
+uvicorn app.main:app --port 8000
+
+# 4. 前端：构建产物由 FastAPI 托管（:8000），或用 Vite 开发模式
+cd frontend && npm install && npm run build
+```
+
+> 💡 两种方式访问入口相同：**Web** http://localhost:8000 · **API 文档** http://localhost:8000/docs · **健康检查** http://localhost:8000/api/healthz
 
 ---
 
@@ -167,13 +171,12 @@ npm run build
 Script Workshop/
 ├── README.md                 # 项目说明
 ├── pyproject.toml            # Python 包配置
-├── Dockerfile                # API 镜像
-├── docker-compose.yml        # 本地编排（Postgres + 可选 Milvus）
+├── docker-compose.yml        # 基础设施编排（Postgres + 可选 Milvus）
 ├── .env.example              # 环境变量模板
 ├── LICENSE                   # MIT 许可证
 │
 ├── app/                      # 核心应用
-│   ├── main.py               # FastAPI 入口 + 极简 Web
+│   ├── main.py               # FastAPI 入口 + 托管前端
 │   ├── api.py                # REST 路由（对话 / SSE / 文件导入）
 │   ├── chat.py               # 对话式 Agent（ChatConductor）
 │   ├── knowledge.py          # 项目级改编知识 RAG
@@ -194,8 +197,7 @@ Script Workshop/
 │   ├── vector.py             # 可选 RAG（Milvus/内存）
 │   ├── store.py              # 业务持久化
 │   ├── agent.py              # Agent 运行服务
-│   ├── cli.py                # 命令行演示
-│   └── web/index.html        # （旧版）单文件页面，作为无构建时的回退
+│   └── cli.py                # 命令行演示
 │
 ├── frontend/                 # Vue 3 前端（Vite 构建）
 │   ├── index.html            # 入口 HTML
