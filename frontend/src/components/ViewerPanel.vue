@@ -140,26 +140,32 @@ async function onSaveNotes() {
         >{{ t.label }}</button>
       </div>
       <div class="vt">{{ currentTitle }}</div>
-      <div v-if="store.view === 'text'" class="v-acts">
-        <button v-if="store.viewerScript && !editing" class="ghost small" @click="editing = true">✎ 编辑</button>
-        <div class="export-wrap">
-          <button class="ghost small" :disabled="!latestVersionId" @click="exportOpen = !exportOpen">
-            {{ exporting ? `导出中…` : '⤓ 导出' }}
-          </button>
-          <div v-if="exportOpen" class="export-menu">
-            <button class="ghost small" @click="doExport('txt')">.txt 纯文本</button>
-            <button class="ghost small" @click="doExport('md')">.md 文档</button>
-            <button class="ghost small" @click="doExport('docx')">.docx Word</button>
+      <!-- 操作按钮：仅当有可操作的版本/文本时出现，并在出现/消失时平滑过渡，避免切换 tab 时突兀地弹出 -->
+      <Transition name="vacts">
+        <div v-if="store.view === 'text' && latestVersionId" class="v-acts">
+          <button v-if="store.viewerScript && !editing" class="ghost small" @click="editing = true">✎ 编辑</button>
+          <div class="export-wrap">
+            <button class="ghost small" @click="exportOpen = !exportOpen">
+              {{ exporting ? `导出中…` : '⤓ 导出' }}
+            </button>
+            <div v-if="exportOpen" class="export-menu">
+              <button class="ghost small" @click="doExport('txt')">.txt 纯文本</button>
+              <button class="ghost small" @click="doExport('md')">.md 文档</button>
+              <button class="ghost small" @click="doExport('docx')">.docx Word</button>
+            </div>
           </div>
+          <button class="ghost small" :disabled="!store.viewerText" @click="copyScript">
+            {{ copied ? '✓ 已复制' : '⧉ 复制' }}
+          </button>
         </div>
-        <button class="ghost small" :disabled="!store.viewerText" @click="copyScript">
-          {{ copied ? '✓ 已复制' : '⧉ 复制' }}
-        </button>
-      </div>
+      </Transition>
     </div>
 
+    <!-- 各 tab 内容：切换时做平滑淡入淡出（out-in），避免硬切 -->
+    <div class="v-body-wrap">
+      <Transition name="tabfade" mode="out-in">
     <!-- 剧本文本：标准剧本排版 -->
-    <div v-show="store.view === 'text'" class="v-body">
+    <div v-if="store.view === 'text'" class="v-body">
       <ScreenplayEditor
         v-if="editing && store.viewerScript"
         :script="store.viewerScript"
@@ -195,7 +201,7 @@ async function onSaveNotes() {
     </div>
 
     <!-- 编剧圣经 / 设定备忘 -->
-    <div v-show="store.view === 'notes'" class="v-body">
+    <div v-else-if="store.view === 'notes'" class="v-body">
       <div v-if="store.pid" class="notes-wrap">
         <div class="notes-hint">记录人物小传、时间线、伏笔清单等「剧本圣经」；这些作为你的创作设定随时可改。</div>
         <textarea
@@ -213,7 +219,7 @@ async function onSaveNotes() {
     </div>
 
     <!-- 本地剧本文件 -->
-    <div v-show="store.view === 'files'" class="v-body">
+    <div v-else-if="store.view === 'files'" class="v-body">
       <!-- 打开的文本预览 -->
       <div v-if="store.openFile" class="file-preview">
         <div class="preview-head">
@@ -249,7 +255,7 @@ async function onSaveNotes() {
     </div>
 
     <!-- 知识库 -->
-    <div v-show="store.view === 'knowledge'" class="v-body">
+    <div v-else-if="store.view === 'knowledge'" class="v-body">
       <template v-if="store.knowledge.length">
         <template v-for="g in store.knowledge" :key="g.kind">
           <div class="know-kind">{{ KIND_NAME[g.kind] || g.kind }}（{{ g.docs.length }}）</div>
@@ -260,7 +266,7 @@ async function onSaveNotes() {
     </div>
 
     <!-- 版本对比 -->
-    <div v-show="store.view === 'diff'" class="v-body">
+    <div v-else class="v-body">
       <div v-if="store.diffMeta" class="diff-summary">{{ store.diffMeta }}</div>
       <div v-if="store.diff.length">
         <div v-for="(x, i) in store.diff" :key="i" class="diff-item">
@@ -280,12 +286,14 @@ async function onSaveNotes() {
         {{ store.diffMeta ? '两版之间无差异。' : '生成第二个版本后，这里会展示最新一版的改动对比。' }}
       </div>
     </div>
+      </Transition>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .viewer {
-  border-left: 1px solid var(--line); background: var(--panel);
+  background: var(--panel);
   display: flex; flex-direction: column; min-height: 0; min-width: 0;
 }
 .v-head { padding: 9px 12px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 6px; }
@@ -306,7 +314,16 @@ async function onSaveNotes() {
   box-shadow: 0 10px 28px oklch(0 0 0 / 0.4);
 }
 .export-menu button { text-align: left; }
-.v-body { flex: 1; overflow-y: auto; }
+.v-body-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
+.v-body { flex: 1; overflow-y: auto; min-height: 0; }
+/* tab 切换：淡入淡出 + 轻微位移（out-in，避免闪烁/闪空）；全局已尊重 prefers-reduced-motion */
+.tabfade-enter-active { transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease); }
+.tabfade-leave-active { transition: opacity 90ms var(--ease), transform 90ms var(--ease); }
+.tabfade-enter-from { opacity: 0; transform: translateY(6px); }
+.tabfade-leave-to { opacity: 0; transform: translateY(-6px); }
+/* 头部操作按钮群：出现 / 消失平滑淡入淡出，不再硬切 */
+.vacts-enter-active, .vacts-leave-active { transition: opacity var(--dur) var(--ease); }
+.vacts-enter-from, .vacts-leave-to { opacity: 0; }
 /* 剧本正文：排版渲染（ScreenplayView），不再是裸 pre */
 .v-body > .sp { padding: 16px 18px; }
 .v-body pre {

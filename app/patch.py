@@ -34,8 +34,8 @@ from .domain import (
 # 合法的节拍 id 形如 beat_数字（至少三位）。
 BEAT_ID_RE = re.compile(r"^beat_[0-9]{3,}$")
 
-# 允许被 Agent 直接编辑的场景字段。
-EDITABLE_SCENE_FIELDS = {"title", "purpose", "conflict", "entry_state", "exit_state"}
+# 允许被 Agent 直接编辑的场景字段（含时间 / 地点，供剧本编辑器与 Agent 都能改）。
+EDITABLE_SCENE_FIELDS = {"title", "purpose", "conflict", "entry_state", "exit_state", "time", "location_id"}
 
 
 # ---------- 受约束的改写提议结构 ----------
@@ -78,6 +78,8 @@ class SceneChange(BaseModel):
     conflict: str | None = None
     entry_state: str | None = None
     exit_state: str | None = None
+    time: str | None = None
+    location_id: str | None = None
     action: list[str] | None = None
     dialogue: list[DialogueChange] | None = None
     beats: list[BeatChange] | None = None

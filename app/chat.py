@@ -230,6 +230,7 @@ def build_chat_tools(
                 "steps": result.get("steps") or [],
                 "status": result.get("status"),
                 "error": result.get("error"),
+                "review": result.get("review"),  # 评审打分 + 一致性保障结果
             }
         )
         if result.get("error"):
@@ -432,6 +433,7 @@ def _resume_reply(store: Store, result: dict[str, Any]) -> tuple[str, list[dict[
             "patch": result.get("patch") or [],
             "steps": result.get("steps") or [],
             "status": "reviewing",
+            "review": result.get("review"),
         }
         return "已按你的反馈重新生成提议，请继续审阅下面的卡片。", [payload]
     if status == "applied":

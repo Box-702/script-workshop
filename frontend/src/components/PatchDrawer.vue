@@ -12,7 +12,7 @@
 
 import { computed, reactive, ref, watch, onUnmounted } from 'vue'
 import { store, closePatchDrawer, resumeReview, toggleCheck, notify } from '../stores/app'
-import { FIELD_LABEL, fmtVal, groupPatch } from '../utils/format'
+import { DIM_LABEL, ISSUE_CAT_LABEL, FIELD_LABEL, fmtVal, groupPatch } from '../utils/format'
 
 const drawer = computed(() => store.drawer)
 const payload = computed(() => store.drawer.payload)
@@ -20,6 +20,13 @@ const runId = computed(() => payload.value?.run_id || '')
 const patch = computed(() => payload.value?.patch || [])
 const groups = computed(() => groupPatch(patch.value))
 const checked = computed(() => store.checked.get(runId.value) || new Set())
+// 评审打分 + 一致性保障结果（后端 guard 的 LLM 审阅）
+const review = computed(() => {
+  const r = payload.value?.review
+  if (!r) return null
+  const issues = r.issues || []
+  return { ...r, errors: issues.filter((i) => i.severity === 'error').length }
+})
 
 const feedback = ref('')
 // 就地编辑：op 下标 -> 编辑后的字符串值
@@ -97,7 +104,7 @@ function regenerateWith(txt) { resumeReview(runId.value, 'regenerate', { feedbac
 <template>
   <!-- 点遮罩关闭；不用 Vue Transition -->
   <div v-if="drawer.open && payload" class="backdrop" @click.self="closePatchDrawer()">
-    <aside class="drawer" role="dialog" aria-label="改编提议审阅">
+    <aside class="drawer" role="dialog" aria-modal="true" aria-label="改编提议审阅">
       <header class="d-head">
         <div class="d-title">
           <h3>✍️ 改编提议（审阅）</h3>
@@ -107,6 +114,28 @@ function regenerateWith(txt) { resumeReview(runId.value, 'regenerate', { feedbac
       </header>
 
       <div class="d-body">
+        <!-- 评审打分 + 一致性保障 -->
+        <section v-if="review" class="scene review-sec">
+          <div class="scene-head">评审</div>
+          <div class="rv-top">
+            <span class="rv-score mono" :class="review.passed ? 'ok' : 'bad'">{{ review.overall_score }}<small>/100</small></span>
+            <span class="rv-verdict" :class="review.passed ? 'ok' : 'bad'">{{ review.passed ? '通过' : '需调整' }}</span>
+            <span v-if="review.errors" class="rv-err mono">⚠ {{ review.errors }} 个 error</span>
+          </div>
+          <div v-if="review.dimensions && review.dimensions.length" class="rv-dims">
+            <span v-for="d in review.dimensions" :key="d.name" class="rv-dim">
+              <span class="rv-dim-n">{{ DIM_LABEL[d.name] || d.name }}</span>
+              <span class="rv-dim-v mono">{{ d.score }}</span>
+            </span>
+          </div>
+          <ul v-if="review.issues && review.issues.length" class="rv-issues">
+            <li v-for="(it, i) in review.issues" :key="i" :class="it.severity">
+              <span class="rv-cat">{{ ISSUE_CAT_LABEL[it.category] || it.category }}</span> {{ it.message }}
+            </li>
+          </ul>
+          <p v-if="review.summary" class="rv-sum">{{ review.summary }}</p>
+        </section>
+
         <section v-for="g in groups" :key="g.key" class="scene">
           <div class="scene-head">{{ sceneName(g.key) }}<span class="cnt">{{ g.items.length }} 处</span></div>
           <div v-for="{ op, idx } in g.items" :key="idx" class="op">
@@ -192,6 +221,34 @@ function regenerateWith(txt) { resumeReview(runId.value, 'regenerate', { feedbac
   display: flex; align-items: center; gap: 8px;
 }
 .scene-head .cnt { font-size: 11px; color: var(--dim); font-weight: 500; }
+
+/* 评审打分 + 一致性保障 */
+.review-sec { background: color-mix(in oklch, var(--panel2) 55%, transparent); border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px 10px; }
+.review-sec .scene-head { border-bottom: 1px solid color-mix(in oklch, var(--ink) 9%, transparent); margin-bottom: 8px; }
+.rv-top { display: flex; align-items: center; gap: 8px; }
+.rv-score { font-size: 18px; font-weight: 700; }
+.rv-score small { font-size: 11px; color: var(--muted); font-weight: 500; }
+.rv-score.ok { color: var(--ok); }
+.rv-score.bad { color: var(--bad); }
+.rv-verdict { font-size: 12px; font-weight: 600; }
+.rv-verdict.ok { color: var(--ok); }
+.rv-verdict.bad { color: var(--bad); }
+.rv-err { font-size: 11px; color: var(--bad); }
+.rv-dims { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.rv-dim {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--panel2); border: 1px solid var(--line); border-radius: 999px;
+  padding: 2px 8px; font-size: 11px; color: var(--muted);
+}
+.rv-dim-n { color: var(--ink); }
+.rv-dim-v { font-weight: 700; color: var(--ink); }
+.rv-issues { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.rv-issues li { font-size: 11.5px; color: var(--muted); padding-left: 10px; position: relative; }
+.rv-issues li::before { content: '·'; position: absolute; left: 0; color: var(--dim); }
+.rv-issues li.error { color: var(--bad); }
+.rv-issues li.warning { color: var(--warn); }
+.rv-cat { font-weight: 600; }
+.rv-sum { margin: 8px 0 0; font-size: 11.5px; color: var(--dim); }
 .op {
   border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px;
   margin-bottom: 6px; background: var(--code-bg);

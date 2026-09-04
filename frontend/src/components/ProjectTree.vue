@@ -19,15 +19,17 @@ import {
 } from '../stores/app'
 
 // ---- 内联重命名 ----
-const editingId = ref(null) // 正在编辑的对话 id
+const editingId = ref(null)   // 正在编辑的对话 id
+const editingPid = ref(null)  // 该对话所属的项目 id（重命名时不能用 store.pid，可能正选中别的项目）
 const editText = ref('')
-let renameEl = null         // 编辑输入框 DOM（函数 ref 拿到）
+let renameEl = null           // 编辑输入框 DOM（函数 ref 拿到）
 
 // ---- 内联两步确认删除（替代原生 confirm 弹窗）----
 const confirmDel = ref(null) // 'proj:<id>' 或 'conv:<id>'
 
-/** 双击标题进入编辑态。 */
-function startRename(c) {
+/** 双击标题进入编辑态（记住所属项目 id，避免在未选中的项目里改名时用错 store.pid）。 */
+function startRename(pid, c) {
+  editingPid.value = pid
   editingId.value = c.id
   editText.value = c.title
   nextTick(() => renameEl?.focus())
@@ -38,9 +40,10 @@ async function commitRename() {
   const id = editingId.value
   if (!id) return
   editingId.value = null
-  const conv = (store.convMap[store.pid] || []).find((x) => x.id === id)
+  const pid = editingPid.value
+  const conv = ((pid && store.convMap[pid]) || []).find((x) => x.id === id)
   const t = editText.value.trim()
-  if (t && conv && t !== conv.title) await setConversationTitle(id, t)
+  if (t && conv && t !== conv.title) await setConversationTitle(pid || store.pid, id, t)
 }
 
 /** 删除项目（内联确认后调用）。 */
@@ -94,7 +97,7 @@ async function doDeleteConversation(c) {
             :class="{ active: store.convId === c.id }"
             @click="selectConversation(p.id, c.id)"
           >
-            <span class="ct" title="双击重命名" @dblclick.stop="startRename(c)">
+            <span class="ct" title="双击重命名" @dblclick.stop="startRename(p.id, c)">
               <input
                 v-if="editingId === c.id"
                 :ref="(el) => (renameEl = el)"
@@ -114,7 +117,7 @@ async function doDeleteConversation(c) {
               <button class="mini" @click.stop="confirmDel = null">取消</button>
             </span>
             <span v-else-if="editingId !== c.id" class="ops">
-              <button title="重命名" aria-label="重命名对话" @click.stop="startRename(c)">✎</button>
+              <button title="重命名" aria-label="重命名对话" @click.stop="startRename(p.id, c)">✎</button>
               <button title="删除" aria-label="删除对话" @click.stop="confirmDel = 'conv:' + c.id">🗑</button>
             </span>
           </div>
@@ -129,7 +132,7 @@ async function doDeleteConversation(c) {
 
 <style scoped>
 aside {
-  border-right: 1px solid var(--line); background: var(--panel);
+  background: var(--panel);
   display: flex; flex-direction: column; min-height: 0;
 }
 .aside-head { padding: 12px 12px 8px; display: flex; align-items: center; justify-content: space-between; }

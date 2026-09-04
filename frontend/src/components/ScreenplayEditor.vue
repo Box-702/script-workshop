@@ -162,34 +162,49 @@ function cancel() { emit('cancel') }
 .ed-hint { font-size: 11px; color: var(--dim); }
 .spacer { flex: 1; }
 .ed-err { color: var(--bad); font-size: 12px; padding: 8px 16px 0; }
-.ed-body { flex: 1; overflow-y: auto; padding: 14px 16px 20px; }
+.ed-body { flex: 1; overflow-y: auto; padding: 6px 16px 22px; }
 
-.ed-scene { border: 1px solid var(--line); border-radius: 12px; background: var(--code-bg); padding: 12px 14px; margin-bottom: 14px; }
-.ed-scene.empty { border-style: dashed; }
-.ed-head { display: flex; align-items: center; gap: 8px; }
-.ed-num { font-size: 11px; color: var(--dim); font-family: var(--mono); font-variant-numeric: tabular-nums; }
-.inp { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; color: var(--ink);
-  padding: 5px 8px; font-size: 12.5px; font-family: inherit; min-width: 0; }
-.inp:focus { outline: none; border-color: color-mix(in oklch, var(--accent) 40%, var(--line)); }
-.inp.strong { flex: 1; font-weight: 600; font-size: 13px; }
+/* 场景：去掉整块「卡片框」，改用场景间的细分割线 + 文字层级，更接近书稿排版 */
+.ed-scene { padding: 8px 2px 22px; }
+.ed-scene + .ed-scene { border-top: 1px solid color-mix(in oklch, var(--line) 70%, transparent); margin-top: 6px; }
+.ed-head { display: flex; align-items: baseline; gap: 10px; }
+.ed-num { font-size: 11px; color: var(--dim); font-family: var(--mono); font-variant-numeric: tabular-nums; min-width: 18px; }
+
+/* 输入：去掉常驻边框/底色，改成淡底 + focus 微环，条条框框大幅减少 */
+.inp { background: transparent; border: 1px solid transparent; border-radius: 8px; color: var(--ink);
+  padding: 5px 8px; font-size: 12.5px; font-family: inherit; min-width: 0;
+  transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+.inp:hover { background: color-mix(in oklch, var(--ink) 4%, transparent); }
+.inp:focus { outline: none; background: color-mix(in oklch, var(--ink) 6%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 30%, transparent); }
+.inp::placeholder { color: var(--dim); }
+.inp.strong { flex: 1; font-weight: 600; font-size: 14px; }
 .inp.loc { width: 130px; }
 .inp.time { width: 90px; }
-.ed-fields { display: flex; gap: 8px; margin-top: 8px; }
+.ed-fields { display: flex; gap: 8px; margin: 0 0 0 28px; }
 .ed-fields .inp { flex: 1; }
 
-.ed-beats { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
-.ed-beat { display: flex; align-items: center; gap: 6px; }
-.bt-tag { font-size: 10.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; flex: none; }
-.bt-dialogue .bt-tag { color: var(--dlg); border-color: color-mix(in oklch, var(--dlg) 45%, var(--line)); }
-.bt-action .bt-tag { color: var(--act); border-color: color-mix(in oklch, var(--act) 40%, var(--line)); }
+/* 节拍：去掉独立小胶囊框，改成「书稿感」的悬停行 + 彩色文字标签 */
+.ed-beats { margin-top: 12px; display: flex; flex-direction: column; }
+.ed-beat { display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 7px;
+  transition: background var(--dur) var(--ease); }
+.ed-beat:hover { background: color-mix(in oklch, var(--ink) 4%, transparent); }
+.bt-tag { font-size: 10.5px; font-weight: 600; flex: none; width: 32px; letter-spacing: 0.02em; }
+.bt-dialogue .bt-tag { color: var(--dlg); }
+.bt-action .bt-tag { color: var(--act); }
+.bt-cue .bt-tag { color: var(--cue); }
 .ed-beat .inp { flex: 1; }
 .ed-beat .spk { width: 120px; }
 .ed-beat .emo { width: 90px; }
-.mini { background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: 6px;
-  padding: 0 7px; font-size: 11px; font-weight: 500; line-height: 1.6; cursor: pointer; flex: none; }
-.mini:hover { color: var(--ink); border-color: var(--line-strong); }
-.mini.del:hover { color: var(--bad); border-color: color-mix(in oklch, var(--bad) 55%, var(--line)); }
-.ed-beats-empty { color: var(--dim); font-size: 12px; padding: 2px 2px; }
-.ed-add { display: flex; gap: 6px; margin-top: 4px; }
-.ed-add .mini { color: var(--cue); }
+.mini { background: transparent; border: none; color: var(--muted); padding: 2px 5px; font-size: 11px;
+  font-weight: 500; line-height: 1.6; cursor: pointer; flex: none; border-radius: 6px;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease); }
+.mini:hover { color: var(--ink); background: color-mix(in oklch, var(--ink) 5%, transparent); }
+.mini.del { color: var(--dim); padding: 0 5px; opacity: 0; }
+.ed-beat:hover .mini.del { opacity: 0.9; }
+.mini.del:hover { color: var(--bad); opacity: 1; }
+.ed-beats-empty { color: var(--dim); font-size: 12px; padding: 2px 6px; }
+.ed-add { display: flex; gap: 4px; margin: 6px 0 0 6px; }
+.ed-add .mini { color: var(--muted); }
+.ed-add .mini:hover { color: var(--ink); background: color-mix(in oklch, var(--ink) 5%, transparent); }
 </style>

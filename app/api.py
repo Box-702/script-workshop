@@ -179,7 +179,6 @@ def _persist_version(project: Any, version: Any, *, label: str | None = None) ->
 
 @router.post("/projects")
 def create_project(payload: ProjectCreate) -> dict[str, Any]:
-    cfg: Settings = settings()
     p = store().create_project(
         title=payload.title,
         adaptation_type=payload.adaptation_type,
@@ -187,15 +186,15 @@ def create_project(payload: ProjectCreate) -> dict[str, Any]:
         raw_text=payload.raw_text,
     )
     _persist_original(p)
-    # 可选 RAG：把原始文本分块写入向量库（Milvus 或内存）。
-    if cfg.enable_rag:
-        try:
-            indexed = index_project(
-                vector(), embedder(), project_id=p.id, raw_text=p.raw_text, title=p.title
-            )
-        except Exception:  # noqa: BLE001
-            indexed = 0
-    else:
+    # (可选) RAG：把原始文本分块写入向量库（Milvus，或不可达时的内存后端）。
+    # 始终尝试索引——向量后端/嵌入器会在无外部服务时自动降级（内存 + 哈希嵌入），
+    # 从而让「RAG 真正投入使用」而不是依赖显式开关。失败不影响项目创建。
+    indexed = 0
+    try:
+        indexed = index_project(
+            vector(), embedder(), project_id=p.id, raw_text=p.raw_text, title=p.title
+        )
+    except Exception:  # noqa: BLE001
         indexed = 0
     return {"id": p.id, "indexed_chunks": indexed}
 
@@ -592,19 +591,20 @@ async def import_project(
         raw_text=text,
     )
     _persist_original(p)
-    # RAG 启用时才索引知识库（嵌入接口有额度要求）；关闭时跳过，主流程不受影响。
+    # 索引知识库（原文分块 + 同类走向/手法/作者风格），并明确写回「故事圣经」设定备忘。
+    # 始终尝试：向量后端与嵌入器会在无外部服务时自动降级（内存 + 哈希嵌入），
+    # 让 RAG 在默认（未显式开启）配置下也真正可用。失败不影响项目创建。
     counts = {}
-    if get_settings().enable_rag:
-        try:
-            counts = index_project_knowledge(
-                vector(), embedder(), project_id=p.id, raw_text=text, title=p.title, llm=llm(), language=language
-            )
-        except Exception:
-            pass  # 嵌入失败不影响项目创建
+    try:
+        counts = index_project_knowledge(
+            vector(), embedder(), project_id=p.id, raw_text=text, title=p.title, llm=llm(), language=language
+        )
+    except Exception:
+        pass  # 嵌入失败不影响项目创建
     conv = store().ensure_default_conversation(p.id)
     warnings = []
-    if get_settings().enable_rag and not counts:
-        warnings.append("知识抽取未生成条目（可能未配置嵌入模型）；不影响主流程。")
+    if not counts.get("knowledge_docs") and not counts.get("source_chunks"):
+        warnings.append("知识索引未生成条目（可能未配置嵌入模型）；不影响主流程。")
     return {
         "id": p.id,
         "title": p.title,

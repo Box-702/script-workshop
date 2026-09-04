@@ -83,6 +83,9 @@ body {
 /* 键盘可达性：统一的焦点环（近白，安静） */
 :focus-visible { outline: 2px solid color-mix(in oklch, var(--accent) 45%, transparent); outline-offset: 2px; }
 
+/* 拖拽分隔条调整列宽时：全局 col-resize 光标 + 禁止选中（避免拖动时选中文字） */
+body.layout-resizing { cursor: col-resize; user-select: none; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }

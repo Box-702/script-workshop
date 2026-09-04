@@ -22,6 +22,8 @@
 - **ReAct 工具调用**：Agent 自主决定查看场景详情、检索原文、查版本历史、校验。
 - **人机协同**：`interrupt` 暂停图执行，`Command.resume` 恢复；支持接受 / 编辑 / 重新生成 / 拒绝四种决策。
 - **自我审阅**：`guard` 节点先 dry-run 应用并自纠错，再交给人类。
+- **评审打分 + 一致性保障**：guard 之上再跑一次 LLM 审阅，对提议按「忠实度 / 一致性 / 冲突 / 风格 / 结构」五维打分（0-100）；总分低于阈值或存在 error 级一致性问题（人物 OOC、设定 / 时间线冲突、结构断裂、风格偏离）时自动回炉重做。评审结果以「评审卡片」在审阅抽屉展示。
+- **接地气的混合检索**：RAG 检索以「改编需求 + 场景 / 题材」为 query，联动向量 + 关键词 + 正文覆盖三类信号做重排，并可按 kind 均衡覆盖知识库，让命中的原文与同类剧本知识真正服务于本次改编目标。
 - **结构化输出**：patch 是原子操作，可逐条审、逐条接受、可回滚。
 - **对话式交互**：用自然语言完成从导入、改编到审阅的整套流程。
 - **项目级知识 RAG**：每个项目维护「同类走向 / 写作手法 / 作者风格」三类记忆。
@@ -188,6 +190,7 @@ Script Workshop/
 | `app/state.py` | 图状态（AgentState）+ 人类决策模型 |
 | `app/graph.py` | 把节点 / 边组装成 StateGraph，接入 checkpointer |
 | `app/nodes.py` | 图节点：context / plan / propose / guard / review / apply / finalize |
+| `app/review.py` | 审阅 / 一致性保障 / 评审打分：多维度打分 + 一致性问题（LLM 审阅） |
 | `app/tools.py` | ReAct 工具：剧本概况、场景详情、原文、版本历史、校验 |
 | `app/patch.py` | patch 引擎：结构化提议 → 操作清单 → 应用 → 校验 |
 | `app/domain.py` | 剧本领域模型（Script / Scene / Character / Beat） |

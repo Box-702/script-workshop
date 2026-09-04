@@ -73,6 +73,8 @@ class AgentState(TypedDict, total=False):
     # --- 自我审阅 / 重做循环 ---
     critique: list[str]
     iterations: int
+    # --- LLM 审阅结果（评审打分 + 一致性保障，见 app/review.py）---
+    review: dict[str, Any] | None
     # --- 运行过程中实际执行的节点序列（由 stream 采集，供前端展示进度） ---
     node_path: list[str]
 

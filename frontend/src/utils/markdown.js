@@ -11,13 +11,17 @@ export const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
-/** 行内元素：`code`、**粗体**、*斜体*、[链接](url)。 */
+/** 行内元素：`code`、**粗体**、*斜体*、[链接](url)。
+ *  链接只允许 http(s)，其余（如 `javascript:`）降级为 `#`，杜绝 v-html 下的 XSS。 */
 function inlineMd(s) {
   return esc(s)
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
-    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label, url) => {
+      const safe = /^https?:\/\//i.test(url) ? url : '#'
+      return `<a href="${safe}" target="_blank" rel="noopener">${label}</a>`
+    })
 }
 
 /** 块级解析主入口：逐行扫描，按前缀分派到对应的块类型。 */

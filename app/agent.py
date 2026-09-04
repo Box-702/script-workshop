@@ -84,6 +84,7 @@ def start_agent_run(
     steps: list[str] = []
     plan: list[str] = []
     patch: list[dict[str, Any]] = []
+    review: dict[str, Any] | None = None
     status = "reviewing"
     error = None
     try:
@@ -92,6 +93,7 @@ def start_agent_run(
         payload = interrupt_value or {}
         plan = payload.get("plan") or []
         patch = payload.get("patch") or []
+        review = payload.get("review")  # 评审打分 + 一致性保障结果（见 app/review.py）
     except Exception as e:  # noqa: BLE001
         # 模型出错时不直接失败：降级为「可审阅的说明性 patch」，并记录错误。
         log.warning("Agent 运行失败，降级为说明性建议：%s", e)
@@ -123,6 +125,7 @@ def start_agent_run(
         "steps": steps,
         "status": status,
         "error": error,
+        "review": review,
     }
 
 
@@ -196,6 +199,7 @@ def resume_agent_run(
             # 重新生成（regenerate）后再次中断，等待人类继续审阅新的提议。
             new_plan = interrupt_value.get("plan") or run.plan
             new_patch = interrupt_value.get("patch") or run.patch
+            new_review = interrupt_value.get("review")
             store.update_agent_run(
                 run_id,
                 status="reviewing",
@@ -210,6 +214,7 @@ def resume_agent_run(
                 "patch": new_patch,
                 "steps": run.steps + steps,
                 "decision": decision,
+                "review": new_review,
             }
         final_state = graph.get_state(thread_config(run_id)).values
         status = final_state.get("status", "applied")

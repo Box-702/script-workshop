@@ -79,6 +79,13 @@ class Settings(BaseSettings):
     embedding_model: str = Field(default="text-embedding-3-small", alias="EMBEDDING_MODEL")
     embedding_dim: int = Field(default=2048, alias="EMBEDDING_DIM")
 
+    # ---------- 审阅评分 / 一致性保障（评审打分 + 一致性校验） ----------
+    # 有可用对话模型时，guard 节点会先跑一次 LLM 审阅：对改编提议做
+    # 多维度打分（忠实度 / 一致性 / 冲突 / 风格 / 结构），并列出一致性问题。
+    # 总分低于阈值或存在 error 级问题时会自动回炉重做（上限见 nodes.MAX_PROPOSE_ITERATIONS）。
+    enable_review_scoring: bool = Field(default=True, alias="ENABLE_REVIEW_SCORING")
+    review_score_threshold: int = Field(default=75, alias="REVIEW_SCORE_THRESHOLD")
+
     # ---------- 服务 ----------
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
     api_port: int = Field(default=8000, alias="API_PORT")

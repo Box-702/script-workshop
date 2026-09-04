@@ -143,6 +143,7 @@ export async function selectProject(pid) {
   if (convs.length) await selectConversation(pid, convs[0].id)
   else {
     store.hint = '已选择剧本项目。可新建对话，或直接在下方对话里提出改编需求。'
+    store.messages = [] // 项目没有对话时清空残留消息，避免串到上一个项目/对话
     await loadViewer()
   }
 }
@@ -181,13 +182,13 @@ export async function newConversation(pid) {
   } catch (e) { notify('新建对话失败：' + e.message) }
 }
 
-/** 重命名对话（由树节点内联编辑提交）。 */
-export async function setConversationTitle(convId, title) {
+/** 重命名对话（由树节点内联编辑提交）。pid 为该对话所属项目，刷新其对话列表。 */
+export async function setConversationTitle(pid, convId, title) {
   const t = title.trim()
   if (!t) return
   try {
     await api(`/conversations/${convId}`, 'PATCH', { title: t })
-    await loadConversations(store.pid)
+    await loadConversations(pid || store.pid)
   } catch (e) { notify(e.message) }
 }
 

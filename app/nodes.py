@@ -34,6 +34,7 @@ from .patch import (
     validate_script,
 )
 from .profiles import profile_for, profile_prompt
+from .review import DIMENSION_LABELS, review_patch
 from .state import (
     STATUS_APPLIED,
     STATUS_CONTEXTING,
@@ -62,12 +63,18 @@ def _build_context(
     raw_text: str,
     *,
     scene_ids: list[str],
+    instruction: str = "",
     retriever: Callable[[str, int], list[str]] | None,
     knowledge_retriever: Callable[[str, int, list[str] | None], list[dict]] | None = None,
 ) -> dict[str, Any]:
-    """把本次改编所需的上下文组织成一个字典，供提示词与工具使用。"""
+    """把本次改编所需的上下文组织成一个字典，供提示词与工具使用。
+
+    检索质量优化（接地 / 混合检索）：不再用固定泛化查询，而是把「改编需求
+    instruction + 场景/题材」拼进检索 query，让 RAG 真正服务于这次改编目标。
+    """
     profile = profile_for(project.adaptation_type)
     scenes = _selected_scenes(script, scene_ids)
+    instruction = (instruction or "").strip()
     scene_list = [
         {
             "id": s.id,
@@ -81,22 +88,25 @@ def _build_context(
         }
         for s in scenes
     ]
-    # 尝试用检索器给每个场景补充相关原文（可选 RAG），失败则忽略。
+    # 尝试用检索器给每个目标场景补充相关原文（可选 RAG），失败则忽略。
+    # 检索 query = 改编需求 + 场景标题/目的，让命中的原文真正服务本次改编。
     episode_sources: list[str] = []
     if retriever is not None:
-        for s in scenes[:3]:
-            q = f"{script.title} {s.title} {s.purpose}"
+        for s in scenes:
+            q = " ".join((f"{script.title} {s.title} {s.purpose} {instruction}").split())
             ep = retriever(q, 2)
             if ep:
-                episode_sources.append(f"【{s.title}】\n" + "\n".join(ep[:1]))
+                episode_sources.append(f"【{s.title}】\n" + "\n".join(ep[:2]))
     # 项目级「改编知识」：同类剧本走向 / 写作手法 / 作者风格（始终尝试，失败忽略）。
+    # 检索 query 同样以改编需求为主、辅以种类标签，保证命中内容与本次目标强相关。
     knowledge: dict[str, list[str]] = {}
     if knowledge_retriever is not None:
-        for kind, query in (
-            ("plot_direction", "同类剧本可能的剧情走向"),
-            ("technique", "同类剧本常用的写作手法"),
-            ("author_style", "作者的语言风格"),
+        for kind, label in (
+            ("plot_direction", "同类剧本可能走向"),
+            ("technique", "写作手法"),
+            ("author_style", "作者语言风格"),
         ):
+            query = " ".join((f"{instruction} {label}").split())
             try:
                 hits = knowledge_retriever(query, 2, [kind])
             except Exception:  # noqa: BLE001
@@ -172,6 +182,7 @@ def build_nodes(
             project,
             raw_text,
             scene_ids=state.get("scene_ids", []),
+            instruction=state.get("instruction", ""),
             retriever=retriever,
             knowledge_retriever=knowledge_retriever,
         )
@@ -235,9 +246,14 @@ def build_nodes(
     def guard_node(state: AgentState) -> dict[str, Any]:
         """自我审阅：先把当前 patch dry-run 应用，检查是否会破坏结构。
 
-        若发现问题且还没超过重试上限，就把问题写回 critique 并回到 propose 重做；
-        否则交给 review 交给人类。这是成熟的「先自纠错、再给人审」的坏味道防线。
-        没有模型时，兜底 patch 总是合法，因此通常一次通过。
+        两条防线：
+          1. 硬约束（确定性）：validate_script —— 人物 / 地点引用、id 唯一性、空字段，
+             无模型也能跑；发现问题且未超限时回 propose 重做。
+          2. 软质量 + 语义一致性（LLM 审阅）：review_patch 对应用后的剧本做多维度打分
+             （忠实度 / 一致性 / 冲突 / 风格 / 结构）并列出 error 级一致性问题；
+             总分低于阈值或有 error 级问题时回 propose 重做。
+        任一防线发现问题即写回 critique 并回到 propose；都通过则交给人类审阅。
+        没有模型时走纯规则校验（兜底 patch 通常一次通过）。
         """
         from .patch import PatchOp
 
@@ -252,9 +268,39 @@ def build_nodes(
             }
         issues = [i for i in validate_script(applied) if i.severity == "error"]
         critique = [f"{i.path}：{i.message}" for i in issues]
-        if critique and state.get("iterations", 0) < MAX_PROPOSE_ITERATIONS:
-            return {"critique": critique, "iterations": state.get("iterations", 0) + 1, "status": STATUS_PLANNING}
-        return {"critique": critique, "iterations": state.get("iterations", 0), "status": STATUS_REVIEWING}
+        review_dict: dict[str, Any] | None = None
+        if llm.available and settings.enable_review_scoring:
+            review = review_patch(
+                llm,
+                base=script,
+                applied=applied,
+                instruction=state.get("instruction", ""),
+                context=state.get("context"),
+                threshold=settings.review_score_threshold,
+                language=settings.output_language or script.language,
+            )
+            if review is not None:
+                review_dict = review.model_dump(exclude_none=True)
+                for iss in review.issues:
+                    if iss.severity == "error":
+                        label = DIMENSION_LABELS.get(iss.category, iss.category)
+                        msg = f"[{label}] {iss.message}"
+                        if msg not in critique:
+                            critique.append(msg)
+        iteration = state.get("iterations", 0)
+        if critique and iteration < MAX_PROPOSE_ITERATIONS:
+            return {
+                "critique": critique,
+                "iterations": iteration + 1,
+                "status": STATUS_PLANNING,
+                "review": review_dict,
+            }
+        return {
+            "critique": critique,
+            "iterations": iteration,
+            "status": STATUS_REVIEWING,
+            "review": review_dict,
+        }
 
     def review_node(state: AgentState) -> dict[str, Any]:
         # 中断：把提议（含上下文与可选动作）呈现给人类；
@@ -268,6 +314,7 @@ def build_nodes(
                 "instruction": state.get("instruction", ""),
                 "proposal": state.get("proposal"),
                 "context": state.get("context"),
+                "review": state.get("review"),  # 评审打分 + 一致性保障结果
                 "choices": ["accept", "edit", "regenerate", "reject"],
             }
         )

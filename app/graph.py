@@ -85,9 +85,13 @@ def get_checkpointer(settings: Settings):
 
 
 def make_retriever(settings: Settings, vector: VectorStore, embedder: Any, project: Project) -> Retriever | None:
-    """构造 RAG 检索器；未开启时返回 None（agent 不带 retrieve_source 工具）。"""
-    if not settings.enable_rag:
-        return None
+    """构造 RAG 检索器。
+
+    不再以 enable_rag 作为「是否带工具」的门槛：向量后端本身就在 Milvus 不可达
+    时退化为内存向量（见 build_vector_store），即便未显式开启 RAG，只要项目被
+    索引进过知识库（create_project 时），就能按语义检索原文 / 知识。这样让
+    「RAG 真正投入使用」而不仅是可选项。检索空结果时工具会安全返回空提示。
+    """
     from .vector import retrieve
 
     def _retrieve(query: str, k: int) -> list[str]:

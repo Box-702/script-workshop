@@ -541,6 +541,22 @@ def _keyword_overlap(query_grams: set[str], hit: dict[str, Any]) -> float:
     return len(query_grams & kg) / len(query_grams)
 
 
+def _query_coverage(query_grams: set[str], hit: dict[str, Any]) -> float:
+    """查询字符 n-gram 在命中片段正文里的覆盖比例（0~1）。
+
+    与 _keyword_overlap 的区别：后者只比较「预计算关键词」，当查询词不在
+    文档关键词表里时 boost 为 0；这里直接对比查询 n-gram 与正文，作为更
+    可靠的词汇信号，并与语义分互补，构成真正的「混合检索」。
+    """
+    if not query_grams:
+        return 0.0
+    text = str(hit.get("text") or "")
+    hit_grams = _char_ngrams(text)
+    if not hit_grams:
+        return 0.0
+    return len(query_grams & hit_grams) / len(query_grams)
+
+
 def hybrid_retrieve(
     vector: VectorStore,
     embedder: Embedder,
@@ -583,11 +599,14 @@ def hybrid_retrieve(
     for h in hits:
         sem = (float(h.get("score") or 0.0) - lo) / span
         kw = _keyword_overlap(query_grams, h)
+        cov = _query_coverage(query_grams, h)
         # 用户显式记忆（source=user）优先于种子知识。
         src_boost = 0.05 if str(h.get("source") or "").startswith("user") else 0.0
         h["_sem"] = sem
         h["_kw"] = kw
-        h["_final"] = 0.7 * sem + 0.3 * kw + src_boost
+        h["_cov"] = cov
+        # 混合检索：语义 0.6 + 预计算关键词 0.25 + 查询正文覆盖 0.15 + 来源加权。
+        h["_final"] = 0.6 * sem + 0.25 * kw + 0.15 * cov + src_boost
 
     hits.sort(key=lambda h: h["_final"], reverse=True)
 

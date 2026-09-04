@@ -17,6 +17,12 @@ const props = defineProps({
 const patch = computed(() => props.payload.patch || [])
 const stats = computed(() => patchStats(patch.value))
 const groups = computed(() => groupPatch(patch.value))
+const review = computed(() => {
+  const r = props.payload.review
+  if (!r) return null
+  const issues = r.issues || []
+  return { ...r, errors: issues.filter((i) => i.severity === 'error').length }
+})
 
 /** 场景显示名：无标题时把 scene_001 简化成「场景 1」。 */
 function sceneName(key) {
@@ -26,12 +32,20 @@ function sceneName(key) {
 </script>
 
 <template>
-  <div class="card summary" role="button" tabindex="0" @click="openPatchDrawer(payload)" @keydown.enter="openPatchDrawer(payload)">
+  <div class="card summary" role="button" tabindex="0" @click="openPatchDrawer(payload)" @keydown.enter="openPatchDrawer(payload)" @keydown.space.prevent="openPatchDrawer(payload)">
     <div class="top">
       <h3>✍️ 改编提议</h3>
       <span class="stats mono">+{{ stats.add }} −{{ stats.remove }} ～{{ stats.modify }}</span>
       <span class="flex1"></span>
       <span class="detail">审阅改动 →</span>
+    </div>
+
+    <!-- 评审打分 + 一致性保障结果（后端 guard 的 LLM 审阅） -->
+    <div v-if="review" class="review" :class="{ bad: !review.passed }">
+      <span class="score mono">{{ review.overall_score }}<small>/100</small></span>
+      <span class="score-lbl">{{ review.passed ? '评审通过' : '需调整' }}</span>
+      <span v-if="review.errors" class="iss mono">⚠ {{ review.errors }} 个问题</span>
+      <span v-else-if="review.issues && review.issues.length" class="iss mono">⚠ {{ review.issues.length }} 条建议</span>
     </div>
 
     <!-- 涉及的场景：只给名字和数量，细节在抽屉里 -->
@@ -57,6 +71,16 @@ h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--ink); }
 .flex1 { flex: 1; }
 .detail { color: var(--muted); font-size: 12px; font-weight: 600; }
 .summary:hover .detail { color: var(--ink); }
+.review {
+  display: flex; align-items: center; gap: 8px; margin-top: 10px;
+  padding: 6px 8px; border-radius: 8px; background: color-mix(in oklch, var(--ok) 8%, transparent);
+}
+.review.bad { background: color-mix(in oklch, var(--bad) 9%, transparent); }
+.review .score { font-weight: 700; color: var(--ok); font-size: 14px; }
+.review.bad .score { color: var(--bad); }
+.review .score small { font-size: 10px; color: var(--muted); font-weight: 500; }
+.review .score-lbl { font-size: 12px; font-weight: 600; color: var(--ink); }
+.review .iss { font-size: 11px; color: var(--bad); }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .scene-chip {
   background: var(--panel2); border: 1px solid var(--line); color: var(--muted);
