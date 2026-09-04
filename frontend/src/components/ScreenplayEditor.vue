@@ -1,15 +1,17 @@
 <script setup>
 // =====================================================================
-// ScreenplayEditor.vue —— 内置剧本编辑器（所见即所得改剧本原文）
+// ScreenplayEditor.vue —— 书稿式「原位编辑」剧本编辑器（所见即所得改剧本原文）
 //
-// 编辑字段：场景标题/地点/时间/目的/冲突，以及每个节拍（动作/对白/提示）。
-// 支持：改内容、删除节拍、在各场景末尾新增动作或对白。
+// 不做成一堆输入框，而是像一部真的剧本：场景标题、动作行、居中角色名、
+// 斜体提示、缩进对白，直接点文字就能改（contenteditable，无框、随内容换行）。
+// 仅保留「说话人 / 地点」这两个需要从已知列表挑选的小下拉。
+//
 // 保存：对比编辑前后结构，生成字段级 patch 操作，POST /api/versions/{id}/apply
 //       生成一个「手动编辑」新版本（复用 patch 引擎，数据仍是结构化剧本）。
-// 这样用户改的是剧本正文，而不是 patch JSON。
 // =====================================================================
 
 import { ref, computed } from 'vue'
+import EditableText from './EditableText.vue'
 import { store, applyEdits, notify } from '../stores/app'
 
 const props = defineProps({
@@ -37,7 +39,7 @@ function nextBeatId(beats) {
 function addBeat(scene, kind) {
   const beats = scene.beats || (scene.beats = [])
   if (kind === 'dialogue') {
-    beats.push({ id: nextBeatId(beats), type: 'dialogue', speaker: (scene.characters || [])[0] || '', line: '', emotion: '' })
+    beats.push({ id: nextBeatId(beats), type: 'dialogue', speaker: (scene.characters || [])[0] || (local.value.characters || [])[0]?.id || '', line: '', emotion: '' })
   } else if (kind === 'cue') {
     beats.push({ id: nextBeatId(beats), type: 'cue', text: '' })
   } else {
@@ -74,7 +76,6 @@ function buildOps(orig, edited) {
 async function save() {
   if (saving.value) return
   editErr.value = ''
-  // 清掉空的新增对白/动作（没有内容的节拍不保存）
   for (const sc of local.value.scenes || []) {
     sc.beats = (sc.beats || []).filter((b) => {
       if (b.type === 'dialogue') return (b.line || '').trim()
@@ -99,7 +100,7 @@ function cancel() { emit('cancel') }
     <!-- 顶部工具条 -->
     <div class="ed-bar">
       <span class="ed-title">编辑剧本</span>
-      <span class="ed-hint">改台词/动作后点「保存为新版本」</span>
+      <span class="ed-hint">点击文字即可修改 · 换行自动排版</span>
       <span class="spacer"></span>
       <button class="ghost small" :disabled="saving" @click="cancel">取消</button>
       <button class="small" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存为新版本' }}</button>
@@ -111,44 +112,48 @@ function cancel() { emit('cancel') }
         v-for="(sc, si) in local.scenes || []"
         :key="sc.id || si"
         class="ed-scene"
-        :class="{ empty: !sc.beats || !sc.beats.length }"
       >
-        <!-- 场景字段 -->
-        <div class="ed-head">
+        <!-- 场景标题行 -->
+        <div class="ed-heading">
           <span class="ed-num">{{ String(si + 1).padStart(2, '0') }}</span>
-          <input class="inp strong" v-model="sc.title" placeholder="场景标题" />
-          <select v-model="sc.location_id" class="inp loc">
+          <EditableText class="ed-title" :model-value="sc.title" ph="场景标题" single-line @update:model-value="v => sc.title = v" />
+          <select v-model="sc.location_id" class="ed-loc" title="地点">
             <option value="" disabled>地点</option>
             <option v-for="(name, lid) in locs" :key="lid" :value="lid">{{ name }}</option>
           </select>
-          <input class="inp time" v-model="sc.time" placeholder="时间" />
-        </div>
-        <div class="ed-fields">
-          <input class="inp" v-model="sc.purpose" placeholder="场景目的（动作）" />
-          <input class="inp" v-model="sc.conflict" placeholder="场景冲突" />
+          <EditableText class="ed-time" :model-value="sc.time" ph="时间" single-line @update:model-value="v => sc.time = v" />
         </div>
 
-        <!-- 节拍 -->
-        <div class="ed-beats">
-          <div v-for="(b, bi) in sc.beats || []" :key="b.id" class="ed-beat" :class="'bt-' + b.type">
-            <span class="bt-tag">{{ b.type === 'dialogue' ? '对白' : b.type === 'cue' ? '提示' : '动作' }}</span>
-            <template v-if="b.type === 'dialogue'">
-              <select v-model="b.speaker" class="inp spk">
-                <option value="" disabled>说话人</option>
+        <!-- 场景目的 / 冲突（动作行，可改） -->
+        <div class="ed-action"><EditableText :model-value="sc.purpose" ph="场景目的（动作）" @update:model-value="v => sc.purpose = v" /></div>
+        <div class="ed-action"><EditableText :model-value="sc.conflict" ph="场景冲突" @update:model-value="v => sc.conflict = v" /></div>
+
+        <!-- 节拍：书稿式排版，点文字即改 -->
+        <div v-for="(b, bi) in sc.beats || []" :key="b.id" class="ed-row" :class="'bt-' + b.type">
+          <!-- 对白 -->
+          <template v-if="b.type === 'dialogue'">
+            <div class="ed-speaker">
+              <select v-model="b.speaker" class="ed-spk" title="说话人">
+                <option value="" disabled>角色</option>
                 <option v-for="(name, cid) in chars" :key="cid" :value="cid">{{ name }}</option>
               </select>
-              <input class="inp" v-model="b.line" placeholder="台词" />
-              <input class="inp emo" v-model="b.emotion" placeholder="(语气)" />
-            </template>
-            <input v-else class="inp" v-model="b.text" :placeholder="b.type === 'cue' ? '（舞台提示）' : '动作描写'" />
-            <button class="mini del" title="删除该节拍" @click="removeBeat(sc, bi)">✕</button>
-          </div>
-          <div v-if="!sc.beats || !sc.beats.length" class="ed-beats-empty">本场景还没有节拍，点击下方添加。</div>
-          <div class="ed-add">
-            <button class="mini" @click="addBeat(sc, 'action')">＋ 动作</button>
-            <button class="mini" @click="addBeat(sc, 'dialogue')">＋ 对白</button>
-            <button class="mini" @click="addBeat(sc, 'cue')">＋ 提示</button>
-          </div>
+              <EditableText v-if="b.emotion" class="ed-emotion" :model-value="b.emotion" ph="" single-line @update:model-value="v => b.emotion = v" />
+            </div>
+            <div class="ed-dialogue"><EditableText :model-value="b.line" ph="台词" @update:model-value="v => b.line = v" /></div>
+          </template>
+          <!-- 舞台提示 -->
+          <div v-else-if="b.type === 'cue'" class="ed-cue"><EditableText :model-value="b.text" ph="（舞台提示）" @update:model-value="v => b.text = v" /></div>
+          <!-- 动作 -->
+          <div v-else class="ed-action"><EditableText :model-value="b.text" ph="动作描写" @update:model-value="v => b.text = v" /></div>
+
+          <button class="mini del" title="删除该节拍" @click="removeBeat(sc, bi)">✕</button>
+        </div>
+
+        <div v-if="!sc.beats || !sc.beats.length" class="ed-beats-empty">本场景还没有节拍，点击下方添加。</div>
+        <div class="ed-add">
+          <button class="mini" @click="addBeat(sc, 'action')">＋ 动作</button>
+          <button class="mini" @click="addBeat(sc, 'dialogue')">＋ 对白</button>
+          <button class="mini" @click="addBeat(sc, 'cue')">＋ 提示</button>
         </div>
       </div>
     </div>
@@ -162,49 +167,52 @@ function cancel() { emit('cancel') }
 .ed-hint { font-size: 11px; color: var(--dim); }
 .spacer { flex: 1; }
 .ed-err { color: var(--bad); font-size: 12px; padding: 8px 16px 0; }
-.ed-body { flex: 1; overflow-y: auto; padding: 6px 16px 22px; }
 
-/* 场景：去掉整块「卡片框」，改用场景间的细分割线 + 文字层级，更接近书稿排版 */
-.ed-scene { padding: 8px 2px 22px; }
-.ed-scene + .ed-scene { border-top: 1px solid color-mix(in oklch, var(--line) 70%, transparent); margin-top: 6px; }
-.ed-head { display: flex; align-items: baseline; gap: 10px; }
+/* 正文：书稿列，左留白给悬停的删除 ✕，右留白避免贴边 */
+.ed-body { flex: 1; overflow-y: auto; padding: 24px 30px 30px 38px; }
+.ed-scene { margin-bottom: 26px; }
+.ed-scene:last-child { margin-bottom: 8px; }
+
+/* 场景标题：左侧色条 + 加粗，同书稿 */
+.ed-heading {
+  font-weight: 700; color: var(--ink); letter-spacing: 0.02em;
+  border-left: 3px solid var(--dlg); padding-left: 10px; margin-bottom: 12px;
+  display: flex; align-items: baseline; gap: 8px;
+}
 .ed-num { font-size: 11px; color: var(--dim); font-family: var(--mono); font-variant-numeric: tabular-nums; min-width: 18px; }
+.ed-title { flex: 1; }
+.ed-time { color: var(--ink); }
 
-/* 输入：去掉常驻边框/底色，改成淡底 + focus 微环，条条框框大幅减少 */
-.inp { background: transparent; border: 1px solid transparent; border-radius: 8px; color: var(--ink);
-  padding: 5px 8px; font-size: 12.5px; font-family: inherit; min-width: 0;
-  transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
-.inp:hover { background: color-mix(in oklch, var(--ink) 4%, transparent); }
-.inp:focus { outline: none; background: color-mix(in oklch, var(--ink) 6%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 30%, transparent); }
-.inp::placeholder { color: var(--dim); }
-.inp.strong { flex: 1; font-weight: 600; font-size: 14px; }
-.inp.loc { width: 130px; }
-.inp.time { width: 90px; }
-.ed-fields { display: flex; gap: 8px; margin: 0 0 0 28px; }
-.ed-fields .inp { flex: 1; }
+/* 动作行 */
+.ed-action { margin: 8px 0; max-width: 62ch; line-height: 1.7; }
 
-/* 节拍：去掉独立小胶囊框，改成「书稿感」的悬停行 + 彩色文字标签 */
-.ed-beats { margin-top: 12px; display: flex; flex-direction: column; }
-.ed-beat { display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 7px;
-  transition: background var(--dur) var(--ease); }
-.ed-beat:hover { background: color-mix(in oklch, var(--ink) 4%, transparent); }
-.bt-tag { font-size: 10.5px; font-weight: 600; flex: none; width: 32px; letter-spacing: 0.02em; }
-.bt-dialogue .bt-tag { color: var(--dlg); }
-.bt-action .bt-tag { color: var(--act); }
-.bt-cue .bt-tag { color: var(--cue); }
-.ed-beat .inp { flex: 1; }
-.ed-beat .spk { width: 120px; }
-.ed-beat .emo { width: 90px; }
-.mini { background: transparent; border: none; color: var(--muted); padding: 2px 5px; font-size: 11px;
-  font-weight: 500; line-height: 1.6; cursor: pointer; flex: none; border-radius: 6px;
+/* 对白：角色名居中，情绪斜体，台词缩进 */
+.ed-speaker { text-align: center; font-weight: 700; letter-spacing: 0.04em; margin-top: 12px; display: flex; justify-content: center; gap: 6px; }
+.ed-emotion { color: var(--muted); font-style: italic; font-size: 12.5px; font-weight: 400; }
+.ed-dialogue { margin: 4px 0 2px; padding-left: 12%; max-width: 48ch; line-height: 1.7; }
+.ed-cue { text-align: center; color: var(--muted); font-style: italic; font-size: 12.5px; margin: 2px 0; line-height: 1.7; }
+
+/* 说话人 / 地点：极简下拉，只在需要时显得像控件 */
+select.ed-loc, select.ed-spk {
+  appearance: none; -webkit-appearance: none; background: transparent; border: none;
+  color: var(--muted); font: inherit; padding: 0 2px; border-radius: 4px; cursor: pointer; max-width: 140px;
+}
+select.ed-loc:hover, select.ed-spk:hover { background: color-mix(in oklch, var(--ink) 5%, transparent); }
+select.ed-loc:focus, select.ed-spk:focus { outline: none; box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 30%, transparent); }
+
+/* 删除 ✕：悬停该节拍才出现，贴在左侧留白，不挤正文 */
+.ed-row { position: relative; border-radius: 6px; transition: background var(--dur) var(--ease); }
+.ed-row:hover { background: color-mix(in oklch, var(--ink) 4%, transparent); }
+.ed-row .mini.del { position: absolute; left: -24px; top: 6px; opacity: 0; background: transparent; border: none; color: var(--dim); padding: 0 4px; font-size: 11px; }
+.ed-row:hover .mini.del { opacity: 1; }
+.ed-row .mini.del:hover { color: var(--bad); opacity: 1; }
+
+.ed-beats-empty { color: var(--dim); font-size: 12px; margin: 10px 0 4px; }
+.ed-add { display: flex; gap: 4px; margin: 4px 0 0; }
+.mini { background: transparent; border: none; color: var(--muted); padding: 2px 6px; font-size: 11px;
+  font-weight: 500; line-height: 1.6; cursor: pointer; border-radius: 6px;
   transition: color var(--dur) var(--ease), background var(--dur) var(--ease); }
 .mini:hover { color: var(--ink); background: color-mix(in oklch, var(--ink) 5%, transparent); }
-.mini.del { color: var(--dim); padding: 0 5px; opacity: 0; }
-.ed-beat:hover .mini.del { opacity: 0.9; }
-.mini.del:hover { color: var(--bad); opacity: 1; }
-.ed-beats-empty { color: var(--dim); font-size: 12px; padding: 2px 6px; }
-.ed-add { display: flex; gap: 4px; margin: 6px 0 0 6px; }
 .ed-add .mini { color: var(--muted); }
 .ed-add .mini:hover { color: var(--ink); background: color-mix(in oklch, var(--ink) 5%, transparent); }
 </style>

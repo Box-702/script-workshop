@@ -161,9 +161,9 @@ async function onSaveNotes() {
       </Transition>
     </div>
 
-    <!-- 各 tab 内容：切换时做平滑淡入淡出（out-in），避免硬切 -->
+    <!-- 各 tab 内容：纯淡入淡出重叠 crossfade，切换时不位移、屏幕不抖动 -->
     <div class="v-body-wrap">
-      <Transition name="tabfade" mode="out-in">
+      <Transition name="tabfade">
     <!-- 剧本文本：标准剧本排版 -->
     <div v-if="store.view === 'text'" class="v-body">
       <ScreenplayEditor
@@ -297,7 +297,12 @@ async function onSaveNotes() {
   display: flex; flex-direction: column; min-height: 0; min-width: 0;
 }
 .v-head { padding: 9px 12px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 6px; }
-.vt { font-size: 12px; color: var(--muted); font-weight: 600; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vt {
+  font-size: 11px; color: var(--dim); font-weight: 500; letter-spacing: 0.01em;
+  flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  padding-left: 12px; border-left: 1px solid var(--line);
+  display: flex; align-items: center;
+}
 .v-tabs { display: flex; gap: 2px; }
 .v-tab {
   background: transparent; border: 1px solid transparent; color: var(--muted);
@@ -314,13 +319,11 @@ async function onSaveNotes() {
   box-shadow: 0 10px 28px oklch(0 0 0 / 0.4);
 }
 .export-menu button { text-align: left; }
-.v-body-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
-.v-body { flex: 1; overflow-y: auto; min-height: 0; }
-/* tab 切换：淡入淡出 + 轻微位移（out-in，避免闪烁/闪空）；全局已尊重 prefers-reduced-motion */
-.tabfade-enter-active { transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease); }
-.tabfade-leave-active { transition: opacity 90ms var(--ease), transform 90ms var(--ease); }
-.tabfade-enter-from { opacity: 0; transform: translateY(6px); }
-.tabfade-leave-to { opacity: 0; transform: translateY(-6px); }
+.v-body-wrap { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+.v-body { position: absolute; inset: 0; overflow-y: auto; min-height: 0; scrollbar-gutter: stable; }
+/* tab 切换：纯淡入淡出（重叠 crossfade，无位移、无空白帧），避免切换时屏幕抖动；全局已尊重 prefers-reduced-motion */
+.tabfade-enter-active, .tabfade-leave-active { transition: opacity var(--dur) var(--ease); }
+.tabfade-enter-from, .tabfade-leave-to { opacity: 0; }
 /* 头部操作按钮群：出现 / 消失平滑淡入淡出，不再硬切 */
 .vacts-enter-active, .vacts-leave-active { transition: opacity var(--dur) var(--ease); }
 .vacts-enter-from, .vacts-leave-to { opacity: 0; }
