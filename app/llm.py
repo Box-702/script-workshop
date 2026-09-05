@@ -72,7 +72,7 @@ class LLM:
     def chat(self) -> BaseChatModel:
         """返回可 bind_tools 的聊天模型（用于 ReAct 工具调用循环）。"""
         if self._model is None:
-            raise RuntimeError("模型未配置。请在 .env 中设置 OPENAI_API_KEY。")
+            raise RuntimeError("模型未配置。请在 .env 中设置 OPENAI_API_KEY 或 DEEPSEEK_API_KEY。")
         return self._model
 
     def structured(self, schema: type[T]) -> Any:

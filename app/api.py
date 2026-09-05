@@ -21,6 +21,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from . import agent as agent_svc
 from . import chat as chat_svc
@@ -214,15 +215,18 @@ def get_project(project_id: str) -> dict[str, Any]:
 
 @router.delete("/projects/{project_id}")
 def delete_project(project_id: str) -> dict[str, Any]:
-    """"删除项目及其所有对话、消息、版本，并清理磁盘上的工作目录文件夹。"""
+    """删除项目及其所有对话、消息、版本，并清理磁盘上的工作目录文件夹。"""
     p = store().get_project(project_id)
     if not p:
         raise HTTPException(404, "项目不存在")
     title = p.title
+    # 磁盘目录以 title 为键：若有同名项目共存，删掉其中一个不能 rmtree 共享目录。
+    has_same_title = any(
+        other.title == title and other.id != project_id for other in store().list_projects()
+    )
     store().delete_project(project_id)
-    # 清理磁盘上该项目的工作目录（原稿/版本/导出/知识库）——失败不影响主流程。
     ws = _workspace()
-    if ws.configured:
+    if ws.configured and not has_same_title:
         try:
             ws.remove_project(title)
         except Exception:  # noqa: BLE001
@@ -445,6 +449,9 @@ def _resolve_conversation(project_id: str | None, conversation_id: str | None) -
         conv = store().get_conversation(conversation_id)
         if not conv:
             raise HTTPException(404, "对话不存在")
+        # 归属校验：防止把 A 项目的消息写进 B 项目的对话线程，造成上下文串扰。
+        if project_id and conv.project_id and conv.project_id != project_id:
+            raise HTTPException(400, "对话不属于该项目")
         return conv.id
     if project_id:
         p = store().get_project(project_id)
@@ -479,8 +486,16 @@ async def chat_stream(payload: ChatRequest) -> StreamingResponse:
         meta=payload.meta,
     )
 
+    # chat_stream 是同步生成器（内部含阻塞的 LLM / DB 调用），
+    # 必须放到线程池里逐条推进，否则会把整个事件循环卡住，拖死所有并发请求。
+    _STREAM_DONE = object()
+
     async def event_source():
-        for event in gen:
+        it = iter(gen)
+        while True:
+            event = await run_in_threadpool(next, it, _STREAM_DONE)
+            if event is _STREAM_DONE:
+                break
             yield _sse_frame(event["event"], event["data"])
 
     return StreamingResponse(
@@ -572,10 +587,15 @@ async def import_project(
         data = await file.read()
         if not data:
             raise HTTPException(400, "文件为空")
+        if len(data) > 10 * 1024 * 1024:
+            raise HTTPException(400, "文件太大（上限 10MB）")
         try:
-            text = parse_file(file.filename, data)
+            # 解析（zip/XML）是 CPU 阻塞操作，放线程池避免卡住事件循环。
+            text = await run_in_threadpool(parse_file, file.filename, data)
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
+        except Exception as e:  # noqa: BLE001  损坏 docx / 非法 XML 等
+            raise HTTPException(400, f"文件解析失败：{e}") from e
         source_file = file.filename
     elif raw_text and raw_text.strip():
         text = raw_text
@@ -596,10 +616,13 @@ async def import_project(
     # 让 RAG 在默认（未显式开启）配置下也真正可用。失败不影响项目创建。
     counts = {}
     try:
-        counts = index_project_knowledge(
-            vector(), embedder(), project_id=p.id, raw_text=text, title=p.title, llm=llm(), language=language
+        # 索引含嵌入网络调用，同样放线程池执行。
+        counts = await run_in_threadpool(
+            index_project_knowledge,
+            vector(), embedder(),
+            project_id=p.id, raw_text=text, title=p.title, llm=llm(), language=language,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass  # 嵌入失败不影响项目创建
     conv = store().ensure_default_conversation(p.id)
     warnings = []
@@ -881,6 +904,8 @@ def status() -> dict[str, Any]:
         "rag": {
             "enabled": cfg.enable_rag,
             "vector_backend": type(vec).__name__,
+            # 显式要求了 Milvus 却落在内存后端 = 降级，前端应提示用户。
+            "degraded": bool(cfg.enable_rag) and type(vec).__name__ == "InMemoryVectorStore",
             "embedder": type(emb).__name__,
             "dim": getattr(emb, "dim", None),
         },

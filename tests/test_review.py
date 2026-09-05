@@ -43,8 +43,12 @@ def test_review_models_validate():
 
 
 def test_review_models_reject_invalid():
+    # 越界分数会被收紧到 0-100（模型偶尔给 150 分，收紧比整次评审作废更合理）。
+    assert PatchReview(overall_score=150).overall_score == 100
+    assert PatchReview(overall_score=-5).overall_score == 0
+    assert ReviewDimension(name="style", score=120).score == 100
     with pytest.raises(ValidationError):
-        PatchReview(overall_score=150)  # 超出 0-100
+        PatchReview(overall_score="not-a-number")  # 无法解析的分数仍然拒绝
     with pytest.raises(ValidationError):
         ReviewIssue(severity="fatal", category="consistency", message="x")  # 非法 severity
 

@@ -80,3 +80,65 @@ def test_fallback_patch_writes_notes():
     new_script = apply_patch(script, ops)
     # 生成的版本仍应合法。
     assert not [i for i in validate_script(new_script) if i.severity == "error"]
+
+
+# ---------- 回归测试：白名单与对白保留 ----------
+
+
+def _script_with_dialogue():
+    """构造一个「动作 + 对白」混合节拍流的剧本（模拟真实生成产物）。"""
+    script = _base_script()
+    proposal = PatchProposal(
+        changes=[
+            SceneChange(
+                scene_id="scene_001",
+                beats=[
+                    BeatChange(id="beat_001", type="action", text="林然推门而入"),
+                    BeatChange(id="beat_002", type="dialogue", speaker="char_protagonist", line="你终于来了。"),
+                ],
+            )
+        ]
+    )
+    _, ops = build_patch(proposal, script, selected_scene_ids=[], instruction="改编")
+    return apply_patch(script, ops)
+
+
+def test_action_only_change_preserves_dialogue_beats():
+    """回归：提议只改 action、不带 beats/dialogue 时，既有对白节拍不能被冲掉。"""
+    script = _script_with_dialogue()
+    assert any(b.type == "dialogue" for b in script.scenes[0].beats)
+
+    proposal = PatchProposal(changes=[SceneChange(scene_id="scene_001", action=["新的动作描写"])])
+    _, ops = build_patch(proposal, script, selected_scene_ids=[], instruction="改动作")
+    new_script = apply_patch(script, ops)
+    dialogue_lines = [b.line for b in new_script.scenes[0].beats if b.type == "dialogue"]
+    assert "你终于来了。" in dialogue_lines
+
+
+def test_build_patch_respects_selected_scene_whitelist():
+    """回归：模型提议修改未勾选的场景时，必须被白名单拦下。"""
+    from copy import deepcopy
+
+    from app.domain import Script
+
+    script = _script_with_dialogue()
+    data = script.model_dump(exclude_none=False)
+    second = deepcopy(data["scenes"][0])
+    second["id"] = "scene_002"
+    second["title"] = "第二场"
+    data["scenes"].append(second)
+    script = Script.model_validate(data)
+
+    proposal = PatchProposal(
+        changes=[
+            SceneChange(scene_id="scene_001", title="改第一场"),
+            SceneChange(scene_id="scene_002", title="越权改第二场"),
+        ]
+    )
+    _, ops = build_patch(proposal, script, selected_scene_ids=["scene_001"], instruction="改编")
+    assert ops, "选中场景的改动不应被丢弃"
+    assert all(op.scene_id == "scene_001" for op in ops)
+
+    # 未勾选（空列表）时维持原语义：全部场景都可改。
+    _, ops_all = build_patch(proposal, script, selected_scene_ids=[], instruction="改编")
+    assert {op.scene_id for op in ops_all} == {"scene_001", "scene_002"}

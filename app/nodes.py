@@ -321,7 +321,12 @@ def build_nodes(
         return {"decision": decision}
 
     def select_ops(state: AgentState) -> list[Any]:
-        """按用户选择的下标挑选 patch 操作；未选择则全接受。"""
+        """按用户选择的下标挑选 patch 操作。
+
+        - 未选择（None）-> 全接受；
+        - 显式选择但全部下标无效 -> 返回空（用户无法表达「一条都不要」时，
+          把无效选择回退为全接受是危险的：等于悄悄接受了用户没勾的改动）。
+        """
         from .patch import PatchOp
 
         patch = [PatchOp.model_validate(op) for op in (state.get("patch") or [])]
@@ -329,8 +334,7 @@ def build_nodes(
         indexes = decision.get("patch_indexes")
         if indexes is None:
             return patch
-        chosen = [patch[i] for i in indexes if 0 <= i < len(patch)] or patch
-        return chosen
+        return [patch[i] for i in indexes if 0 <= i < len(patch)]
 
     def apply_node(state: AgentState) -> dict[str, Any]:
         from .patch import PatchOp
@@ -341,9 +345,34 @@ def build_nodes(
             ops = [PatchOp.model_validate(op) for op in decision["patch"]]
         else:
             ops = select_ops(state)
-        new_script = apply_patch(script, ops)
+        if not ops:
+            return {
+                "status": STATUS_FAILED,
+                "new_version_id": None,
+                "validation_issues": [],
+                "error": "没有可应用的操作（选择为空或下标无效）",
+            }
+        try:
+            new_script = apply_patch(script, ops)
+        except Exception as e:  # noqa: BLE001
+            # 应用失败不再让整张图崩掉：如实上报，不落版。
+            return {
+                "status": STATUS_FAILED,
+                "new_version_id": None,
+                "validation_issues": [],
+                "error": f"应用改动失败：{e}",
+            }
         issues = validate_script(new_script)
         error_issues = [i for i in issues if i.severity == "error"]
+        if error_issues:
+            # 与手动编辑路径（api.apply_edit）保持一致：error 必须清零才可落版。
+            # 用户勾选的子集 / 人工修订的 patch 未经 guard 预检，这里做最后一道闸。
+            return {
+                "status": STATUS_FAILED,
+                "new_version_id": None,
+                "validation_issues": [i.model_dump() for i in issues],
+                "error": "; ".join(i.message for i in error_issues),
+            }
         version = store.create_version(
             project,
             new_script,
@@ -357,20 +386,29 @@ def build_nodes(
             "status": STATUS_APPLIED,
             "new_version_id": version.id,
             "validation_issues": [i.model_dump() for i in issues],
-            "error": None if not error_issues else "; ".join(i.message for i in error_issues),
+            "error": None,
         }
 
     def finalize_node(state: AgentState) -> dict[str, Any]:
         decision = state.get("decision") or {}
         action = decision.get("action", "reject")
-        # accept / edit 都会真正落版，视为 applied；其余（reject/regenerate 兜底）为 rejected。
-        status = STATUS_APPLIED if action in ("accept", "edit") else STATUS_REJECTED
-        store.update_agent_run(
-            state["run_id"],
-            status=status,
-            decision=decision,
-            result_version_id=state.get("new_version_id"),
-        )
+        new_version_id = state.get("new_version_id")
+        if new_version_id:
+            # accept / edit 都会真正落版，视为 applied；其余（reject/regenerate 兜底）为 rejected。
+            status = STATUS_APPLIED if action in ("accept", "edit") else STATUS_REJECTED
+        elif action in ("accept", "edit"):
+            # 应用 / 校验失败，未生成版本：如实记为 failed，不冒充 applied。
+            status = STATUS_FAILED
+        else:
+            status = STATUS_REJECTED
+        fields: dict[str, Any] = {
+            "status": status,
+            "decision": decision,
+            "result_version_id": new_version_id,
+        }
+        if status == STATUS_FAILED:
+            fields["error_message"] = state.get("error")
+        store.update_agent_run(state["run_id"], **fields)
         return {"status": status}
 
     return {

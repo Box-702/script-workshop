@@ -214,6 +214,18 @@ class Store:
             connect_args=connect_args,
             pool_pre_ping=True,
         )
+        if is_sqlite:
+            # 多线程共享 engine 时（FastAPI 线程池），SQLite 需要 WAL + busy_timeout，
+            # 否则并发写极易报 "database is locked"。
+            from sqlalchemy import event
+
+            @event.listens_for(self.engine, "connect")
+            def _sqlite_pragma(dbapi_conn: Any, _record: Any) -> None:
+                cursor = dbapi_conn.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA busy_timeout=30000")
+                cursor.close()
+
         self.session_factory = sessionmaker(bind=self.engine, expire_on_commit=False)
         Base.metadata.create_all(self.engine)
         self._ensure_columns()
@@ -467,13 +479,16 @@ class Store:
 
     def list_chat_messages(self, thread_id: str, limit: int = 200) -> list[ChatMessage]:
         with self.session() as s:
-            return (
+            # 取「最新 limit 条」再按时间正序返回：长对话要保留的是最近上下文，
+            # 而不是开头几条。
+            rows = (
                 s.query(ChatMessage)
                 .filter_by(thread_id=thread_id)
-                .order_by(ChatMessage.created_at.asc())
+                .order_by(ChatMessage.created_at.desc())
                 .limit(limit)
                 .all()
             )
+            return list(reversed(rows))
 
     # ---- Conversation（项目下的对话线程）----
 

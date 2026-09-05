@@ -85,3 +85,4 @@ STATUS_PLANNING = "planning"
 STATUS_REVIEWING = "reviewing"
 STATUS_APPLIED = "applied"
 STATUS_REJECTED = "rejected"
+STATUS_FAILED = "failed"  # 接受后应用/校验失败，未落版

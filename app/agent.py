@@ -30,11 +30,15 @@ log = logging.getLogger(__name__)
 
 
 def _select_ops(patch: list[dict[str, Any]], indexes: list[int] | None) -> list[PatchOp]:
-    """按用户勾选下标挑选 patch 操作；未选择则全接受。"""
+    """按用户勾选下标挑选 patch 操作。
+
+    - 未选择（None）-> 全接受；
+    - 显式选择但全部下标无效 -> 空（不回退为全接受，见 nodes.select_ops）。
+    """
     ops = [PatchOp.model_validate(op) for op in patch]
-    if not indexes:
+    if indexes is None:
         return ops
-    return [ops[i] for i in indexes if 0 <= i < len(ops)] or ops
+    return [ops[i] for i in indexes if 0 <= i < len(ops)]
 
 
 def _interrupt_value(result: dict[str, Any]) -> dict[str, Any] | None:
@@ -255,8 +259,24 @@ def _apply_directly(
         ops = [PatchOp.model_validate(op) for op in decision["patch"]]
     else:
         ops = _select_ops(run.patch, decision.get("patch_indexes"))
+    if not ops:
+        message = "没有可应用的操作（选择为空或下标无效）"
+        store.update_agent_run(run.id, status="failed", decision=decision, error_message=message)
+        return {"status": "failed", "error": message, "decision": decision, "fallback": True}
     new_script = apply_patch(base_version.script, ops)
     issues = validate_script(new_script)
+    error_issues = [i for i in issues if i.severity == "error"]
+    if error_issues:
+        # 与图内 apply 节点一致：error 必须清零才可落版，坏剧本不能成为当前版本。
+        message = "; ".join(i.message for i in error_issues)
+        store.update_agent_run(run.id, status="failed", decision=decision, error_message=message)
+        return {
+            "status": "failed",
+            "error": message,
+            "decision": decision,
+            "fallback": True,
+            "validation_issues": [i.model_dump() for i in issues],
+        }
     version = store.create_version(
         project,
         new_script,

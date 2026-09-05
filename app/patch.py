@@ -393,7 +393,8 @@ def build_patch(
         # 表面 id 可能不是规范形式（scene_1 vs scene_001），统一规整后再查找。
         scene_id = normalize_id(change.scene_id, "scene", fallback=str(change.scene_id))
         idx = index_by_id.get(scene_id)
-        if idx is None:
+        # 模型可能提议修改用户未勾选的场景：严格限制在选中范围内。
+        if idx is None or scene_id not in wanted:
             continue
         scene = scenes[idx]
         allowed = [str(c) for c in scene.get("characters", [])]
@@ -438,10 +439,17 @@ def build_patch(
             and scene.get("beats")
             and (change.action is not None or change.dialogue is not None)
         ):
-            next_action = _clean_action(change.action) or scene.get("action") or []
-            next_dialogue = _clean_dialogue(
-                [d.model_dump(exclude_none=True) for d in change.dialogue], allowed
-            ) or scene.get("dialogue") or []
+            current_beats = scene.get("beats") or []
+            next_action = _clean_action(change.action) if change.action is not None else None
+            next_action = next_action or _action_from_beats(current_beats) or scene.get("action") or []
+            next_dialogue = None
+            if change.dialogue is not None:
+                next_dialogue = _clean_dialogue(
+                    [d.model_dump(exclude_none=True) for d in change.dialogue], allowed
+                )
+            # beats 是主结构：提议没带对白时，对白以既有节拍流为准，
+            # 而不是可能过期的兼容字段（否则会把整场对白静默冲掉）。
+            next_dialogue = next_dialogue or _dialogue_from_beats(current_beats) or []
             compatible = _beats_from_action_dialogue(next_action, next_dialogue)
             op = _make_set_op(idx, scene, "beats", scene.get("beats") or [], compatible)
             if op:

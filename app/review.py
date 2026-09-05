@@ -23,13 +23,16 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 if TYPE_CHECKING:
     from .domain import Script
     from .llm import LLM
+
+log = logging.getLogger(__name__)
 
 
 # ---------- 审阅结构化模型 ----------
@@ -41,6 +44,15 @@ class ReviewDimension(BaseModel):
     name: Literal["fidelity", "consistency", "conflict", "style", "structure"]
     score: int = Field(ge=0, le=100)
     note: str | None = None
+
+    @field_validator("score", mode="before")
+    @classmethod
+    def _clamp_score(cls, v: object) -> object:
+        # 模型偶尔给出 0-100 之外的分数：收紧而不是让整次评审解析失败。
+        try:
+            return max(0, min(100, int(v)))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return v
 
 
 class ReviewIssue(BaseModel):
@@ -60,6 +72,14 @@ class PatchReview(BaseModel):
     summary: str | None = None
     dimensions: list[ReviewDimension] = Field(default_factory=list)
     issues: list[ReviewIssue] = Field(default_factory=list)
+
+    @field_validator("overall_score", mode="before")
+    @classmethod
+    def _clamp_overall(cls, v: object) -> object:
+        try:
+            return max(0, min(100, int(v)))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return v
 
 
 # 维度中文名（用于展示与提示词）。
@@ -190,7 +210,8 @@ def review_patch(
                 HumanMessage(content=prompt),
             ]
         )
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        log.warning("LLM 评审解析失败，本次评审跳过（guard 仅用规则校验）：%s", e)
         return None
     if review is None:
         return None

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import OrderedDict
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -47,7 +48,10 @@ MAX_TOOL_STEPS = 8
 _CHECKPOINTER: Any = None
 
 # 编译后的图缓存：同一 base 版本复用同一实例，保证 invoke / resume 用同一张图。
-_GRAPH_CACHE: dict[str, Any] = {}
+# 有上限（LRU 淘汰）：每个条目闭包持有 project/tools/vector 引用，无界缓存会持续吃内存。
+# 淘汰是安全的：checkpointer 是独立单例，被淘汰的 base 版本恢复时按同一线程重建等价图。
+_GRAPH_CACHE: OrderedDict[str, Any] = OrderedDict()
+_GRAPH_CACHE_MAX = 16
 
 
 def _normalize_pg_dsn(dsn: str) -> str:
@@ -60,6 +64,8 @@ def get_checkpointer(settings: Settings):
 
     若配置了 postgres 但初始化失败（如数据库未就绪、缺驱动），
     会自动回退为内存 checkpointer，保证服务仍能启动。
+    Postgres 优先用 psycopg_pool 连接池：FastAPI 同步路由跑在线程池里，
+    多个运行并发共享同一条非池化连接会交错事务/游标（非线程安全）。
     """
     global _CHECKPOINTER
     if _CHECKPOINTER is not None:
@@ -67,13 +73,22 @@ def get_checkpointer(settings: Settings):
     if settings.checkpointer == "postgres":
         try:
             from langgraph.checkpoint.postgres import PostgresSaver
-            import psycopg
 
             dsn = _normalize_pg_dsn(settings.effective_checkpoint_dsn)
-            conn = psycopg.connect(dsn, autocommit=True)
-            saver = PostgresSaver(conn)
+            saver: Any
+            try:
+                from psycopg_pool import ConnectionPool
+
+                pool = ConnectionPool(dsn, kwargs={"autocommit": True}, open=True)
+                saver = PostgresSaver(pool)
+                log.info("使用 Postgres checkpointer（连接池）")
+            except ImportError:
+                import psycopg
+
+                conn = psycopg.connect(dsn, autocommit=True)
+                saver = PostgresSaver(conn)
+                log.info("使用 Postgres checkpointer（单连接，未安装 psycopg-pool）")
             saver.setup()
-            log.info("使用 Postgres checkpointer")
             _CHECKPOINTER = saver
             return saver
         except Exception as e:  # noqa: BLE001
@@ -158,10 +173,16 @@ def _route_after_guard(state: AgentState) -> str:
 
 
 def _get_compiled(base_version_id: str, builder: Any) -> Any:
-    """按 base 版本取已编译图；缺失则构建并缓存。"""
-    if base_version_id not in _GRAPH_CACHE:
-        _GRAPH_CACHE[base_version_id] = builder.compile()
-    return _GRAPH_CACHE[base_version_id]
+    """按 base 版本取已编译图；缺失则构建并缓存（LRU，超上限淘汰最旧条目）。"""
+    graph = _GRAPH_CACHE.get(base_version_id)
+    if graph is not None:
+        _GRAPH_CACHE.move_to_end(base_version_id)
+        return graph
+    graph = builder.compile()
+    _GRAPH_CACHE[base_version_id] = graph
+    while len(_GRAPH_CACHE) > _GRAPH_CACHE_MAX:
+        _GRAPH_CACHE.popitem(last=False)
+    return graph
 
 
 class _GraphBuilder:
@@ -218,7 +239,16 @@ class _GraphBuilder:
 
         from langgraph.prebuilt import ToolNode
 
-        graph.add_node("tools", ToolNode(tools))
+        base_tool_node = ToolNode(tools)
+
+        def tools_step(state: AgentState) -> dict[str, Any]:
+            """执行工具并累计轮数：没有这个计数，MAX_TOOL_STEPS 的循环保护永不生效。"""
+            out = base_tool_node.invoke(state)
+            update = dict(out) if isinstance(out, dict) else {}
+            update["steps"] = int(state.get("steps", 0)) + 1
+            return update
+
+        graph.add_node("tools", tools_step)
 
         graph.add_edge(START, "context")
         graph.add_edge("context", "plan")

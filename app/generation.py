@@ -122,12 +122,13 @@ def _stage_scenes(llm: LLM, settings: Settings, *, bible: Bible, excerpts: list[
 
     characters = [c.model_dump() for c in bible.characters]
     locations = [l.model_dump() for l in bible.locations]
+    excerpt_block = "\n".join(excerpts[:8])[:4000]
     prompt = (
         f"请为剧本规划场景，并为每个场景生成按阅读顺序混排的 beats 节拍流。\n"
         f"改编类型 profile：\n{profile_prompt(prof, language=language)}\n\n"
         f"人物：{characters}\n地点：{locations}\n"
         f"故事圣经：{bible.model_dump_json()}\n\n"
-        f"原著片段：\n{'\\n'.join(excerpts[:8])[:4000]}"
+        f"原著片段：\n{excerpt_block}"
     )
     return llm.structured(ScenePlan).invoke(
         [{"role": "system", "content": llm.system_prompt()}, {"role": "user", "content": prompt}]
@@ -265,7 +266,13 @@ def generate_script(
                         entry_state=s.entry_state,
                         exit_state=s.exit_state,
                         action=[b.text for b in beats if b.type == "action" and b.text],
-                        dialogue=[],
+                        # 兼容字段 dialogue 必须与 beats 同步：留空会让后续
+                        # 「只改 action」的 patch 重建节拍时把对白整体冲掉。
+                        dialogue=[
+                            {"speaker": b.speaker, "line": b.line}
+                            for b in beats
+                            if b.type == "dialogue" and b.speaker and b.line
+                        ],
                         beats=beats,
                     )
                 )

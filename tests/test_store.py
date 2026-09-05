@@ -82,3 +82,14 @@ def test_version_milestone_set_and_clear(store):
     assert v3 is not None and v3.milestone is None
 
     assert store.set_version_milestone("ver_missing", "final") is None
+
+
+def test_list_chat_messages_returns_latest_window_in_order(store):
+    """回归：历史窗口必须取「最新 N 条」且保持时间正序（曾错取最早 N 条）。"""
+    import time
+
+    for i in range(5):
+        store.save_chat_message(thread_id="thread_hist", role="user", content=f"m{i}")
+        time.sleep(0.01)
+    rows = store.list_chat_messages("thread_hist", limit=3)
+    assert [r.content for r in rows] == ["m2", "m3", "m4"]

@@ -38,32 +38,40 @@ export async function importProject(formData) {
  * SSE 流式对话。
  * @param {object} body  { project_id, conversation_id, message, meta }
  * @param {(ev: {event: string, data: any}) => void} onFrame 每解析出一帧回调一次
+ * @param {AbortSignal} [signal] 取消流（切走会话/组件销毁时应中止，释放连接）
  */
-export async function streamChat(body, onFrame) {
+export async function streamChat(body, onFrame, signal) {
   const res = await fetch(BASE + '/chat/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal,
   })
   if (!res.ok || !res.body) {
     const j = await res.json().catch(() => ({}))
     throw new Error(j.detail || res.statusText)
   }
-  // 按字节读取，遇到空行（\n\n）切分成一帧再解析
+  // 按字节读取，遇到空行（\n\n）切分成一帧再解析；
+  // 无论正常结束还是中途出错/取消，都要释放 reader，避免连接与锁泄漏。
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buf = ''
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
-    let idx
-    while ((idx = buf.indexOf('\n\n')) >= 0) {
-      const frame = buf.slice(0, idx)
-      buf = buf.slice(idx + 2)
-      const ev = parseFrame(frame)
-      if (ev) onFrame(ev)
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      let idx
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, idx)
+        buf = buf.slice(idx + 2)
+        const ev = parseFrame(frame)
+        if (ev) onFrame(ev)
+      }
     }
+  } finally {
+    try { await reader.cancel() } catch { /* 已结束/已取消时忽略 */ }
+    reader.releaseLock()
   }
 }
 
@@ -73,8 +81,13 @@ function parseFrame(frame) {
   let data = ''
   for (const line of frame.split('\n')) {
     if (line.startsWith('event:')) event = line.slice(6).trim()
-    else if (line.startsWith('data:')) data += line.slice(5).trim()
+    // SSE 规范：多行 data 用 \n 连接（去掉冒号后的第一个空格），
+    // 用 trim() 会破坏 JSON 字符串值里的行尾空格。
+    else if (line.startsWith('data:')) data += (data ? '\n' : '') + line.slice(5).replace(/^ /, '')
   }
   if (!data) return null
-  try { return { event, data: JSON.parse(data) } } catch { return null }
+  try { return { event, data: JSON.parse(data) } } catch (e) {
+    console.warn('SSE 帧解析失败，已跳过：', frame, e)
+    return null
+  }
 }

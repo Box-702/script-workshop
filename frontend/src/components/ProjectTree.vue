@@ -52,10 +52,10 @@ async function doDeleteProject(p) {
   await deleteProject(p.id)
 }
 
-/** 删除对话（内联确认后调用）。 */
-async function doDeleteConversation(c) {
+/** 删除对话（内联确认后调用）。带上该对话所属的项目 id，刷新正确的对话列表。 */
+async function doDeleteConversation(pid, c) {
   confirmDel.value = null
-  await deleteConversation(c.id)
+  await deleteConversation(c.id, pid)
 }
 </script>
 
@@ -113,7 +113,7 @@ async function doDeleteConversation(c) {
             </span>
             <span v-if="confirmDel === 'conv:' + c.id" class="confirm" @click.stop>
               <span class="confirm-txt">删除？</span>
-              <button class="mini danger" @click.stop="doDeleteConversation(c)">删除</button>
+              <button class="mini danger" @click.stop="doDeleteConversation(p.id, c)">删除</button>
               <button class="mini" @click.stop="confirmDel = null">取消</button>
             </span>
             <span v-else-if="editingId !== c.id" class="ops">

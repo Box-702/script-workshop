@@ -87,7 +87,8 @@ class Settings(BaseSettings):
     review_score_threshold: int = Field(default=75, alias="REVIEW_SCORE_THRESHOLD")
 
     # ---------- 服务 ----------
-    api_host: str = Field(default="0.0.0.0", alias="API_HOST")
+    # 默认只监听本机：全部 API 无鉴权，且可设置任意工作目录，绝不能默认暴露到局域网。
+    api_host: str = Field(default="127.0.0.1", alias="API_HOST")
     api_port: int = Field(default=8000, alias="API_PORT")
     output_language: str = Field(default="zh-CN", alias="OUTPUT_LANGUAGE")
 

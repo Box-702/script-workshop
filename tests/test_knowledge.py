@@ -89,3 +89,15 @@ def test_list_project_rows(store, vector_store, sample_text):
     rows = vector_store.list_project(p.id)
     kinds = {r.get("kind") for r in rows}
     assert {"source", "plot_direction", "technique", "author_style"} <= kinds
+
+
+def test_hybrid_retrieve_rejects_gibberish_query(store, vector_store, sample_text):
+    """回归：无关查询不应因 min-max 归一化而必然拿到「高相关」结果。"""
+    from app.vector import hybrid_retrieve
+
+    p = store.create_project(title="雨夜", adaptation_type="short_drama", language="zh-CN", raw_text=sample_text)
+    index_project_knowledge(vector_store, _embedder(), project_id=p.id, raw_text=sample_text, title=p.title)
+
+    gibberish = "zzz qqq xyzzy plugh wubble"
+    hits = hybrid_retrieve(vector_store, _embedder(), project_id=p.id, query=gibberish, k=4)
+    assert hits == [], f"无关查询不应返回噪声，实际返回 {len(hits)} 条"

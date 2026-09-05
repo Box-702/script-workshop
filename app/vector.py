@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import re
 from collections import Counter
@@ -29,6 +30,8 @@ from typing import Any, Protocol
 from .config import Settings
 from .domain import Script
 from .store import Project, Store
+
+log = logging.getLogger(__name__)
 
 
 class Embedder(Protocol):
@@ -365,10 +368,17 @@ def build_vector_store(settings: Settings, embedder: Embedder) -> VectorStore:
             user=settings.milvus_user,
             password=settings.milvus_password,
         )
-        # 探测服务器可用性。
-        store.search([0.0] * embedder.dim, project_id="__probe__", k=1)
+        # 探测服务器可用性（零向量的 cosine 无定义，Milvus 会拒绝，必须用非零向量）。
+        probe = [1.0] + [0.0] * (embedder.dim - 1)
+        store.search(probe, project_id="__probe__", k=1)
         return store
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        # 降级必须可观测：否则用户以为在用 Milvus，实际数据只在内存里、重启即丢。
+        log.warning(
+            "Milvus 不可达（%s），RAG 已降级为内存向量后端：索引数据重启即丢，"
+            "且 /api/status 会显示 rag.degraded=true",
+            e,
+        )
         return InMemoryVectorStore()
 
 
@@ -597,7 +607,8 @@ def hybrid_retrieve(
     query_grams = _char_ngrams(query)
 
     for h in hits:
-        sem = (float(h.get("score") or 0.0) - lo) / span
+        raw = float(h.get("score") or 0.0)
+        sem = (raw - lo) / span
         kw = _keyword_overlap(query_grams, h)
         cov = _query_coverage(query_grams, h)
         # 用户显式记忆（source=user）优先于种子知识。
@@ -607,14 +618,23 @@ def hybrid_retrieve(
         h["_cov"] = cov
         # 混合检索：语义 0.6 + 预计算关键词 0.25 + 查询正文覆盖 0.15 + 来源加权。
         h["_final"] = 0.6 * sem + 0.25 * kw + 0.15 * cov + src_boost
+        # 噪声门控只对「候选充足」的场景有意义；按 kind 过滤后的项目知识可能
+        # 只剩一两条，属于定向取知识而非相关度竞争，召回优先，不做门控。
+        # 阈值说明：哈希嵌入对完全无关文本也有 ~0.1 的碰撞底噪，取 0.15；
+        # 关键词 / 覆盖任一非零即视为有词汇关联，不判噪声。
+        h["_weak"] = raw < 0.15 and kw < 0.05 and cov < 0.05
 
     hits.sort(key=lambda h: h["_final"], reverse=True)
 
-    # 去重（文本指纹）+ 低相关过滤。
+    # 去重（文本指纹）+ 低相关过滤。min-max 归一化后最高分的相对 sem 恒为 1.0，
+    # 单看 _final 区分不了「矮子里拔将军」，所以候选充足时叠加绝对信号门控：
+    # 三路绝对信号（原始语义分 / 预计算关键词 / 正文覆盖）全弱即视为噪声丢弃；
+    # 全部候选都弱时宁可返回空，也不把不相关内容当作「高相关」喂给模型。
+    few_candidates = len(hits) <= k
     seen: set[str] = set()
     dedup: list[dict[str, Any]] = []
     for h in hits:
-        if h["_final"] < 0.08:  # 语义和关键词都很弱 -> 噪声
+        if not few_candidates and (h["_weak"] or h["_final"] < 0.08):
             continue
         fp = _text_fingerprint(str(h.get("text") or ""))
         if fp in seen:

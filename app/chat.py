@@ -450,6 +450,8 @@ def _resume_reply(store: Store, result: dict[str, Any]) -> tuple[str, list[dict[
         return f"✅ 已接受，生成新版本 {vid}，校验问题 {len(errors)} 项。{note}", [payload]
     if status == "rejected":
         return "已拒绝这次改编提议，剧本保持不变。", []
+    if status == "failed":
+        return f"⚠️ 应用改动失败，未生成新版本：{result.get('error') or '校验未通过'}。", []
     if status == "not_found":
         return "运行记录不存在，可能已过期。", []
     return f"操作完成（状态：{status}）。", []

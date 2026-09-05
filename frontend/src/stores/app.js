@@ -88,6 +88,14 @@ export function dismissToast() {
   store.toast = null
 }
 
+// ---------------------------------------------------------------------
+// 导航时序守卫：快速切换项目/对话时，慢响应不得覆盖新选中的数据。
+// 每次导航（选项目/选对话）取一个自增 token，await 返回后 token 已过期
+// 就直接丢弃本次结果。
+// ---------------------------------------------------------------------
+let _navSeq = 0
+function _isCurrent(token) { return token === _navSeq }
+
 /** 删除项目及其所有对话、版本。 */
 export async function deleteProject(pid) {
   try {
@@ -114,7 +122,12 @@ export async function loadStatus() {
 // ---------------------------------------------------------------------
 /** 拉取项目列表；当前项目保持展开并刷新其对话。 */
 export async function loadTree() {
-  store.projects = await api('/projects')
+  try {
+    store.projects = await api('/projects')
+  } catch (e) {
+    notify('加载项目列表失败：' + e.message)
+    return
+  }
   // 当前选中项目保证处于展开态并加载对话
   if (store.pid && store.expanded[store.pid] !== false) {
     store.expanded[store.pid] = true
@@ -135,26 +148,34 @@ export async function toggleProject(pid) {
 
 /** 选中项目：重置对话选择，自动选第一个对话，刷新右侧面板。 */
 export async function selectProject(pid) {
+  const token = ++_navSeq
+  // 中止进行中的流式回复：流属于旧会话，继续写只会产生孤儿数据。
+  if (_streamAbort) _streamAbort.abort()
   store.pid = pid
   store.convId = null
   store.expanded[pid] = true
+  store.messages = [] // 先清空旧内容，避免等待期间显示上一个项目的消息
   await loadConversations(pid)
+  if (!_isCurrent(token)) return
   const convs = store.convMap[pid] || []
-  if (convs.length) await selectConversation(pid, convs[0].id)
+  if (convs.length) await selectConversation(pid, convs[0].id, token)
   else {
     store.hint = '已选择剧本项目。可新建对话，或直接在下方对话里提出改编需求。'
-    store.messages = [] // 项目没有对话时清空残留消息，避免串到上一个项目/对话
-    await loadViewer()
+    await loadViewer(token)
   }
 }
 
-/** 选中对话：加载历史消息并刷新右侧面板。 */
-export async function selectConversation(pid, convId) {
+/** 选中对话：加载历史消息并刷新右侧面板。token 沿用发起导航时的值。 */
+export async function selectConversation(pid, convId, token = ++_navSeq) {
+  _navSeq = token
+  if (_streamAbort) _streamAbort.abort()
   store.pid = pid
   store.convId = convId
   store.hint = '对话已切换（每个对话独立上下文）。'
-  await loadHistory()
-  await loadViewer()
+  store.messages = [] // 先清空旧对话内容，避免等待期间/失败时残留造成「串话」
+  await loadHistory(token)
+  if (!_isCurrent(token)) return
+  await loadViewer(token)
 }
 
 /** 新建对话（自动命名，不弹窗）。若当前项目已有空白对话则直接选中，不重复创建。 */
@@ -192,15 +213,17 @@ export async function setConversationTitle(pid, convId, title) {
   } catch (e) { notify(e.message) }
 }
 
-/** 删除对话；若删的是当前对话则清空选择并回到项目空态。确认由调用方（内联两步）负责。 */
-export async function deleteConversation(convId) {
+/** 删除对话；若删的是当前对话则清空选择并回到项目空态。确认由调用方（内联两步）负责。
+ *  pid 为该对话所属项目：从树上看可能不是当前选中的项目，刷新时不能混用 store.pid。 */
+export async function deleteConversation(convId, pid = store.pid) {
   try {
     await api(`/conversations/${convId}`, 'DELETE')
     if (store.convId === convId) {
       store.convId = null
       store.messages = []
     }
-    await loadConversations(store.pid)
+    const target = pid || store.pid
+    if (target) await loadConversations(target)
     notify('已删除对话', 'ok')
   } catch (e) { notify(e.message) }
 }
@@ -208,12 +231,13 @@ export async function deleteConversation(convId) {
 // ---------------------------------------------------------------------
 // 对话历史
 // ---------------------------------------------------------------------
-/** 拉取当前对话的历史消息；没有对话时显示占位。 */
-export async function loadHistory() {
+/** 拉取对话的历史消息；token 过期（用户已切走）时不写入，避免旧响应覆盖新会话。 */
+export async function loadHistory(token = _navSeq) {
   let messages = []
   if (store.convId) {
     try { messages = await api(`/conversations/${store.convId}/messages`) } catch { messages = [] }
   }
+  if (!_isCurrent(token)) return
   store.messages = messages.map((m) => ({
     role: m.role, content: m.content,
     events: m.events || [], payloads: m.payloads || [], streaming: false,
@@ -223,16 +247,20 @@ export async function loadHistory() {
 // ---------------------------------------------------------------------
 // 右侧查看面板
 // ---------------------------------------------------------------------
-/** 加载最新版本全文 + 结构化剧本 + 知识库。 */
-export async function loadViewer() {
+/** 加载最新版本全文 + 结构化剧本 + 知识库；token 过期时不写入。 */
+export async function loadViewer(token = _navSeq) {
   if (!store.pid) { store.viewerText = ''; store.viewerScript = null; return }
   try {
-    store.versions = await api(`/projects/${store.pid}/versions`)
-    if (store.versions.length) {
-      const t = await api(`/versions/${store.versions[0].id}/text`)
+    const versions = await api(`/projects/${store.pid}/versions`)
+    if (!_isCurrent(token)) return
+    store.versions = versions
+    if (versions.length) {
+      const t = await api(`/versions/${versions[0].id}/text`)
+      if (!_isCurrent(token)) return
       store.viewerText = t.text
       try {
-        const full = await api(`/versions/${store.versions[0].id}`)
+        const full = await api(`/versions/${versions[0].id}`)
+        if (!_isCurrent(token)) return
         store.viewerScript = full.script || null
       } catch { store.viewerScript = null }
     } else {
@@ -241,7 +269,12 @@ export async function loadViewer() {
     }
     await loadKnowledge()
     await loadNotes()
-  } catch (e) { store.viewerText = `加载失败：${e.message}`; store.viewerScript = null }
+  } catch (e) {
+    if (!_isCurrent(token)) return
+    // 错误只进提示，不写进剧本文本字段（会被当成正文渲染、复制、导出）。
+    store.viewerScript = null
+    notify('剧本内容加载失败：' + e.message)
+  }
 }
 
 /** 拉取编剧圣经 / 设定备忘。 */
@@ -409,6 +442,9 @@ export async function syncProjectToWorkspace() {
 // ---------------------------------------------------------------------
 // 发送消息（SSE 流式）
 // ---------------------------------------------------------------------
+/** 进行中的流式请求控制器：切换项目/对话时中止，避免流写进已离开的会话。 */
+let _streamAbort = null
+
 /** 发送一条用户消息，流式接收回复并实时更新最后一条 assistant 消息。 */
 export async function sendMessage(text) {
   if (store.streaming || !text) return
@@ -418,14 +454,18 @@ export async function sendMessage(text) {
   store.messages.push(reply)
 
   store.streaming = true
+  _streamAbort = new AbortController()
   try {
     await streamChat(
       { project_id: store.pid, conversation_id: store.convId, message: text, meta: null },
       (ev) => handleStreamEvent(ev, reply),
+      _streamAbort.signal,
     )
   } catch (e) {
-    reply.content = `请求失败：${e.message}`
+    // 主动切走会话导致的中止不算错误，保留已收到的部分内容即可。
+    if (e && e.name !== 'AbortError') reply.content = `请求失败：${e.message}`
   } finally {
+    _streamAbort = null
     reply.streaming = false
     store.streaming = false
     await loadTree()
