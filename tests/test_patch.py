@@ -142,3 +142,39 @@ def test_build_patch_respects_selected_scene_whitelist():
     # 未勾选（空列表）时维持原语义：全部场景都可改。
     _, ops_all = build_patch(proposal, script, selected_scene_ids=[], instruction="改编")
     assert {op.scene_id for op in ops_all} == {"scene_001", "scene_002"}
+
+
+def test_clean_beats_resolves_speaker_names():
+    """回归：LLM 用人物名指代说话人时应解析为角色 id，而不是静默指给场景第一个角色。"""
+    script = _base_script()  # 人物：主角（char_protagonist）
+    proposal = PatchProposal(
+        changes=[
+            SceneChange(
+                scene_id="scene_001",
+                beats=[BeatChange(type="dialogue", speaker="主角", line="你终于来了。")],
+            )
+        ]
+    )
+    _, ops = build_patch(proposal, script, selected_scene_ids=[], instruction="改编")
+    applied = apply_patch(script, ops)
+    dlg = [b for b in applied.scenes[0].beats if b.type == "dialogue"]
+    assert dlg and dlg[0].speaker == "char_protagonist"
+
+
+def test_clean_beats_keeps_unknown_speaker_for_validation():
+    """回归：说话人解析不了时保留原值交由校验回炉，而不是静默安到别的角色头上。"""
+    script = _base_script()
+    proposal = PatchProposal(
+        changes=[
+            SceneChange(
+                scene_id="scene_001",
+                beats=[BeatChange(type="dialogue", speaker="陌生人", line="把东西交出来。")],
+            )
+        ]
+    )
+    _, ops = build_patch(proposal, script, selected_scene_ids=[], instruction="改编")
+    applied = apply_patch(script, ops)
+    dlg = [b for b in applied.scenes[0].beats if b.type == "dialogue"]
+    assert dlg and dlg[0].speaker != "char_protagonist"  # 不能错归给主角
+    issues = [i for i in validate_script(applied) if i.severity == "error"]
+    assert any("说话人" in i.message for i in issues), "未知说话人必须被校验拦下"

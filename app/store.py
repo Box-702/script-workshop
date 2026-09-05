@@ -249,9 +249,12 @@ class Store:
             if "milestone" not in cols_ver:
                 with self.engine.begin() as conn:
                     conn.execute(text("ALTER TABLE script_versions ADD COLUMN milestone VARCHAR"))
-        except Exception:  # noqa: BLE001
-            # 表不存在或已是最新：迁移失败不阻塞启动。
-            pass
+        except Exception as e:  # noqa: BLE001
+            # 表不存在或已是最新：迁移失败不阻塞启动，但必须可观测——
+            # 静默失败会让老库缺列的报错延后到业务查询时才出现，难以排查。
+            import logging
+
+            logging.getLogger(__name__).warning("轻量迁移未完成（可能表结构已最新）：%s", e)
 
     def session(self):
         return self.session_factory()

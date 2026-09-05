@@ -9,7 +9,7 @@
 // 空态均为教学式文案，告诉用户如何让内容出现。
 // =====================================================================
 
-import { computed, ref } from 'vue'
+import { computed, ref, onUnmounted } from 'vue'
 import ScreenplayView from './ScreenplayView.vue'
 import ScreenplayEditor from './ScreenplayEditor.vue'
 import FolderTree from './FolderTree.vue'
@@ -51,6 +51,8 @@ async function copyScript() {
     copiedTimer = setTimeout(() => (copied.value = false), 1400)
   } catch { /* 剪贴板不可用时静默 */ }
 }
+// 组件卸载后不再触发状态写入。
+onUnmounted(() => clearTimeout(copiedTimer))
 
 // ---- 导出 ----
 const exportOpen = ref(false)
@@ -209,6 +211,7 @@ async function onSaveNotes() {
           class="notes-ta"
           placeholder="例如：&#10;人物：林然（主角）——前刑警，寡言，怕火。&#10;时间线：1987 旧货市场失火 → 1997 重逢。&#10;伏笔：红雨衣、未寄出的照片。"
           spellcheck="false"
+          @input="store.notesDirty = true"
         ></textarea>
         <div class="notes-foot">
           <button class="small" :disabled="savingNotes" @click="onSaveNotes">{{ savingNotes ? '保存中…' : '保存设定' }}</button>

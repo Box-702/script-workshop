@@ -55,6 +55,7 @@ export const store = reactive({
   viewerText: '',      // 最新版本剧本全文（纯文本，供复制）
   viewerScript: null,  // 最新版本结构化剧本（供剧本排版渲染）
   viewerNotes: '',     // 编剧圣经 / 设定备忘（自由文本）
+  notesDirty: false,   // 设定有未保存改动：切换项目时不被服务端内容覆盖
   projectFiles: null,  // 项目本地文件 { persist, root, folders }
   openFile: null,      // 当前打开的本地文本文件 { name, content }
   knowledge: [],       // [{ kind, docs }] 按类型分组
@@ -277,16 +278,25 @@ export async function loadViewer(token = _navSeq) {
   }
 }
 
-/** 拉取编剧圣经 / 设定备忘。 */
-export async function loadNotes() {
+/** 拉取编剧圣经 / 设定备忘。有未保存改动时不覆盖（否则切换项目会静默丢字）。 */
+export async function loadNotes(token = _navSeq) {
   if (!store.pid) { store.viewerNotes = ''; return }
-  try { const r = await api(`/projects/${store.pid}/notes`); store.viewerNotes = r.notes || '' } catch { /* 保留 */ }
+  try {
+    const r = await api(`/projects/${store.pid}/notes`)
+    if (!_isCurrent(token)) return
+    if (store.notesDirty) {
+      notify('有未保存的编剧设定改动，输入框内容已保留；确认后请保存或清空。', 'ok')
+      return
+    }
+    store.viewerNotes = r.notes || ''
+  } catch { /* 保留 */ }
 }
 
 /** 保存编剧圣经 / 设定备忘；同步写入工作目录 04_知识库。 */
 export async function saveNotes() {
   if (!store.pid) return
   await api(`/projects/${store.pid}/notes`, 'PUT', { notes: store.viewerNotes })
+  store.notesDirty = false
 }
 
 /** 拉取项目知识库并按类型分组。 */

@@ -30,8 +30,7 @@ dependencies = [
     "langgraph-checkpoint-postgres>=3.1,<4",
     # ---- LangChain 核心与模型接入 ----
     "langchain-core>=1.6,<1.7",
-    "langchain-openai>=1.6,<1.7",       # 任意 OpenAI 兼容服务（OpenAI/DeepSeek/Qwen 等）
-    "langchain-deepseek>=1.1,<1.2",     # DeepSeek 原生适配（可选，便于演示）
+    "langchain-openai>=1.6,<1.7",       # OpenAI 兼容服务（OpenAI/DeepSeek/Qwen 等都走这里）
     "langchain>=1.3,<1.4",
     "langchain-text-splitters>=1.1,<1.2",
     # ---- 数据 / 向量 / 配置 / Web ----
@@ -41,7 +40,8 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "sqlalchemy>=2.0",
     "psycopg[binary]>=3.2",             # Postgres 驱动（业务库 + checkpointer）
-    "pymilvus>=2.4",                    # 可选 Milvus 向量库（RAG）
+    "psycopg-pool>=3.2",                # checkpointer 连接池（FastAPI 线程池并发共享）
+    "pymilvus>=2.4,<4",                 # 可选 Milvus 向量库（RAG）；<4 锁定兼容行为
     "python-multipart>=0.0.9",
     "ruamel.yaml>=0.18",
     "jsonschema>=4.22",

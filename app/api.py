@@ -746,7 +746,7 @@ def set_workspace(payload: WorkspaceSet) -> dict[str, Any]:
         ws = configure_root(root, payload.persist)
         if ws.persist:
             ws.ensure_root()
-            ws._write_readme()
+            ws.write_readme()
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, f"无法创建工作目录：{e}") from e
     return {"ok": True, **ws.info(settings().effective_workspace_root)}

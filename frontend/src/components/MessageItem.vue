@@ -12,7 +12,7 @@
 // 结构：活动 chips（工具调用）→ 正文 → 载荷卡片（摘要条 / 版本卡）。
 // =====================================================================
 
-import { computed, ref } from 'vue'
+import { computed, ref, onUnmounted } from 'vue'
 import PatchSummaryCard from './PatchSummaryCard.vue'
 import VersionCard from './VersionCard.vue'
 import { mdToHtml, esc } from '../utils/markdown'
@@ -41,6 +41,8 @@ async function copyContent() {
     copiedTimer = setTimeout(() => (copied.value = false), 1400)
   } catch { /* 剪贴板不可用时静默 */ }
 }
+// 组件卸载后不再触发状态写入。
+onUnmounted(() => clearTimeout(copiedTimer))
 </script>
 
 <template>

@@ -10,7 +10,7 @@
 //       生成一个「手动编辑」新版本（复用 patch 引擎，数据仍是结构化剧本）。
 // =====================================================================
 
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import EditableText from './EditableText.vue'
 import { store, applyEdits, notify } from '../stores/app'
 
@@ -24,6 +24,13 @@ const emit = defineEmits(['saved', 'cancel'])
 const local = ref(JSON.parse(JSON.stringify(props.script)))
 const saving = ref(false)
 const editErr = ref('')
+
+// 流式生成 / 接受改编 / 手动保存都会刷新 viewerScript 与 versionId：
+// 本地快照必须跟随重建，否则保存会把过期内容以新 versionId 提交，产生回退版本。
+watch(
+  () => [props.versionId, props.script],
+  () => { local.value = JSON.parse(JSON.stringify(props.script)) },
+)
 
 const locs = computed(() => (local.value.locations || []).reduce((m, l) => ((m[l.id] = l.name), m), {}))
 const chars = computed(() => (local.value.characters || []).reduce((m, c) => ((m[c.id] = c.name), m), {}))
@@ -76,13 +83,16 @@ function buildOps(orig, edited) {
 async function save() {
   if (saving.value) return
   editErr.value = ''
-  for (const sc of local.value.scenes || []) {
+  // 空节拍的过滤在草稿副本上做：直接改 local 的话，一旦保存失败，
+  // 被滤掉的空节拍就从编辑界面里永久消失、无法撤销。
+  const draft = JSON.parse(JSON.stringify(local.value))
+  for (const sc of draft.scenes || []) {
     sc.beats = (sc.beats || []).filter((b) => {
       if (b.type === 'dialogue') return (b.line || '').trim()
       return (b.text || '').trim()
     })
   }
-  const ops = buildOps(props.script, local.value)
+  const ops = buildOps(props.script, draft)
   if (!ops.length) { editErr.value = '没有改动'; return }
   saving.value = true
   try {

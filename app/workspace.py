@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -46,8 +47,11 @@ def sanitize_folder(name: str) -> str:
 
 
 # 运行时可通过 POST /api/workspace 覆盖默认工作目录（内存级，进程存活期内有效）。
+# FastAPI 同步路由跑在线程池里，全局状态读写都要过这把锁，避免切换目录的瞬间
+# 被并发请求读到不一致的 (root, persist) 组合。
 _runtime_root: str | None = None
 _runtime_persist: bool | None = None
+_runtime_lock = threading.Lock()
 
 
 def configure_root(root: str | None, persist: bool | None = None) -> Workspace:
@@ -56,16 +60,18 @@ def configure_root(root: str | None, persist: bool | None = None) -> Workspace:
     persist=None 表示沿用默认（=配置值 True）；False 表示「仅应用内、不落盘文件」。
     """
     global _runtime_root, _runtime_persist
-    _runtime_root = root
-    if persist is not None:
-        _runtime_persist = persist
-    return Workspace(root, persist=_runtime_persist)
+    with _runtime_lock:
+        _runtime_root = root
+        if persist is not None:
+            _runtime_persist = persist
+        return Workspace(root, persist=_runtime_persist)
 
 
 def current_workspace(default_root: str | None = None, default_persist: bool = True) -> Workspace:
     """获取当前生效的工作目录：优先运行时设置，否则用配置默认值。"""
-    root = _runtime_root if _runtime_root is not None else default_root
-    persist = _runtime_persist if _runtime_persist is not None else default_persist
+    with _runtime_lock:
+        root = _runtime_root if _runtime_root is not None else default_root
+        persist = _runtime_persist if _runtime_persist is not None else default_persist
     return Workspace(root, persist=persist)
 
 
@@ -76,6 +82,11 @@ def workspace_mode(persist: bool, root: str | None, default_root: str | None) ->
     return "custom" if (root and root != default_root) else "default"
 
 
+# 同一时刻只允许一个原生目录对话框：并发请求会创建多个 Tk root（Windows 上易崩），
+# 且每个对话框会占住一个线程池 worker 直到用户选完。
+_pick_dir_lock = threading.Lock()
+
+
 def pick_directory(initial: str | None = None) -> str | None:
     """打开系统原生文件夹选择对话框，返回选中的绝对路径；取消返回 None。
 
@@ -83,25 +94,34 @@ def pick_directory(initial: str | None = None) -> str | None:
     「选择文件夹」对话框（与 Codex/Zed 这类桌面应用的目录选择一致）。
     无 GUI 会话时（headless）抛 RuntimeError，调用方应捕获并提示手动输入。
     """
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-
-        root = tk.Tk()
-        root.withdraw()  # 隐藏主窗口，只弹出文件夹对话框
+    with _pick_dir_lock:
         try:
-            root.attributes("-topmost", True)
-        except Exception:  # noqa: BLE001  某些环境不支持 topmost
-            pass
-        picked = filedialog.askdirectory(
-            initialdir=initial or None,
-            mustexist=True,
-            title="选择剧本工坊工作目录",
-        )
-        root.destroy()
-        return picked or None
-    except Exception as e:  # noqa: BLE001
-        raise RuntimeError(f"无法打开文件夹选择对话框：{e}") from e
+            import tkinter as tk
+            from tkinter import filedialog
+
+            root = tk.Tk()
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(f"无法打开文件夹选择对话框：{e}") from e
+        try:
+            root.withdraw()  # 隐藏主窗口，只弹出文件夹对话框
+            try:
+                root.attributes("-topmost", True)
+            except Exception:  # noqa: BLE001  某些环境不支持 topmost
+                pass
+            picked = filedialog.askdirectory(
+                initialdir=initial or None,
+                mustexist=True,
+                title="选择剧本工坊工作目录",
+            )
+            return picked or None
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(f"无法打开文件夹选择对话框：{e}") from e
+        finally:
+            # 无论取消、选完还是异常，都要销毁 Tk root，否则线程池线程上残留 GUI 资源。
+            try:
+                root.destroy()
+            except Exception:  # noqa: BLE001
+                pass
 
 
 class Workspace:
@@ -150,7 +170,7 @@ class Workspace:
         fname = f"原著_{sanitize_folder(title)}{ext}"
         path = self._within_pdir(title, "01_原稿", fname)
         path.write_text(text, encoding="utf-8")
-        self._write_readme()
+        self.write_readme()
         return path
 
     def save_version(self, title: str, label: str, text: str, *, ext: str = ".txt") -> Path | None:
@@ -160,7 +180,7 @@ class Workspace:
         fname = f"{label}{ext}"
         path = self._within_pdir(title, "02_版本", fname)
         path.write_text(text, encoding="utf-8")
-        self._write_readme()
+        self.write_readme()
         return path
 
     def save_export(self, title: str, label: str, data: bytes, ext: str) -> Path | None:
@@ -170,7 +190,7 @@ class Workspace:
         fname = f"{label}{ext}"
         path = self._within_pdir(title, "03_导出", fname)
         path.write_bytes(data)
-        self._write_readme()
+        self.write_readme()
         return path
 
     def save_note(self, title: str, filename: str, text: str) -> Path | None:
@@ -179,7 +199,7 @@ class Workspace:
         fname = sanitize_folder(filename.replace("/", "-").replace("\\", "-")) or "笔记.md"
         path = self._within_pdir(title, "04_知识库", fname)
         path.write_text(text, encoding="utf-8")
-        self._write_readme()
+        self.write_readme()
         return path
 
     def remove_project(self, title: str) -> bool:
@@ -231,7 +251,7 @@ class Workspace:
 
     # ---- 结构说明 & 摘要 ----
 
-    def _write_readme(self) -> None:
+    def write_readme(self) -> None:
         """在工作目录根写/更新一份说明，解释目录约定（结构化的入口）。"""
         try:
             root = self.ensure_root()

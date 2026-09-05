@@ -45,6 +45,11 @@ services:
       ETCD_QUOTA_BACKEND_BYTES: "4294967296"
     volumes:
       - etcddata:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   minio:
@@ -53,12 +58,18 @@ services:
     container_name: script-agent-minio
     command: minio server /minio_data --console-address ":9001"
     environment:
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
+      # 新版 MinIO 已把 MINIO_ACCESS_KEY/SECRET_KEY 更名为 ROOT_USER/ROOT_PASSWORD。
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
     volumes:
       - miniodata:/minio_data
     ports:
       - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   milvus:
@@ -69,13 +80,22 @@ services:
     environment:
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: minio:9000
+    # 等 etcd / minio 真正健康后再启动，避免 milvus 在依赖未就绪时 crash-loop。
     depends_on:
-      - etcd
-      - minio
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     ports:
       - "19530:19530"
     volumes:
       - milvusdata:/var/lib/milvus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     restart: unless-stopped
 
 

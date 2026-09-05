@@ -152,10 +152,30 @@ def _clean_beat_id(value: object, used: set[str], fallback_index: int) -> str:
     return _next_beat_id(used, fallback_index)
 
 
-def _clean_dialogue(value: object, allowed: list[str]) -> list[dict[str, Any]] | None:
+def _resolve_speaker(speaker: object, allowed: set[str], name_to_id: dict[str, str] | None) -> str:
+    """把说话人解析到角色 id。
+
+    解析顺序：已是合法角色 id -> 全剧人物名映射 -> 保留原值（规整成 char_ 形式，
+    让 validate_script 报「说话人不是已有角色」，由 guard 回炉让模型自己修正）。
+    不再静默指派给 allowed[0]——那会把台词安到错误人物头上，比解析失败更糟。
+    """
+    text = str(speaker or "").strip()
+    if not text:
+        return ""
+    if text in allowed:
+        return text
+    if name_to_id:
+        hit = name_to_id.get(text) or name_to_id.get(text.lower())
+        if hit:
+            return hit
+    return normalize_id(text, "char", fallback=text)
+
+
+def _clean_dialogue(
+    value: object, allowed: list[str], name_to_id: dict[str, str] | None = None
+) -> list[dict[str, Any]] | None:
     """清洗对白：去空行、把说话人规整到场景内角色。"""
     allowed_set = set(allowed)
-    fallback = allowed[0] if allowed else ""
     out: list[dict[str, Any]] = []
     if not isinstance(value, list):
         return None
@@ -163,11 +183,9 @@ def _clean_dialogue(value: object, allowed: list[str]) -> list[dict[str, Any]] |
         if not isinstance(item, dict):
             continue
         line = str(item.get("line") or "").strip()
-        speaker = str(item.get("speaker") or "").strip()
+        speaker = _resolve_speaker(item.get("speaker"), allowed_set, name_to_id)
         if not line:
             continue
-        if speaker not in allowed_set:
-            speaker = fallback
         if not speaker:
             continue
         row: dict[str, Any] = {"speaker": speaker, "line": line}
@@ -187,10 +205,11 @@ def _clean_action(value: object) -> list[str] | None:
     return cleaned or None
 
 
-def _clean_beats(value: object, allowed: list[str]) -> list[dict[str, Any]] | None:
+def _clean_beats(
+    value: object, allowed: list[str], name_to_id: dict[str, str] | None = None
+) -> list[dict[str, Any]] | None:
     """清洗节拍流：规整类型、说话人、稳定 id。"""
     allowed_set = set(allowed)
-    fallback = allowed[0] if allowed else ""
     used_ids: set[str] = set()
     out: list[dict[str, Any]] = []
     if not isinstance(value, list):
@@ -205,9 +224,7 @@ def _clean_beats(value: object, allowed: list[str]) -> list[dict[str, Any]] | No
         beat: dict[str, Any] = {"id": beat_id, "type": kind}
         if kind == "dialogue":
             line = str(item.get("line") or item.get("dialogue") or item.get("text") or "").strip()
-            speaker = str(item.get("speaker") or "").strip()
-            if speaker not in allowed_set:
-                speaker = fallback
+            speaker = _resolve_speaker(item.get("speaker"), allowed_set, name_to_id)
             if not line or not speaker:
                 continue
             beat["speaker"] = speaker
@@ -387,6 +404,8 @@ def build_patch(
     scenes = data.get("scenes", [])
     wanted = {normalize_id(sid, "scene", fallback=sid) for sid in selected_scene_ids} or {s.get("id") for s in scenes}
     index_by_id = {str(s.get("id")): idx for idx, s in enumerate(scenes)}
+    # 全剧人物名 -> id 映射：LLM 常用「林然」这类名字指代说话人，先解析成 id。
+    name_to_id = {c.name: c.id for c in script.characters}
 
     ops: list[PatchOp] = []
     for change in proposal.changes:
@@ -412,7 +431,7 @@ def build_patch(
 
         raw_beats = change.beats if change.beats is not None else change.updates
         if raw_beats is not None:
-            beats = _clean_beats([b.model_dump(exclude_none=True) for b in raw_beats], allowed)
+            beats = _clean_beats([b.model_dump(exclude_none=True) for b in raw_beats], allowed, name_to_id)
             if beats is not None:
                 beats_were_set = True
                 ops.extend(_beat_patch_ops(idx, scene, beats))
@@ -426,7 +445,7 @@ def build_patch(
 
         if change.dialogue is not None and not beats_were_set:
             dialogue = _clean_dialogue(
-                [d.model_dump(exclude_none=True) for d in change.dialogue], allowed
+                [d.model_dump(exclude_none=True) for d in change.dialogue], allowed, name_to_id
             )
             if dialogue is not None:
                 op = _make_set_op(idx, scene, "dialogue", scene.get("dialogue") or [], dialogue)
@@ -445,7 +464,7 @@ def build_patch(
             next_dialogue = None
             if change.dialogue is not None:
                 next_dialogue = _clean_dialogue(
-                    [d.model_dump(exclude_none=True) for d in change.dialogue], allowed
+                    [d.model_dump(exclude_none=True) for d in change.dialogue], allowed, name_to_id
                 )
             # beats 是主结构：提议没带对白时，对白以既有节拍流为准，
             # 而不是可能过期的兼容字段（否则会把整场对白静默冲掉）。
