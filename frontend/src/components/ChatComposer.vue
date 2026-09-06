@@ -37,6 +37,19 @@ function autoSize(e) {
 }
 
 watch(() => store.convId, () => nextTick(() => input.value?.focus()))
+
+// 开始页建议卡片把文本填进输入框（不自动发送，由用户确认后发出）。
+watch(() => store.draftSeq, () => {
+  if (!store.draft) return
+  text.value = store.draft
+  nextTick(() => {
+    const el = input.value
+    if (!el) return
+    el.focus()
+    el.style.height = 'auto'
+    el.style.height = Math.min(160, el.scrollHeight) + 'px'
+  })
+})
 </script>
 
 <template>
@@ -46,7 +59,7 @@ watch(() => store.convId, () => nextTick(() => input.value?.focus()))
         ref="input"
         v-model="text"
         rows="1"
-        placeholder="说点什么…"
+        placeholder="描述你想改编的内容…"
         @keydown="onKeydown"
         @input="autoSize"
       ></textarea>
@@ -69,7 +82,7 @@ watch(() => store.convId, () => nextTick(() => input.value?.focus()))
 </template>
 
 <style scoped>
-.composer { padding: 8px 20px 16px; background: transparent; }
+.composer { padding: 10px 24px 18px; background: transparent; }
 
 /* 圆角容器：文本域 + 工具行 */
 .input-box {

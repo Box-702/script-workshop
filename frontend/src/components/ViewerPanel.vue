@@ -299,17 +299,18 @@ async function onSaveNotes() {
   background: var(--panel);
   display: flex; flex-direction: column; min-height: 0; min-width: 0;
 }
-.v-head { padding: 9px 12px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 6px; }
+.v-head { padding: 10px 12px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
 .vt {
   font-size: 11px; color: var(--dim); font-weight: 500; letter-spacing: 0.01em;
   flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   padding-left: 12px; border-left: 1px solid var(--line);
   display: flex; align-items: center;
 }
-.v-tabs { display: flex; gap: 2px; }
+.v-tabs { display: flex; gap: 2px; flex: none; overflow-x: auto; scrollbar-width: none; }
 .v-tab {
   background: transparent; border: 1px solid transparent; color: var(--muted);
-  padding: 3px 10px; border-radius: 7px; font-size: 11.5px; font-weight: 500;
+  padding: 4px 8px; border-radius: 7px; font-size: 11.5px; font-weight: 500;
+  white-space: nowrap; flex: none;
 }
 .v-tab:hover { color: var(--ink); background: color-mix(in oklch, var(--ink) 6%, transparent); }
 .v-tab.active { background: var(--select); color: var(--ink); font-weight: 600; }

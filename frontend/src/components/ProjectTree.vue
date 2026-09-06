@@ -135,13 +135,13 @@ aside {
   background: var(--panel);
   display: flex; flex-direction: column; min-height: 0;
 }
-.aside-head { padding: 12px 12px 8px; display: flex; align-items: center; justify-content: space-between; }
-h2 { font-size: 12px; margin: 0; color: var(--muted); font-weight: 600; letter-spacing: 0.5px; }
-.tree { overflow-y: auto; flex: 1; padding: 0 8px 12px; }
-.proj { margin-bottom: 2px; }
+.aside-head { padding: 14px 14px 10px; display: flex; align-items: center; justify-content: space-between; }
+h2 { font-size: 12px; margin: 0; color: var(--dim); font-weight: 600; letter-spacing: 0.5px; }
+.tree { overflow-y: auto; flex: 1; padding: 0 10px 14px; }
+.proj { margin-bottom: 3px; }
 .proj-head {
-  display: flex; align-items: center; gap: 7px; padding: 6px 8px;
-  border-radius: 8px; cursor: pointer; font-size: 13px;
+  display: flex; align-items: center; gap: 8px; padding: 7px 9px;
+  border-radius: 9px; cursor: pointer; font-size: 13px;
   transition: background-color var(--dur) var(--ease);
 }
 .proj-head:hover { background: color-mix(in oklch, var(--ink) 5%, transparent); }
@@ -172,10 +172,10 @@ h2 { font-size: 12px; margin: 0; color: var(--muted); font-weight: 600; letter-s
 .n { font-size: 10.5px; color: var(--dim); background: color-mix(in oklch, var(--ink) 6%, transparent);
   border: 1px solid color-mix(in oklch, var(--ink) 9%, transparent); border-radius: 999px; padding: 0 7px;
   line-height: 1.5; font-variant-numeric: tabular-nums; flex: none; }
-.conv-list { margin: 2px 0 6px 18px; padding-left: 6px; border-left: 1px solid color-mix(in oklch, var(--ink) 9%, transparent); }
+.conv-list { margin: 2px 0 8px 19px; padding-left: 6px; border-left: 1px solid color-mix(in oklch, var(--ink) 9%, transparent); }
 .conv {
-  display: flex; align-items: center; padding: 4px 8px 4px 16px;
-  border-radius: 7px; cursor: pointer; font-size: 12.5px; color: var(--muted);
+  display: flex; align-items: center; padding: 5px 8px 5px 15px;
+  border-radius: 8px; cursor: pointer; font-size: 12.5px; color: var(--muted);
   transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .conv:hover { background: color-mix(in oklch, var(--ink) 5%, transparent); color: var(--ink); }

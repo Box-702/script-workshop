@@ -9,18 +9,6 @@ import { reactive } from 'vue'
 import { api, importProject, streamChat } from '../api'
 import { keyedDiff } from '../utils/diff'
 
-/** 新对话里的欢迎语（Markdown）。 */
-export const WELCOME_MD = `你好，我是剧本工坊的改编 Agent 👋
-
-**开始方式**
-- 点右上角 **＋ 新建剧本**：上传 \`.txt/.md/.docx\` 或粘贴原文，创建项目并自动分析你的写作风格、注入同类剧本知识；
-- 在本对话里说 **生成初稿**，产出结构化剧本；
-- 说 **把对白改口语一点 / 节奏改紧凑** 等，我会给出可逐条审阅的改动卡片；
-- 问 **这类悬疑剧怎么设计反转？**，我检索项目知识库回答；
-- 说 **记住：我喜欢冷峻、留白的风格**，我记入项目知识库。
-
-左侧每个剧本项目下可新建多个**独立对话**，各自控制上下文，互不干扰。`
-
 /** 知识库类型 -> 中文名。 */
 export const KIND_NAME = {
   source: '原著原文',
@@ -73,6 +61,10 @@ export const store = reactive({
 
   // 改编提议审阅抽屉（对话里只显示摘要，细节在抽屉里看）
   drawer: { open: false, payload: null },
+
+  // 开始页建议卡片 -> 输入框的填充通道（draftSeq 变化触发 ChatComposer 取稿）
+  draft: '',
+  draftSeq: 0,
 })
 
 // ---------------------------------------------------------------------

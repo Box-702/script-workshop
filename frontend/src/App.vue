@@ -30,7 +30,7 @@ const readW = (key, def) => {
   return Number.isFinite(n) && n >= 60 ? n : def
 }
 const leftW = ref(readW('left', 260))
-const rightW = ref(readW('right', 320))
+const rightW = ref(readW('right', 360))
 
 let drag = null
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi)
@@ -103,18 +103,22 @@ onUnmounted(() => window.removeEventListener('resize', clampAll))
 <style scoped>
 .layout {
   display: flex;
-  height: calc(100vh - 52px);
+  height: calc(100vh - 57px);
   min-width: 0;
 }
 /* 左右面板：固定为其设定宽度，不参与 flex 伸缩；min-width 0 允许收窄 */
 .pane { min-width: 0; flex: none; }
 .pane-mid { display: flex; flex-direction: column; min-height: 0; min-width: 0; flex: 1; }
-/* 两条可拖拽分隔条：细线=原有的 1px 边，悬停/拖动时高亮 */
-.split { flex: none; width: 6px; cursor: col-resize; position: relative; }
+/* 两条可拖拽分隔条：平时只留一丝痕迹（弱于普通边框），交互时才亮起来，
+   减少三栏被硬线框住的感觉 */
+.split { flex: none; width: 8px; cursor: col-resize; position: relative; }
 .split::before {
-  content: ''; position: absolute; top: 0; bottom: 0; left: 2px; width: 2px;
-  border-radius: 2px; background: var(--line);
+  content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px;
+  border-radius: 2px;
+  background: color-mix(in oklch, var(--line) 45%, transparent);
   transition: background var(--dur) var(--ease), width var(--dur) var(--ease);
 }
-.split:hover::before { background: var(--line-strong); width: 3px; left: 1.5px; }
+.split:hover::before, body.layout-resizing .split::before {
+  background: var(--line-strong); width: 3px; left: 2.5px;
+}
 </style>

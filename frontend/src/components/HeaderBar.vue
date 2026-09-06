@@ -8,6 +8,7 @@
 
 import { computed } from 'vue'
 import { store } from '../stores/app'
+import LogoMark from './LogoMark.vue'
 
 // 状态徽章文案 + 点亮样式，全部由 /api/status 派生
 const badges = computed(() => {
@@ -42,7 +43,7 @@ const wsLabel = computed(() => {
 <template>
   <header>
     <h1>
-      <span class="logo" aria-hidden="true">剧</span>
+      <span class="logo" aria-hidden="true"><LogoMark :size="15" /></span>
       剧本工坊 <span class="muted">对话式改编 Agent</span>
     </h1>
     <button @click="store.showWorkspace = true" :class="{ 'ws-on': store.workspace?.configured }">📁 {{ wsLabel }}</button>
@@ -61,15 +62,14 @@ const wsLabel = computed(() => {
 
 <style scoped>
 header {
-  display: flex; align-items: center; gap: 12px; padding: 9px 16px;
+  display: flex; align-items: center; gap: 14px; padding: 11px 18px;
   border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap;
-  min-height: 52px;
+  min-height: 56px;
 }
-h1 { font-size: 16px; margin: 0; display: flex; align-items: center; gap: 8px; }
+h1 { font-size: 16px; margin: 0; display: flex; align-items: center; gap: 9px; }
 .logo {
-  display: inline-grid; place-items: center; width: 24px; height: 24px;
-  border-radius: 7px; background: var(--accent); color: var(--on-accent);
-  font-size: 13px; font-weight: 800;
+  display: inline-grid; place-items: center; width: 26px; height: 26px;
+  border-radius: 8px; background: var(--accent); color: var(--on-accent);
 }
 .badges { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
 .ws-on { border-color: color-mix(in oklch, var(--ok) 55%, var(--line)); color: var(--ok); }
