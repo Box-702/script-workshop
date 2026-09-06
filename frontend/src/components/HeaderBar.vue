@@ -55,6 +55,12 @@ header {
   min-height: 56px;
 }
 h1 { font-size: 16px; margin: 0; display: flex; align-items: center; gap: 9px; }
+/* 顶栏按钮一致性：同高、单行、不收缩，带图标的按钮同间距 */
+header button {
+  flex: none; white-space: nowrap;
+  height: 32px; padding: 0 13px;
+  display: inline-flex; align-items: center; gap: 6px;
+}
 .logo {
   display: inline-grid; place-items: center; width: 26px; height: 26px;
   border-radius: 8px; background: var(--accent); color: var(--on-accent);
@@ -62,7 +68,6 @@ h1 { font-size: 16px; margin: 0; display: flex; align-items: center; gap: 9px; }
 /* 面板开关：靠最右；开启时中性点亮 */
 .panel-toggle {
   margin-left: auto;
-  display: inline-flex; align-items: center; gap: 6px;
 }
 .panel-toggle svg {
   width: 15px; height: 15px; fill: none;
