@@ -9,7 +9,7 @@
 // 页面加载时先拉取状态徽章，再拉取项目树。
 // =====================================================================
 
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import HeaderBar from './components/HeaderBar.vue'
 import ProjectTree from './components/ProjectTree.vue'
 import ChatThread from './components/ChatThread.vue'
@@ -19,12 +19,12 @@ import NewProjectModal from './components/NewProjectModal.vue'
 import WorkspaceModal from './components/WorkspaceModal.vue'
 import PatchDrawer from './components/PatchDrawer.vue'
 import Toast from './components/Toast.vue'
-import { loadStatus, loadTree, loadWorkspace } from './stores/app'
+import { loadTree, loadWorkspace, restoreRightPanelPref, store } from './stores/app'
 
-// ---- 可拉伸三栏：左/右宽度可拖，中间自适应 ----
+// ---- 可拉伸三栏：左/右宽度可拖，中间自适应；右栏可整体收起（默认收起）----
 const layoutEl = ref(null)
 const MIN = { left: 180, right: 260, mid: 340 }
-const SPLITS = 12 // 两条 6px 分隔条占宽
+const SPLITS = 8 // 分隔条占宽
 const readW = (key, def) => {
   const n = Number(localStorage.getItem('sw-layout:' + key))
   return Number.isFinite(n) && n >= 60 ? n : def
@@ -37,8 +37,11 @@ const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi)
 function clampAll() {
   if (!layoutEl.value) return
   const w = layoutEl.value.getBoundingClientRect().width - SPLITS
-  leftW.value = clamp(leftW.value, MIN.left, w - MIN.mid - MIN.right)
-  rightW.value = clamp(rightW.value, MIN.right, w - MIN.mid - leftW.value)
+  const rightSpace = store.rightOpen ? MIN.right : 0
+  leftW.value = clamp(leftW.value, MIN.left, w - MIN.mid - rightSpace)
+  if (store.rightOpen) {
+    rightW.value = clamp(rightW.value, MIN.right, w - MIN.mid - leftW.value)
+  }
 }
 
 function startDrag(side, e) {
@@ -53,7 +56,7 @@ function onDrag(e) {
   if (!drag) return
   const dx = e.clientX - drag.x
   if (drag.side === 'left') {
-    leftW.value = clamp(drag.lw + dx, MIN.left, drag.avail - MIN.mid - rightW.value)
+    leftW.value = clamp(drag.lw + dx, MIN.left, drag.avail - MIN.mid - (store.rightOpen ? rightW.value : 0))
   } else {
     rightW.value = clamp(drag.rw - dx, MIN.right, drag.avail - MIN.mid - leftW.value)
   }
@@ -68,10 +71,13 @@ function endDrag() {
   window.removeEventListener('pointerup', endDrag)
 }
 
+// 打开面板时确保宽度仍放得下
+watch(() => store.rightOpen, () => clampAll())
+
 onMounted(async () => {
+  restoreRightPanelPref()
   clampAll()
   window.addEventListener('resize', clampAll)
-  await loadStatus()
   await loadWorkspace()
   await loadTree()
 })
@@ -89,9 +95,11 @@ onUnmounted(() => window.removeEventListener('resize', clampAll))
       <ChatThread />
       <ChatComposer />
     </main>
-    <div class="split" @pointerdown="startDrag('right', $event)"></div>
-    <!-- 右：剧本文本 / 知识库 / 版本对比（宽可拖） -->
-    <ViewerPanel class="pane pane-right" :style="{ width: rightW + 'px' }" />
+    <!-- 右：查看面板，默认收起，由顶栏开关控制 -->
+    <template v-if="store.rightOpen">
+      <div class="split" @pointerdown="startDrag('right', $event)"></div>
+      <ViewerPanel class="pane pane-right" :style="{ width: rightW + 'px' }" />
+    </template>
   </div>
   <!-- 新建剧本弹窗 + 工作目录设置 + 改编提议审阅抽屉 + 非阻塞通知 -->
   <NewProjectModal />

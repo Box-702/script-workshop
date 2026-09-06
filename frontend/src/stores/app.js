@@ -34,9 +34,8 @@ export const store = reactive({
   messages: [],        // 当前对话消息 [{ role, content, events, payloads, streaming }]
   versions: [],        // 当前项目的版本列表
 
-  // 顶栏状态徽章（/api/status 结果）
-  status: null,
-  statusLoading: true,
+  // 右侧查看面板开关（默认收起，记忆在 localStorage）
+  rightOpen: false,
 
   // 右侧查看面板
   view: 'text',        // text | notes | knowledge | files | diff
@@ -103,11 +102,16 @@ export async function deleteProject(pid) {
 }
 
 // ---------------------------------------------------------------------
-// 顶栏状态徽章
+// 右侧查看面板开关
 // ---------------------------------------------------------------------
-export async function loadStatus() {
-  try { store.status = await api('/status') } catch (e) { store.status = { error: e.message } }
-  finally { store.statusLoading = false }
+/** 开/关右侧查看面板；偏好记忆在 localStorage（默认收起）。 */
+export function toggleRightPanel() {
+  store.rightOpen = !store.rightOpen
+  localStorage.setItem('sw-layout:rightOpen', store.rightOpen ? '1' : '0')
+}
+/** 恢复上次的面板开关偏好（App 挂载时调用）。 */
+export function restoreRightPanelPref() {
+  store.rightOpen = localStorage.getItem('sw-layout:rightOpen') === '1'
 }
 
 // ---------------------------------------------------------------------
