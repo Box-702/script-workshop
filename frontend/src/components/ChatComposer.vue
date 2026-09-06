@@ -118,7 +118,8 @@ textarea:focus-visible { outline: none; }
 .hint { color: var(--dim); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .toolbar-right { display: flex; align-items: center; gap: 8px; flex: none; }
 .streaming { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11.5px; }
-.pulse { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: pulse 1.1s ease-in-out infinite; }
+/* Agent 工作呼吸灯：品牌金（聚光灯亮起 = 正在生成） */
+.pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); animation: pulse 1.1s ease-in-out infinite; }
 @keyframes pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
 
 /* 发送按钮 */

@@ -9,6 +9,7 @@
 import { computed } from 'vue'
 import { store } from '../stores/app'
 import LogoMark from './LogoMark.vue'
+import FolderIcon from './FolderIcon.vue'
 
 // 状态徽章文案 + 点亮样式，全部由 /api/status 派生
 const badges = computed(() => {
@@ -46,7 +47,10 @@ const wsLabel = computed(() => {
       <span class="logo" aria-hidden="true"><LogoMark :size="15" /></span>
       剧本工坊 <span class="muted">对话式改编 Agent</span>
     </h1>
-    <button @click="store.showWorkspace = true" :class="{ 'ws-on': store.workspace?.configured }">📁 {{ wsLabel }}</button>
+    <button @click="store.showWorkspace = true" :class="{ 'ws-on': store.workspace?.configured }">
+      <FolderIcon class="ws-ico" :open="false" />
+      {{ wsLabel }}
+    </button>
     <button @click="store.showNewProject = true">＋ 新建剧本</button>
     <div class="badges">
       <!-- 状态接口未返回：骨架屏占位 -->
@@ -72,5 +76,8 @@ h1 { font-size: 16px; margin: 0; display: flex; align-items: center; gap: 9px; }
   border-radius: 8px; background: var(--accent); color: var(--on-accent);
 }
 .badges { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+/* 工作目录按钮里的线稿文件夹：继承文字色，不抢徽章 */
+.ws-ico { width: 13px; height: 13px; vertical-align: -2px; margin-right: 3px; }
 .ws-on { border-color: color-mix(in oklch, var(--ok) 55%, var(--line)); color: var(--ok); }
+.ws-on .ws-ico { color: var(--ok); }
 </style>

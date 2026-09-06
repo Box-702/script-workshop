@@ -1,53 +1,61 @@
 /* =====================================================================
-   style.css —— 全局样式与设计令牌（Codex 风格暗色主题）
-   参考 OpenAI Codex 的设计语言：近黑中性分层、白色主按钮、
-   极简单色 + 少量语义色（绿/红/琥珀），细边框大圆角。
-   官方考据值：diff 新增底 #213A2B / 删除底 #4A221D（Codex TUI 源码）；
-   界面色参考 Codex web：bg #0d0d0d · 面板 #171717 · 悬停 #212121 ·
-   边框 #2f2f2f · 正文 #ececec · 强调绿 #10a37f。
+   style.css —— 全局样式与设计令牌
+   「钨丝灯下的稿纸」：剧本工坊的独有色彩身份。
+
+   场景：创作者深夜在暖色台灯下改稿，屏幕是唯一光源。
+   - 表面：钨丝灯暖调近黑（hue 80-85 微染），层级靠底色亮一层 + 1px 线；
+   - 主操作：稿纸米白按钮（保留 Codex 白按钮基因，但纸感微暖）；
+   - 品牌色：聚光灯金 --gold，只出现在品牌时刻与「Agent 正在工作」的
+     微状态（开始页徽记、流式呼吸灯、卡片悬停图标），占比刻意 <10%；
+   - 语义色不动：绿=成功/对白、红=危险/删除、橙=警告（与金分离）。
+   官方考据值：diff 新增底 #213A2B / 删除底 #4A221D（Codex TUI 源码）。
    ===================================================================== */
 
-/* ---------- 设计变量：近黑中性（暖调微染，hue 75°） ---------- */
+/* ---------- 设计变量 ---------- */
 :root {
-  /* 表面（层级：bg < panel < panel2，靠 1px line 分层） */
-  --bg: oklch(0.185 0.004 75);        /* ≈ #0d0d0d 工作区底 */
-  --panel: oklch(0.23 0.004 75);      /* ≈ #171717 面板 / 侧栏 / 卡片 */
-  --panel2: oklch(0.27 0.005 75);     /* ≈ #1f1f1f 次级面板 / 嵌套表面 */
-  --line: oklch(0.31 0.005 75);       /* ≈ #2f2f2f 边框 */
-  --line-strong: oklch(0.39 0.006 75);
-  --code-bg: oklch(0.16 0.004 75);    /* 代码 / 输入框底（比面板更深） */
+  /* 表面（层级：bg < panel < panel2，靠 1px line 分层）：暖黑渐深 */
+  --bg: oklch(0.172 0.007 80);        /* 深夜房间 */
+  --panel: oklch(0.215 0.008 80);     /* 面板 / 侧栏 / 卡片 */
+  --panel2: oklch(0.255 0.009 80);    /* 次级面板 / 嵌套表面 */
+  --line: oklch(0.30 0.009 80);
+  --line-strong: oklch(0.38 0.011 80);
+  --code-bg: oklch(0.152 0.007 80);   /* 代码 / 输入框底（比面板更深） */
 
-  /* 文字 */
-  --ink: oklch(0.93 0.003 75);        /* ≈ #ececec 主文字 */
-  --muted: oklch(0.71 0.004 75);      /* ≈ #a3a3a3 次要文字 */
-  --dim: oklch(0.56 0.004 75);        /* ≈ #6b6b6b 弱化文字 */
+  /* 文字：暖纸白 */
+  --ink: oklch(0.92 0.006 85);
+  --muted: oklch(0.71 0.009 85);
+  --dim: oklch(0.56 0.009 85);
 
-  /* 主操作：白色按钮（OpenAI/Codex 的标志样式），文本近黑 */
-  --accent: oklch(0.97 0.002 75);
-  --accent-hover: oklch(0.9 0.003 75);
-  --on-accent: oklch(0.22 0.004 75);
+  /* 主操作：稿纸米白按钮（剧本纸的触感），文本近黑 */
+  --accent: oklch(0.95 0.007 90);
+  --accent-hover: oklch(0.89 0.009 90);
+  --on-accent: oklch(0.22 0.007 80);
   --accent-soft: color-mix(in oklch, var(--accent) 12%, transparent);
 
-  /* 选中态：中性灰填充（非彩色），用于激活 tab / 当前对话 */
-  --select: oklch(0.31 0.005 75);
+  /* 品牌金：聚光灯 / 钨丝灯。品牌时刻专用，不参与正文层级 */
+  --gold: oklch(0.80 0.075 90);
+  --gold-soft: color-mix(in oklch, var(--gold) 15%, transparent);
 
-  /* 语义色（唯一允许的饱和色）：成功/新增 · 警告/修改 · 危险/删除 */
+  /* 选中态：中性暖灰填充（非彩色），用于激活 tab / 当前对话 */
+  --select: oklch(0.30 0.010 80);
+
+  /* 语义色：成功/新增 · 警告/修改（偏橙，与品牌金分离） · 危险/删除 */
   --ok: oklch(0.66 0.115 170);        /* ≈ #10a37f OpenAI 绿 */
-  --warn: oklch(0.75 0.14 80);
+  --warn: oklch(0.74 0.13 60);
   --bad: oklch(0.65 0.19 25);
 
   /* diff 行底色：Codex TUI 官方暗色值（极淡色块） */
   --diff-add-bg: oklch(0.34 0.045 155);  /* ≈ #213A2B */
   --diff-del-bg: oklch(0.37 0.055 30);   /* ≈ #4A221D */
 
-  /* 节拍语义（收敛为单色系：动作中性 / 对白绿 / 提示弱灰） */
-  --act: oklch(0.72 0.005 75);
+  /* 节拍语义（动作中性暖 / 对白绿 / 提示弱暖灰） */
+  --act: oklch(0.72 0.008 80);
   --dlg: var(--ok);
-  --cue: oklch(0.75 0.008 75);
+  --cue: oklch(0.75 0.012 85);
 
-  /* 用户气泡：中性灰（Codex 对话样式），文本近黑反白由 --on-accent 复用 */
-  --user: oklch(0.31 0.005 75);
-  --user-line: oklch(0.38 0.005 75);
+  /* 用户气泡：中性暖灰（Codex 对话样式） */
+  --user: oklch(0.31 0.008 80);
+  --user-line: oklch(0.38 0.009 80);
 
   /* 动效令牌 */
   --ease: cubic-bezier(0.25, 1, 0.5, 1);
@@ -69,7 +77,7 @@ body {
   font-size: 14px;
   font-feature-settings: "tnum"; /* 数字等宽，计数/版本号对齐 */
 }
-::selection { background: color-mix(in oklch, var(--accent) 25%, transparent); }
+::selection { background: color-mix(in oklch, var(--gold) 32%, transparent); }
 
 /* 细窄暗色滚动条（原生滚动行为不变，仅配色） */
 * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }

@@ -115,8 +115,8 @@ function onCard(card) {
   padding: 40px 12px 48px;
 }
 
-/* 徽记：安静的线稿，不铺底色（Codex 式 ghost glyph） */
-.hero-mark { color: var(--dim); margin-bottom: 20px; }
+/* 徽记：聚光灯下的品牌金，开始页唯一被点亮的元素 */
+.hero-mark { color: var(--gold); margin-bottom: 20px; }
 
 .hero-title {
   margin: 0; font-size: 20px; font-weight: 700; color: var(--ink);
@@ -152,9 +152,9 @@ function onCard(card) {
   width: 16px; height: 16px; margin-bottom: 8px;
   fill: none; stroke: var(--muted); stroke-width: 1.4;
   stroke-linecap: round; stroke-linejoin: round;
-  transition: color var(--dur) var(--ease);
+  transition: stroke var(--dur) var(--ease);
 }
-.hero-card:hover .hero-icon { stroke: var(--ink); }
+.hero-card:hover .hero-icon { stroke: var(--gold); }
 
 .hero-card-title { font-size: 13px; font-weight: 600; color: var(--ink); }
 .hero-card-desc { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
