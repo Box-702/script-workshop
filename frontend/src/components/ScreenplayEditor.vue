@@ -24,13 +24,35 @@ const emit = defineEmits(['saved', 'cancel'])
 const local = ref(JSON.parse(JSON.stringify(props.script)))
 const saving = ref(false)
 const editErr = ref('')
+const dirty = ref(false)    // 有未保存的改动
+const autoSaveStatus = ref('')  // '' | 'saving' | 'saved'
 
-// 流式生成 / 接受改编 / 手动保存都会刷新 viewerScript 与 versionId：
-// 本地快照必须跟随重建，否则保存会把过期内容以新 versionId 提交，产生回退版本。
+// 流式生成 / 接受改编 / 手动保存都会刷新 viewerScript 与 versionId
 watch(
   () => [props.versionId, props.script],
-  () => { local.value = JSON.parse(JSON.stringify(props.script)) },
+  () => { local.value = JSON.parse(JSON.stringify(props.script)); dirty.value = false },
 )
+
+// 自动保存：改动后 3 秒无新编辑则自动保存
+let autoSaveTimer = null
+watch(local, () => {
+  dirty.value = true
+  autoSaveStatus.value = ''
+  clearTimeout(autoSaveTimer)
+  autoSaveTimer = setTimeout(autoSave, 3000)
+}, { deep: true })
+
+async function autoSave() {
+  if (!dirty.value || saving.value) return
+  autoSaveStatus.value = 'saving'
+  try {
+    await doSave()
+    autoSaveStatus.value = 'saved'
+    setTimeout(() => { autoSaveStatus.value = '' }, 2000)
+  } catch {
+    autoSaveStatus.value = ''
+  }
+}
 
 const locs = computed(() => (local.value.locations || []).reduce((m, l) => ((m[l.id] = l.name), m), {}))
 const chars = computed(() => (local.value.characters || []).reduce((m, c) => ((m[c.id] = c.name), m), {}))
@@ -80,11 +102,9 @@ function buildOps(orig, edited) {
   return ops
 }
 
-async function save() {
+async function doSave() {
   if (saving.value) return
   editErr.value = ''
-  // 空节拍的过滤在草稿副本上做：直接改 local 的话，一旦保存失败，
-  // 被滤掉的空节拍就从编辑界面里永久消失、无法撤销。
   const draft = JSON.parse(JSON.stringify(local.value))
   for (const sc of draft.scenes || []) {
     sc.beats = (sc.beats || []).filter((b) => {
@@ -97,11 +117,13 @@ async function save() {
   saving.value = true
   try {
     await applyEdits(props.versionId, ops)
+    dirty.value = false
     notify('已保存为新版本', 'ok')
     emit('saved')
   } catch (e) { editErr.value = e.message } finally { saving.value = false }
 }
 
+function save() { doSave() }
 function cancel() { emit('cancel') }
 </script>
 
@@ -110,6 +132,9 @@ function cancel() { emit('cancel') }
     <!-- 顶部工具条 -->
     <div class="ed-bar">
       <span class="ed-title">编辑剧本</span>
+      <span v-if="autoSaveStatus === 'saving'" class="ed-autosave">自动保存中…</span>
+      <span v-else-if="autoSaveStatus === 'saved'" class="ed-autosave ed-saved">✓ 已自动保存</span>
+      <span v-else-if="dirty" class="ed-autosave ed-dirty">● 未保存</span>
       <span class="ed-hint">点击文字即可修改 · 换行自动排版</span>
       <span class="spacer"></span>
       <button class="ghost small" :disabled="saving" @click="cancel">取消</button>
@@ -191,6 +216,9 @@ function cancel() { emit('cancel') }
 }
 .ed-num { font-size: 11px; color: var(--dim); font-family: var(--mono); font-variant-numeric: tabular-nums; min-width: 18px; }
 .ed-title { flex: 1; }
+.ed-autosave { font-size: 11px; color: var(--dim); flex: none; }
+.ed-saved { color: var(--ok); }
+.ed-dirty { color: var(--amber); }
 .ed-time { color: var(--ink); }
 
 /* 动作行 */

@@ -98,7 +98,7 @@ def test_export_script_valid_format(fmt):
 
 def test_export_unknown_format_raises():
     with pytest.raises(ValueError):
-        export_script(_sample_script(), "pdf")
+        export_script(_sample_script(), "xyz")
 
 
 def test_docx_is_valid_zip_with_document():

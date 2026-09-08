@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Annotated, Any, Callable, TypedDict
+from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
@@ -38,16 +38,19 @@ from .config import Settings
 from .domain import normalize_adaptation_type
 from .generation import generate_script as run_generation
 from .knowledge import (
-    KIND_LABELS,
-    KNOWLEDGE_KINDS,
-    format_knowledge,
-    index_project_knowledge,
-    remember_knowledge,
-    retrieve_knowledge,
+    detect_genres,
+    format_author_style,
+    format_genre_knowledge,
 )
 from .llm import LLM
 from .patch import validate_script
 from .store import Project, Store
+from .subagents import (
+    SubAgentRunner,
+    run_analyze_scenes,
+    run_check_style,
+    run_polish_dialogue,
+)
 
 log = logging.getLogger(__name__)
 
@@ -86,8 +89,16 @@ SYSTEM_PROMPT = (
     "4. 咨询：用户问「剧本怎么样 / 同类剧怎么走 / 写作手法 / 我的风格」时调用 get_script_overview 或 ask，"
     "用项目知识库（同类剧本走向、写作手法、作者风格）给出有依据的回答，不要凭空编造。\n"
     "5. 记忆：用户表达风格偏好或创作原则（如「我喜欢冷峻的笔调」「结尾要留白」）时调用 remember 记入知识库。\n"
+    "6. 场景分析：用户要求「分析场景 / 看看结构 / 场景节奏」时调用 analyze_scenes，会在后台启动专职分析代理。\n"
+    "7. 风格检查：用户要求「检查风格 / 看看对白是否一致 / 人设有没有崩」时调用 check_style。\n"
+    "8. 对白润色：用户要求「润色对白 / 改一下台词 / 让对白更自然」时调用 polish_dialogue。\n"
+    "9. 导演拆解：用户要求「拆镜头 / 分镜 / 设计镜头 / 场景拆解」时调用 breakdown_scenes，将场景拆解为镜头方案。\n"
+    "10. 美术指导：用户要求「风格指南 / 视觉风格 / 角色造型 / 画面风格」时调用 generate_style_guide。\n"
+    "11. 摄影指导：用户要求「视频 prompt / 生成 prompt / 镜头描述」时调用 generate_video_prompts，为镜头生成英文视频 Prompt。\n"
+    "12. 联网搜索：用户要求「搜索 / 查资料 / 找参考 / 同类作品」时调用 web_search，查找创作参考和行业资讯。\n"
     "行为准则：回复简洁、口语化、用简体中文；不确定时先问；不要虚构剧本内容；"
     "不要替用户做最终决定，审阅与落版决定永远交给用户。"
+    "子代理（6-11）会在后台运行，启动后告知用户可在右栏查看进度。"
 )
 
 # 改编类型 -> 中文名，用于提示模型填参数。
@@ -106,12 +117,12 @@ _ADAPT_TYPE_LABELS = {
 def build_chat_tools(
     store: Store,
     llm: LLM,
-    settings: Settings,
-    vector: Any,
-    embedder: Any,
     collector: _Collector,
+    runner: SubAgentRunner | None = None,
 ) -> list[Any]:
-    """构造对话 conductor 的工具集。"""
+    """构造对话 conductor 的工具集（无 RAG 版）。"""
+    from .config import get_settings
+    settings = get_settings()
 
     def _project(project_id: str) -> Project | None:
         p = store.get_project(project_id)
@@ -142,21 +153,19 @@ def build_chat_tools(
             language="zh-CN",
             raw_text=(raw_text or "").strip(),
         )
-        counts = index_project_knowledge(
-            vector,
-            embedder,
-            project_id=p.id,
-            raw_text=p.raw_text,
-            title=p.title,
-            llm=llm,
-            language="zh-CN",
-        )
         collector["project_id"] = p.id
         label = _ADAPT_TYPE_LABELS.get(name, name)
+        # 提取作者风格存入 notes
+        try:
+            from .knowledge import extract_author_style
+            style = extract_author_style(raw_text, llm=llm, language="zh-CN")
+            notes = f"作者风格：{style.get('summary', '')}"
+            store.set_project_notes(p.id, notes)
+        except Exception:
+            pass
+        genres = detect_genres(raw_text, top=2)
         return (
-            f"已创建剧本项目《{p.title}》（id={p.id}，类型：{label}）。"
-            f"知识库已就绪：原文 {counts.get('source_chunks', 0)} 块，"
-            f"改编知识 {counts.get('knowledge_docs', 0)} 条（同类走向 / 写作手法 / 作者风格）。"
+            f"已创建剧本项目《{p.title}》（id={p.id}，类型：{label}，题材：{'、'.join(genres)}）。"
             f"需要我现在生成剧本初稿吗？"
         )
 
@@ -217,8 +226,6 @@ def build_chat_tools(
             base_version=base_version,
             instruction=instruction,
             scene_ids=[],
-            vector=vector,
-            embedder=embedder,
         )
         collector["payloads"].append(
             {
@@ -252,31 +259,35 @@ def build_chat_tools(
 
     @tool
     def ask(project_id: str, question: str) -> str:
-        """就剧本 / 改编创作提问（检索项目知识库：同类剧本走向、写作手法、作者风格 + 剧本概况），给出有依据的回答。参数：project_id=项目 id，question=问题。"""
+        """就剧本 / 改编创作提问（参考题材知识、作者风格、用户偏好），给出有依据的回答。参数：project_id=项目 id，question=问题。"""
         p = _project(project_id)
-        docs: list[dict[str, Any]] = []
-        for kind in KNOWLEDGE_KINDS:
-            docs.extend(
-                retrieve_knowledge(
-                    vector, embedder, project_id=p.id, query=question, k=3, kinds=[kind]
-                )
-            )
         overview = _overview_text(p)
-        knowledge_text = format_knowledge(docs)
+        # 题材知识
+        genres = detect_genres(p.raw_text, top=2)
+        genre_text = format_genre_knowledge(genres)
+        # 作者风格
+        style_text = format_author_style(p.raw_text)
+        # 用户记忆
+        from .memory import format_memories, recall_memories
+        memories = recall_memories(store, project_id=p.id, limit=5)
+        memory_text = format_memories(memories)
+
         if llm.available:
             try:
                 resp = llm.chat().invoke(
                     [
                         SystemMessage(
                             content=(
-                                "你是剧本创作顾问。基于下面提供的剧本概况与项目知识库检索结果回答用户问题；"
-                                "回答要具体、可操作，优先引用检索到的知识，不要编造。"
+                                "你是剧本创作顾问。基于下面提供的剧本概况、题材知识、作者风格和用户偏好回答问题；"
+                                "回答要具体、可操作，不要编造。"
                             )
                         ),
                         HumanMessage(
                             content=(
                                 f"剧本概况：\n{overview}\n\n"
-                                f"项目知识库检索结果：\n{knowledge_text}\n\n"
+                                f"题材知识：\n{genre_text}\n\n"
+                                f"作者风格：\n{style_text}\n\n"
+                                f"用户偏好：\n{memory_text or '暂无'}\n\n"
                                 f"用户问题：{question}"
                             )
                         ),
@@ -285,27 +296,239 @@ def build_chat_tools(
                 return str(resp.content or "").strip()
             except Exception as e:  # noqa: BLE001
                 log.warning("ask 组装回答失败：%s", e)
-        return f"（未配置模型或组装失败，以下为知识库直接命中内容）\n{knowledge_text}"
+        return f"（未配置模型，以下为直接信息）\n{genre_text}\n\n{style_text}"
 
     @tool
-    def remember(project_id: str, kind: str, content: str) -> str:
-        """把作者表达的偏好 / 创作原则记入项目知识库。kind 取值：plot_direction（可能走向 / 方向）、technique（写作手法 / 技巧）、author_style（语言风格 / 偏好）。参数：project_id=项目 id。"""
+    def remember(project_id: str, content: str, kind: str = "preference") -> str:
+        """把用户表达的偏好 / 创作原则记入项目记忆。kind 可选：preference（偏好）、decision（决策）、feedback（反馈）。参数：project_id=项目 id。"""
+        from .memory import save_memory
         p = _project(project_id)
         kind_map = {
-            "plot_direction": "plot_direction", "走向": "plot_direction", "方向": "plot_direction",
-            "technique": "technique", "手法": "technique", "技巧": "technique",
-            "author_style": "author_style", "风格": "author_style", "偏好": "author_style",
+            "preference": "preference", "偏好": "preference", "风格": "preference",
+            "decision": "decision", "决策": "decision", "决定": "decision",
+            "feedback": "feedback", "反馈": "feedback",
         }
-        kind_key = kind_map.get(str(kind).strip(), str(kind).strip())
-        ok = remember_knowledge(
-            vector, embedder, project_id=p.id, kind=kind_key, content=content, source="user"
-        )
-        if not ok:
-            return f"无法识别的知识种类：{kind}（可选：plot_direction / technique / author_style）"
-        label = KIND_LABELS.get(kind_key, kind_key)
-        return f"已记住（{label}）：{content.strip()}。后续改编与咨询都会参考这条记忆。"
+        kind_key = kind_map.get(str(kind).strip(), "preference")
+        save_memory(store, kind=kind_key, content=content, scope="project", project_id=p.id)
+        label = {"preference": "偏好", "decision": "决策", "feedback": "反馈"}.get(kind_key, kind_key)
+        return f"已记住（{label}）：{content.strip()}。后续改编会参考这条记忆。"
 
-    return [create_project, generate_script, run_adaptation, get_script_overview, ask, remember]
+    # ---- 子代理工具 ----
+
+    @tool
+    def analyze_scenes(project_id: str) -> str:
+        """启动场景分析子代理：分析场景结构、节拍节奏、人物出场分布。在后台运行，用户可在右栏查看进度。参数：project_id=项目 id。"""
+        p = _project(project_id)
+        version = store.latest_version(p)
+        if version is None:
+            return "还没有剧本版本，请先生成初稿。"
+        script = version.script
+
+        def _run(task):
+            return run_analyze_scenes(task, llm, script)
+
+        task_id = runner.start("场景分析", _run) if runner else "local"
+        collector["payloads"].append({
+            "type": "sub_agent_started",
+            "task_id": task_id,
+            "name": "场景分析",
+            "project_id": p.id,
+        })
+        return f"已启动场景分析代理（任务 {task_id}），正在后台分析《{script.title}》的场景结构。你可以在右侧「Agent 任务」面板查看进度，也可以继续对话。"
+
+    @tool
+    def check_style(project_id: str) -> str:
+        """启动风格一致性检查子代理：检查全剧对白风格一致性、人设符合度。在后台运行。参数：project_id=项目 id。"""
+        p = _project(project_id)
+        version = store.latest_version(p)
+        if version is None:
+            return "还没有剧本版本，请先生成初稿。"
+        script = version.script
+
+        def _run(task):
+            return run_check_style(task, llm, script)
+
+        task_id = runner.start("风格一致性检查", _run) if runner else "local"
+        collector["payloads"].append({
+            "type": "sub_agent_started",
+            "task_id": task_id,
+            "name": "风格一致性检查",
+            "project_id": p.id,
+        })
+        return f"已启动风格检查代理（任务 {task_id}），正在后台检查《{script.title}》的风格一致性。可在右侧「Agent 任务」面板查看进度。"
+
+    @tool
+    def polish_dialogue(project_id: str, scene_id: str = "") -> str:
+        """启动对白润色子代理：对指定场景（或全部场景）的对白做润色建议。在后台运行。参数：project_id=项目 id，scene_id=场景 id（可选，不填则润色全部）。"""
+        p = _project(project_id)
+        version = store.latest_version(p)
+        if version is None:
+            return "还没有剧本版本，请先生成初稿。"
+        script = version.script
+        sid = scene_id.strip() or None
+
+        def _run(task):
+            return run_polish_dialogue(task, llm, script, scene_id=sid)
+
+        label = f"对白润色（{sid}）" if sid else "对白润色"
+        task_id = runner.start(label, _run) if runner else "local"
+        collector["payloads"].append({
+            "type": "sub_agent_started",
+            "task_id": task_id,
+            "name": label,
+            "project_id": p.id,
+        })
+        scope = f"场景 {sid}" if sid else "全部场景"
+        return f"已启动对白润色代理（任务 {task_id}），正在后台润色{scope}的对白。可在右侧「Agent 任务」面板查看进度。"
+
+    # ---- v3.0 导演组工具 ----
+
+    @tool
+    def breakdown_scenes(project_id: str, scene_ids: str = "") -> str:
+        """启动导演 Agent，将剧本场景拆解为镜头方案。分析每场戏的戏剧目标和节奏需求，设计镜头类型、运镜、光线。在后台运行。参数：project_id=项目 id，scene_ids=场景 id 列表（逗号分隔，可选，不填则拆解全部场景）。"""
+        p = _project(project_id)
+        version = store.latest_version(p)
+        if version is None:
+            return "还没有剧本版本，请先生成初稿。"
+        script = version.script
+        sids = [s.strip() for s in scene_ids.split(",") if s.strip()] or None
+
+        def _run(task):
+            from .crew.director import run_director
+            result = run_director(llm, script, scene_ids=sids)
+            if result.success:
+                # 保存到 video_versions
+                shots_data = []
+                for bd in result.data:
+                    for shot in bd.shots:
+                        shots_data.append(shot.model_dump())
+                store.create_video_version(
+                    project_id=p.id,
+                    shots=shots_data,
+                    source_type="agent",
+                    label="导演拆解",
+                    notes=result.summary,
+                )
+                # 同时保存 breakdown 到 script_version
+                breakdown_data = [bd.model_dump() for bd in result.data]
+                from .store import ScriptVersion as SV
+                with store.session() as s:
+                    sv = s.get(SV, version.id)
+                    if sv:
+                        sv.breakdown_json = json.dumps(breakdown_data, ensure_ascii=False)
+                        s.commit()
+            return result.summary
+
+        task_id = runner.start("导演场景拆解", _run) if runner else "local"
+        collector["payloads"].append({
+            "type": "sub_agent_started",
+            "task_id": task_id,
+            "name": "导演场景拆解",
+            "project_id": p.id,
+        })
+        scope = f"{len(sids)} 个指定场景" if sids else "全部场景"
+        return f"已启动导演 Agent（任务 {task_id}），正在将{scope}拆解为镜头方案。可在右侧「Agent 任务」面板查看进度。"
+
+    @tool
+    def generate_style_guide(project_id: str, director_notes: str = "") -> str:
+        """启动美术指导 Agent，生成视觉风格指南。包括色彩方案、光线风格、摄影风格、角色造型、环境描述。在后台运行。参数：project_id=项目 id，director_notes=导演额外创意意图（可选）。"""
+        p = _project(project_id)
+        version = store.latest_version(p)
+        if version is None:
+            return "还没有剧本版本，请先生成初稿。"
+        script = version.script
+
+        def _run(task):
+            from .crew.art_director import run_art_director
+            result = run_art_director(llm, script, director_notes=director_notes)
+            if result.success:
+                guide_data = result.data.model_dump()
+                # 保存到项目
+                with store.session() as s:
+                    proj = s.get(store.Project, p.id)
+                    if proj:
+                        proj.video_style_json = json.dumps(guide_data, ensure_ascii=False)
+                        s.commit()
+            return result.summary
+
+        task_id = runner.start("美术指导", _run) if runner else "local"
+        collector["payloads"].append({
+            "type": "sub_agent_started",
+            "task_id": task_id,
+            "name": "美术指导",
+            "project_id": p.id,
+        })
+        return f"已启动美术指导 Agent（任务 {task_id}），正在生成视觉风格指南。可在右侧「Agent 任务」面板查看进度。"
+
+    @tool
+    def generate_video_prompts(project_id: str) -> str:
+        """启动摄影指导 Agent，为镜头方案中的每个镜头生成视频生成 Prompt（英文）。需要先完成导演场景拆解。在后台运行。参数：project_id=项目 id。"""
+        p = _project(project_id)
+        version = store.latest_version(p)
+        if version is None:
+            return "还没有剧本版本，请先生成初稿。"
+        script = version.script
+
+        # 读取已有的 breakdown
+        breakdowns_data = []
+        with store.session() as s:
+            sv = s.get(store.ScriptVersion, version.id)
+            if sv and sv.breakdown_json and sv.breakdown_json != "{}":
+                breakdowns_data = json.loads(sv.breakdown_json)
+        if not breakdowns_data:
+            return "还没有完成导演场景拆解，请先运行「导演拆解」（breakdown_scenes）。"
+
+        # 读取风格指南
+        style_data = {}
+        with store.session() as s:
+            proj = s.get(store.Project, p.id)
+            if proj and proj.video_style_json and proj.video_style_json != "{}":
+                style_data = json.loads(proj.video_style_json)
+
+        def _run(task):
+            from .crew.dp import run_dp
+            from .domain import SceneBreakdown, StyleGuide
+            bds = [SceneBreakdown.model_validate(b) for b in breakdowns_data]
+            sg = StyleGuide.model_validate(style_data) if style_data else None
+            result = run_dp(llm, script, breakdowns=bds, style_guide=sg)
+            if result.success:
+                # 更新 video_versions 中的 shots
+                shots_data = [s.model_dump() for s in result.data]
+                store.create_video_version(
+                    project_id=p.id,
+                    shots=shots_data,
+                    source_type="agent",
+                    label="含视频 Prompt",
+                    notes=result.summary,
+                )
+            return result.summary
+
+        task_id = runner.start("摄影指导", _run) if runner else "local"
+        collector["payloads"].append({
+            "type": "sub_agent_started",
+            "task_id": task_id,
+            "name": "摄影指导",
+            "project_id": p.id,
+        })
+        return f"已启动摄影指导 Agent（任务 {task_id}），正在为镜头生成视频 Prompt。可在右侧「Agent 任务」面板查看进度。"
+
+    @tool
+    def web_search(query: str) -> str:
+        """联网搜索：查找剧本创作参考、同类作品分析、写作技法、行业资讯等。需要配置 TAVILY_API_KEY。"""
+        from .config import get_settings
+        from .search import format_search_results, search_sync
+        api_key = get_settings().tavily_api_key
+        if not api_key:
+            return "（未配置 TAVILY_API_KEY，无法联网搜索。请在 .env 中设置 TAVILY_API_KEY。）"
+        try:
+            data = search_sync(query, api_key=api_key, max_results=5)
+            return format_search_results(data)
+        except Exception as e:
+            return f"（搜索失败：{e}）"
+
+    return [create_project, generate_script, run_adaptation, get_script_overview, ask, remember,
+            analyze_scenes, check_style, polish_dialogue,
+            breakdown_scenes, generate_style_guide, generate_video_prompts, web_search]
 
 
 # ---------- 对话图 ----------
@@ -314,14 +537,12 @@ def build_chat_tools(
 def build_chat_graph(
     store: Store,
     llm: LLM,
-    settings: Settings,
-    vector: Any,
-    embedder: Any,
     collector: _Collector,
+    runner: SubAgentRunner | None = None,
 ) -> Any:
     """构建（单轮）对话 conductor 图：LLM 绑定工具 + ToolNode ReAct 循环。"""
 
-    tools = build_chat_tools(store, llm, settings, vector, embedder, collector)
+    tools = build_chat_tools(store, llm, collector, runner=runner)
 
     def agent_node(state: ChatState) -> dict[str, Any]:
         if not llm.available:
@@ -390,6 +611,71 @@ def _history_lc_messages(store: Store, conversation_id: str | None, limit: int =
 
 
 # ---------- 对话服务 ----------
+
+
+def _prepare_turn(
+    store: Store, llm: LLM, runner: SubAgentRunner | None, conversation_id: str | None,
+    project_id: str | None, message: str, meta: dict[str, Any] | None,
+) -> tuple[_Collector, Any, dict[str, Any]]:
+    """准备一轮对话的 collector, graph, input_state。"""
+    collector: _Collector = {"project_id": project_id, "payloads": []}
+    graph = build_chat_graph(store, llm, collector, runner=runner)
+    note = _current_project_note(store, project_id)
+    input_state: dict[str, Any] = {
+        "project_id": project_id,
+        "messages": [
+            SystemMessage(content=SYSTEM_PROMPT + "\n\n" + note),
+            *_history_lc_messages(store, conversation_id),
+            HumanMessage(content=message),
+        ],
+    }
+    return collector, graph, input_state
+
+
+def _extract_events(node: str, update: dict[str, Any]) -> list[dict[str, Any]]:
+    """从 graph stream chunk 中提取事件列表。"""
+    events: list[dict[str, Any]] = []
+    msgs = update.get("messages") or []
+    if node == "tools":
+        for m in msgs:
+            if isinstance(m, ToolMessage):
+                events.append({
+                    "type": "tool_result",
+                    "name": m.name or "",
+                    "summary": _short(_msg_text(m.content), 160),
+                })
+    elif node == "chat_agent":
+        for m in msgs:
+            if isinstance(m, AIMessage) and m.tool_calls:
+                for tc in m.tool_calls:
+                    events.append({
+                        "type": "tool_call",
+                        "name": tc.get("name", ""),
+                        "args": _short(json.dumps(tc.get("args", {}), ensure_ascii=False), 200),
+                    })
+    return events
+
+
+def _finalize_turn(
+    store: Store, collector: _Collector, conversation_id: str | None,
+    project_id: str | None, message: str, meta: dict[str, Any] | None,
+    final_text: str, events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """保存消息并返回对话结果。"""
+    thread = conversation_id or GLOBAL_THREAD
+    new_project_id = collector.get("project_id") or project_id
+    store.save_chat_message(thread_id=thread, role="user", content=message, payload=[meta or {}])
+    store.save_chat_message(
+        thread_id=thread, role="assistant", content=final_text,
+        payload=collector.get("payloads") or [], events=events,
+    )
+    return {
+        "reply": final_text,
+        "payloads": collector.get("payloads") or [],
+        "events": events,
+        "project_id": new_project_id,
+        "thread_id": thread,
+    }
 
 
 def _current_project_note(store: Store, project_id: str | None) -> str:
@@ -461,8 +747,6 @@ def _handle_resume(
     store: Store,
     llm: LLM,
     settings: Settings,
-    vector: Any,
-    embedder: Any,
     *,
     run_id: str,
     action: str,
@@ -489,8 +773,6 @@ def _handle_resume(
         patch_indexes=patch_indexes,
         patch=patch,
         feedback=feedback,
-        vector=vector,
-        embedder=embedder,
     )
     reply, payloads = _resume_reply(store, result)
     return {"reply": reply, "payloads": payloads, "result": result}
@@ -500,23 +782,18 @@ def _run_turn(
     store: Store,
     llm: LLM,
     settings: Settings,
-    vector: Any,
-    embedder: Any,
     *,
     conversation_id: str | None,
     project_id: str | None,
     message: str,
     meta: dict[str, Any] | None,
+    runner: SubAgentRunner | None = None,
 ) -> dict[str, Any]:
-    """执行一轮对话（非流式），返回 {reply, payloads, events, project_id, thread_id}。
-
-    ``conversation_id`` 决定消息落盘与上下文读取的会话线程；
-    ``project_id`` 决定工具操作的剧本项目（一个项目下可有多个对话）。
-    """
+    """执行一轮对话（非流式），返回 {reply, payloads, events, project_id, thread_id}。"""
     # 审阅动作走确定性路径。
     if meta and meta.get("intent") == "resume":
         handled = _handle_resume(
-            store, llm, settings, vector, embedder,
+            store, llm, settings,
             run_id=str(meta.get("run_id") or ""),
             action=str(meta.get("action") or "accept"),
             patch_indexes=meta.get("patch_indexes"),
@@ -534,86 +811,43 @@ def _run_turn(
             "thread_id": thread,
         }
 
-    collector: _Collector = {"project_id": project_id, "payloads": []}
-    graph = build_chat_graph(store, llm, settings, vector, embedder, collector)
-    note = _current_project_note(store, project_id)
-    input_state: dict[str, Any] = {
-        "project_id": project_id,
-        "messages": [
-            SystemMessage(content=SYSTEM_PROMPT + "\n\n" + note),
-            *_history_lc_messages(store, conversation_id),
-            HumanMessage(content=message),
-        ],
-    }
+    collector, graph, input_state = _prepare_turn(
+        store, llm, runner,
+        conversation_id, project_id, message, meta,
+    )
     events: list[dict[str, Any]] = []
     final_text = ""
     try:
         for chunk in graph.stream(input_state, stream_mode="updates"):
             for node, update in chunk.items():
-                msgs = update.get("messages") or []
-                if node == "tools":
-                    for m in msgs:
-                        if isinstance(m, ToolMessage):
-                            events.append(
-                                {
-                                    "type": "tool_result",
-                                    "name": m.name or "",
-                                    "summary": _short(_msg_text(m.content), 160),
-                                }
-                            )
-                elif node == "chat_agent":
-                    for m in msgs:
-                        if isinstance(m, AIMessage):
-                            if m.tool_calls:
-                                for tc in m.tool_calls:
-                                    events.append(
-                                        {
-                                            "type": "tool_call",
-                                            "name": tc.get("name", ""),
-                                            "args": _short(json.dumps(tc.get("args", {}), ensure_ascii=False), 200),
-                                        }
-                                    )
-                            elif m.content:
-                                final_text = _msg_text(m.content)
+                events.extend(_extract_events(node, update))
+                if node == "chat_agent":
+                    for m in (update.get("messages") or []):
+                        if isinstance(m, AIMessage) and not m.tool_calls and m.content:
+                            final_text = _msg_text(m.content)
     except Exception as e:  # noqa: BLE001
         log.warning("对话运行失败：%s", e)
         final_text = f"对话运行出错了：{e}"
 
-    thread = conversation_id or GLOBAL_THREAD
-    new_project_id = collector.get("project_id") or project_id
-    store.save_chat_message(thread_id=thread, role="user", content=message, payload=[meta or {}])
-    store.save_chat_message(
-        thread_id=thread,
-        role="assistant",
-        content=final_text,
-        payload=collector.get("payloads") or [],
-        events=events,
-    )
-    return {
-        "reply": final_text,
-        "payloads": collector.get("payloads") or [],
-        "events": events,
-        "project_id": new_project_id,
-        "thread_id": thread,
-    }
+    return _finalize_turn(store, collector, conversation_id, project_id, message, meta, final_text, events)
 
 
 def chat_once(
     store: Store,
     llm: LLM,
     settings: Settings,
-    vector: Any,
-    embedder: Any,
     *,
     conversation_id: str | None,
     project_id: str | None,
     message: str,
     meta: dict[str, Any] | None = None,
+    runner: SubAgentRunner | None = None,
 ) -> dict[str, Any]:
     """非流式对话：执行一轮并返回完整结果。"""
     return _run_turn(
-        store, llm, settings, vector, embedder,
+        store, llm, settings,
         conversation_id=conversation_id, project_id=project_id, message=message, meta=meta,
+        runner=runner,
     )
 
 
@@ -621,13 +855,12 @@ def chat_stream(
     store: Store,
     llm: LLM,
     settings: Settings,
-    vector: Any,
-    embedder: Any,
     *,
     conversation_id: str | None,
     project_id: str | None,
     message: str,
     meta: dict[str, Any] | None = None,
+    runner: SubAgentRunner | None = None,
 ):
     """SSE 流式对话：逐条 yield {event, data} 事件。
 
@@ -637,7 +870,7 @@ def chat_stream(
     # 审阅动作：确定性执行，直接产出 done。
     if meta and meta.get("intent") == "resume":
         handled = _handle_resume(
-            store, llm, settings, vector, embedder,
+            store, llm, settings,
             run_id=str(meta.get("run_id") or ""),
             action=str(meta.get("action") or "accept"),
             patch_indexes=meta.get("patch_indexes"),
@@ -656,57 +889,30 @@ def chat_stream(
         }}
         return
 
-    collector: _Collector = {"project_id": project_id, "payloads": []}
-    graph = build_chat_graph(store, llm, settings, vector, embedder, collector)
-    note = _current_project_note(store, project_id)
-    input_state: dict[str, Any] = {
-        "project_id": project_id,
-        "messages": [
-            SystemMessage(content=SYSTEM_PROMPT + "\n\n" + note),
-            *_history_lc_messages(store, conversation_id),
-            HumanMessage(content=message),
-        ],
-    }
+    collector, graph, input_state = _prepare_turn(
+        store, llm, runner,
+        conversation_id, project_id, message, meta,
+    )
     events: list[dict[str, Any]] = []
     final_text = ""
     last_update_text = ""
     try:
         for chunk in graph.stream(input_state, stream_mode=["updates", "messages"]):
-            # 不同 langgraph 版本：多 stream_mode 可能返回 (mode, data) 元组或 {"type":..., "data":...} 字典。
             if isinstance(chunk, tuple):
                 mode, data = chunk[0], chunk[1]
             else:
                 mode, data = chunk.get("type"), chunk.get("data", {})
             if mode == "updates":
                 for node, update in (data or {}).items():
-                    msgs = update.get("messages") or []
-                    if node == "tools":
-                        for m in msgs:
-                            if isinstance(m, ToolMessage):
-                                ev = {
-                                    "type": "tool_result",
-                                    "name": m.name or "",
-                                    "summary": _short(_msg_text(m.content), 160),
-                                }
-                                events.append(ev)
-                                yield {"event": "tool_result", "data": ev}
-                    elif node == "chat_agent":
-                        for m in msgs:
-                            if isinstance(m, AIMessage):
-                                if m.tool_calls:
-                                    for tc in m.tool_calls:
-                                        ev = {
-                                            "type": "tool_call",
-                                            "name": tc.get("name", ""),
-                                            "args": _short(json.dumps(tc.get("args", {}), ensure_ascii=False), 200),
-                                        }
-                                        events.append(ev)
-                                        yield {"event": "tool_call", "data": ev}
-                                elif m.content:
-                                    last_update_text = _msg_text(m.content)
+                    evts = _extract_events(node, update)
+                    for ev in evts:
+                        events.append(ev)
+                        yield {"event": ev["type"], "data": ev}
+                    if node == "chat_agent":
+                        for m in (update.get("messages") or []):
+                            if isinstance(m, AIMessage) and not m.tool_calls and m.content:
+                                last_update_text = _msg_text(m.content)
             elif mode == "messages":
-                # 该版本 yield 的是 (msg_chunk, metadata) 元组；兼容部分版本 yield 列表。
-                # 只流式输出最终 AI 正文（type=="ai"），跳过工具结果回显。
                 pairs = data if isinstance(data, list) else [data]
                 for pair in pairs:
                     msg_chunk = pair[0] if isinstance(pair, (tuple, list)) else pair
@@ -723,26 +929,8 @@ def chat_stream(
         yield {"event": "error", "data": {"message": str(e)}}
         return
 
-    thread = conversation_id or GLOBAL_THREAD
-    new_project_id = collector.get("project_id") or project_id
-    store.save_chat_message(thread_id=thread, role="user", content=message, payload=[meta or {}])
-    store.save_chat_message(
-        thread_id=thread,
-        role="assistant",
-        content=final_text,
-        payload=collector.get("payloads") or [],
-        events=events,
-    )
-    yield {
-        "event": "done",
-        "data": {
-            "reply": final_text,
-            "payloads": collector.get("payloads") or [],
-            "events": events,
-            "project_id": new_project_id,
-            "thread_id": thread,
-        },
-    }
+    result = _finalize_turn(store, collector, conversation_id, project_id, message, meta, final_text, events)
+    yield {"event": "done", "data": result}
 
 
 def _short(text: str, limit: int) -> str:

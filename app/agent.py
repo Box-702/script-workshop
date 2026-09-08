@@ -1,15 +1,7 @@
 # =====================================================================
-# agent.py —— Agent 运行服务
+# agent.py —— Agent 运行服务（无 RAG 版）
 #
-# 这是一层薄服务，专门把「HTTP 请求」和「LangGraph 图」对接起来：
-#   start_agent_run()   发起一次改编运行，跑到 review 中断，返回提议；
-#   resume_agent_run()  用 Command(resume=...) 恢复被中断的图；
-#   get_run()           读取一次运行的当前状态。
-#
-# 同时提供两个兜底，保证项目在没有模型 / 没有持久 checkpointer 时依旧可用：
-#   - 无模型：图节点走本地规则回退（见 patch.fallback_patch）；
-#   - 线程丢失（例如 InMemorySaver 因服务重启而失效）：恢复时直接
-#     基于已落库的 patch 重新应用，仍能生成新版本，而不是报错。
+# 薄服务层，把 HTTP 请求和 LangGraph 图对接。
 # =====================================================================
 
 from __future__ import annotations
@@ -24,17 +16,12 @@ from .graph import build_run_graph, thread_config
 from .llm import LLM
 from .patch import PatchOp, apply_patch, validate_script
 from .store import Project, ScriptVersion, Store
-from .vector import VectorStore
 
 log = logging.getLogger(__name__)
 
 
 def _select_ops(patch: list[dict[str, Any]], indexes: list[int] | None) -> list[PatchOp]:
-    """按用户勾选下标挑选 patch 操作。
-
-    - 未选择（None）-> 全接受；
-    - 显式选择但全部下标无效 -> 空（不回退为全接受，见 nodes.select_ops）。
-    """
+    """按用户勾选下标挑选 patch 操作。"""
     ops = [PatchOp.model_validate(op) for op in patch]
     if indexes is None:
         return ops
@@ -42,7 +29,7 @@ def _select_ops(patch: list[dict[str, Any]], indexes: list[int] | None) -> list[
 
 
 def _interrupt_value(result: dict[str, Any]) -> dict[str, Any] | None:
-    """从 invoke 返回中提取 interrupt 载荷（提议内容）。"""
+    """从 invoke 返回中提取 interrupt 载荷。"""
     interrupts = result.get("__interrupt__")
     if interrupts:
         return interrupts[0].value
@@ -58,14 +45,9 @@ def start_agent_run(
     base_version: ScriptVersion,
     instruction: str,
     scene_ids: list[str],
-    vector: VectorStore,
-    embedder: Any,
     model_label: str = "openai-compatible",
 ) -> dict[str, Any]:
-    """发起一次 Agent 改编运行，并返回「等待审阅」的提议。
-
-    返回：run_id、plan、patch、status，以及中断载荷（用于前端展示）。
-    """
+    """发起一次 Agent 改编运行，并返回「等待审阅」的提议。"""
     run_id = _new_run_id()
     graph = build_run_graph(
         store,
@@ -74,8 +56,6 @@ def start_agent_run(
         project=project,
         base_script=base_version.script,
         raw_text=project.raw_text,
-        vector=vector,
-        embedder=embedder,
         base_version_id=base_version.id,
     )
     input_state = {
@@ -92,14 +72,12 @@ def start_agent_run(
     status = "reviewing"
     error = None
     try:
-        # 用 stream 采集节点级执行轨迹 + 拿到中断载荷，作为「可观测」进度。
         interrupt_value, steps = _stream_to_interrupt(graph, input_state, thread_config(run_id))
         payload = interrupt_value or {}
         plan = payload.get("plan") or []
         patch = payload.get("patch") or []
-        review = payload.get("review")  # 评审打分 + 一致性保障结果（见 app/review.py）
+        review = payload.get("review")
     except Exception as e:  # noqa: BLE001
-        # 模型出错时不直接失败：降级为「可审阅的说明性 patch」，并记录错误。
         log.warning("Agent 运行失败，降级为说明性建议：%s", e)
         from .patch import fallback_patch
 
@@ -134,11 +112,7 @@ def start_agent_run(
 
 
 def _stream_to_interrupt(graph: Any, input: dict[str, Any], config: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
-    """用 ``graph.stream(stream_mode="updates")`` 运行到中断，返回 (中断载荷, 节点轨迹)。
-
-    stream 会按节点产出 update；遇到 interrupt 时产出 ``__interrupt__`` 并停住。
-    这里据此拿到提议载荷与「实际执行了哪些节点」，供前端展示进度。
-    """
+    """用 graph.stream 运行到中断，返回 (中断载荷, 节点轨迹)。"""
     interrupt_value: dict[str, Any] | None = None
     steps: list[str] = []
     for chunk in graph.stream(input, config, stream_mode="updates"):
@@ -147,7 +121,6 @@ def _stream_to_interrupt(graph: Any, input: dict[str, Any], config: dict[str, An
                 interrupt_value = update[0].value
             else:
                 steps.append(node_name)
-    # 结束节点（finalize）后，最后再用 get_state 读一次全量状态，保证拿到终态字段。
     return interrupt_value, steps
 
 
@@ -161,15 +134,8 @@ def resume_agent_run(
     patch_indexes: list[int] | None = None,
     patch: list[dict[str, Any]] | None = None,
     feedback: str | None = None,
-    vector: VectorStore,
-    embedder: Any,
 ) -> dict[str, Any]:
-    """恢复被中断的图，执行用户决策（接受/编辑/重新生成/拒绝）。
-
-    优先走 LangGraph 的 ``Command(resume=HumanDecision)`` 恢复；
-    若线程状态已丢失（如 InMemorySaver 随服务重启失效），则回退为
-    基于已落库 patch 的直接应用（见 _apply_directly）。
-    """
+    """恢复被中断的图，执行用户决策。"""
     run = store.get_agent_run(run_id)
     if run is None:
         return {"status": "not_found", "error": "运行记录不存在"}
@@ -192,15 +158,12 @@ def resume_agent_run(
             project=project,
             base_script=base_version.script,
             raw_text=project.raw_text,
-            vector=vector,
-            embedder=embedder,
             base_version_id=base_version.id,
         )
         interrupt_value, steps = _stream_to_interrupt(
             graph, Command(resume=decision), thread_config(run_id)
         )
         if interrupt_value is not None:
-            # 重新生成（regenerate）后再次中断，等待人类继续审阅新的提议。
             new_plan = interrupt_value.get("plan") or run.plan
             new_patch = interrupt_value.get("patch") or run.patch
             new_review = interrupt_value.get("review")
@@ -223,6 +186,18 @@ def resume_agent_run(
         final_state = graph.get_state(thread_config(run_id)).values
         status = final_state.get("status", "applied")
         store.update_agent_run(run_id, steps=run.steps + steps)
+
+        # 从用户行为中学习
+        if action in ("accept", "reject"):
+            from .memory import learn_from_decision
+            learn_from_decision(
+                store,
+                project_id=project.id,
+                action=action,
+                instruction=run.user_prompt,
+                patch_summary=f"{len(run.patch)} 项改动",
+            )
+
         return {
             "status": status,
             "new_version_id": final_state.get("new_version_id"),
@@ -241,21 +216,13 @@ def _apply_directly(
     base_version: ScriptVersion,
     decision: dict[str, Any],
 ) -> dict[str, Any]:
-    """线程丢失时的兜底：基于已落库 patch（或人工修订 patch）直接应用，仍生成新版本。
-
-    - accept / edit -> 应用并生成新版本（edit 优先采用人工修订的操作清单）；
-    - reject        -> 拒绝；
-    - regenerate    -> 线程已丢无法真正重做，按拒绝处理并说明。
-    """
+    """线程丢失时的兜底。"""
     action = decision.get("action", "reject")
     if action not in ("accept", "edit"):
         store.update_agent_run(run.id, status="rejected", decision=decision)
         return {"status": "rejected", "decision": decision, "fallback": True}
 
-    # 优先取人工修订后的操作清单（edit），否则取已落库 patch 按下标筛选。
     if decision.get("patch"):
-        from .patch import PatchOp
-
         ops = [PatchOp.model_validate(op) for op in decision["patch"]]
     else:
         ops = _select_ops(run.patch, decision.get("patch_indexes"))
@@ -267,7 +234,6 @@ def _apply_directly(
     issues = validate_script(new_script)
     error_issues = [i for i in issues if i.severity == "error"]
     if error_issues:
-        # 与图内 apply 节点一致：error 必须清零才可落版，坏剧本不能成为当前版本。
         message = "; ".join(i.message for i in error_issues)
         store.update_agent_run(run.id, status="failed", decision=decision, error_message=message)
         return {
@@ -325,7 +291,5 @@ def get_run(store: Store, run_id: str) -> dict[str, Any] | None:
 
 
 def _new_run_id() -> str:
-    """生成线程 / 运行共用的 id。"""
     from .store import gen_id
-
     return gen_id("run")

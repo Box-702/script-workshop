@@ -1,22 +1,17 @@
 # =====================================================================
-# test_knowledge.py —— 项目级改编知识 RAG 测试
+# test_knowledge.py —— 改编知识 + 记忆系统测试（无 RAG 版）
 #
-# 覆盖：题材识别、作者风格提取、知识索引/检索、按 kind 过滤、
-# 项目间隔离、对话记忆写入。
+# 覆盖：题材识别、作者风格提取、种子知识查询、用户记忆读写。
 # =====================================================================
 
 from app.knowledge import (
     detect_genres,
     extract_author_style,
-    index_project_knowledge,
-    remember_knowledge,
-    retrieve_knowledge,
+    format_genre_knowledge,
+    get_all_genre_knowledge,
+    get_genre_conventions,
 )
-from app.vector import HashingEmbedder
-
-
-def _embedder():
-    return HashingEmbedder(dim=768)
+from app.memory import format_memories, recall_memories, save_memory
 
 
 def test_detect_genres():
@@ -24,6 +19,12 @@ def test_detect_genres():
     genres = detect_genres(text)
     assert isinstance(genres, list) and genres
     assert "悬疑" in genres
+
+
+def test_detect_genres_fallback():
+    """无关键词命中时回退到「通用」。"""
+    genres = detect_genres("今天天气真好")
+    assert genres == ["通用"]
 
 
 def test_extract_author_style(sample_text):
@@ -36,68 +37,91 @@ def test_extract_author_style(sample_text):
     assert profile["summary"].strip()
 
 
-def test_index_and_retrieve_knowledge(store, vector_store, sample_text):
-    p = store.create_project(title="雨夜", adaptation_type="short_drama", language="zh-CN", raw_text=sample_text)
-    counts = index_project_knowledge(
-        vector_store, _embedder(), project_id=p.id, raw_text=p.raw_text, title=p.title
-    )
-    assert counts["knowledge_docs"] > 0
-    assert counts["source_chunks"] > 0
-
-    hits = retrieve_knowledge(
-        vector_store, _embedder(), project_id=p.id,
-        query="悬疑短剧的反转怎么设计", k=2, kinds=["plot_direction"],
-    )
-    assert hits, "应能检索到同类剧本走向"
-    assert all(h["kind"] == "plot_direction" for h in hits)
-
-    style_hits = retrieve_knowledge(
-        vector_store, _embedder(), project_id=p.id, query="作者写作风格", k=1, kinds=["author_style"]
-    )
-    assert style_hits and style_hits[0]["kind"] == "author_style"
+def test_get_genre_conventions():
+    conv = get_genre_conventions("悬疑")
+    assert "plot_direction" in conv
+    assert "technique" in conv
+    assert len(conv["plot_direction"]) > 0
+    assert len(conv["technique"]) > 0
 
 
-def test_project_isolation(store, vector_store, sample_text):
-    p1 = store.create_project(title="A", adaptation_type="short_drama", language="zh-CN", raw_text=sample_text)
-    p2 = store.create_project(title="B", adaptation_type="film", language="zh-CN", raw_text="都市职场 爱情")
-    index_project_knowledge(vector_store, _embedder(), project_id=p1.id, raw_text=p1.raw_text, title=p1.title)
-    index_project_knowledge(vector_store, _embedder(), project_id=p2.id, raw_text=p2.raw_text, title=p2.title)
-
-    hits = retrieve_knowledge(vector_store, _embedder(), project_id=p1.id, query="反转", k=5)
-    for h in hits:
-        assert h.get("source") != "genre:都市", "项目 A 不应检索到项目 B 的题材知识"
+def test_get_genre_conventions_unknown():
+    """未知题材回退到「通用」。"""
+    conv = get_genre_conventions("不存在的题材")
+    assert conv == get_genre_conventions("通用")
 
 
-def test_remember_knowledge(store, vector_store, sample_text):
-    p = store.create_project(title="雨夜", adaptation_type="short_drama", language="zh-CN", raw_text=sample_text)
-    index_project_knowledge(vector_store, _embedder(), project_id=p.id, raw_text=p.raw_text, title=p.title)
-    ok = remember_knowledge(
-        vector_store, _embedder(), project_id=p.id,
-        kind="author_style", content="作者偏好冷峻、留白，不喜欢说教。",
-    )
-    assert ok
-    hits = retrieve_knowledge(vector_store, _embedder(), project_id=p.id, query="作者偏好", k=2, kinds=["author_style"])
-    assert any("留白" in h["text"] or "冷峻" in h["text"] for h in hits)
-
-    bad = remember_knowledge(vector_store, _embedder(), project_id=p.id, kind="unknown", content="x")
-    assert not bad
+def test_get_all_genre_knowledge():
+    knowledge = get_all_genre_knowledge(["悬疑", "情感"])
+    assert "plot_direction" in knowledge
+    assert "technique" in knowledge
+    # 合并后应有去重
+    assert len(knowledge["plot_direction"]) > 0
 
 
-def test_list_project_rows(store, vector_store, sample_text):
-    p = store.create_project(title="雨夜", adaptation_type="short_drama", language="zh-CN", raw_text=sample_text)
-    index_project_knowledge(vector_store, _embedder(), project_id=p.id, raw_text=p.raw_text, title=p.title)
-    rows = vector_store.list_project(p.id)
-    kinds = {r.get("kind") for r in rows}
-    assert {"source", "plot_direction", "technique", "author_style"} <= kinds
+def test_format_genre_knowledge():
+    text = format_genre_knowledge(["悬疑"])
+    assert "悬疑" in text
+    assert "可能走向" in text
+    assert "写作手法" in text
 
 
-def test_hybrid_retrieve_rejects_gibberish_query(store, vector_store, sample_text):
-    """回归：无关查询不应因 min-max 归一化而必然拿到「高相关」结果。"""
-    from app.vector import hybrid_retrieve
+def test_format_author_style(sample_text):
+    from app.knowledge import format_author_style
+    text = format_author_style(sample_text)
+    assert "作者语言风格" in text
+    assert len(text) > 20
 
-    p = store.create_project(title="雨夜", adaptation_type="short_drama", language="zh-CN", raw_text=sample_text)
-    index_project_knowledge(vector_store, _embedder(), project_id=p.id, raw_text=sample_text, title=p.title)
 
-    gibberish = "zzz qqq xyzzy plugh wubble"
-    hits = hybrid_retrieve(vector_store, _embedder(), project_id=p.id, query=gibberish, k=4)
-    assert hits == [], f"无关查询不应返回噪声，实际返回 {len(hits)} 条"
+# ---------- 记忆系统 ----------
+
+
+def test_save_and_recall_memory(store):
+    p = store.create_project(title="测试", adaptation_type="short_drama", language="zh-CN", raw_text="原文")
+    save_memory(store, kind="preference", content="用户偏好冷峻风格", scope="project", project_id=p.id)
+    save_memory(store, kind="decision", content="第3场戏冻结不动", scope="project", project_id=p.id)
+
+    memories = recall_memories(store, project_id=p.id)
+    assert len(memories) >= 2
+    contents = [m["content"] for m in memories]
+    assert "用户偏好冷峻风格" in contents
+    assert "第3场戏冻结不动" in contents
+
+
+def test_memory_scope_isolation(store):
+    """不同项目的记忆应隔离。"""
+    p1 = store.create_project(title="A", adaptation_type="short_drama", language="zh-CN", raw_text="")
+    p2 = store.create_project(title="B", adaptation_type="film", language="zh-CN", raw_text="")
+
+    save_memory(store, kind="preference", content="项目A偏好", scope="project", project_id=p1.id)
+    save_memory(store, kind="preference", content="项目B偏好", scope="project", project_id=p2.id)
+
+    mem1 = recall_memories(store, project_id=p1.id)
+    mem2 = recall_memories(store, project_id=p2.id)
+
+    assert any("项目A偏好" in m["content"] for m in mem1)
+    assert not any("项目B偏好" in m["content"] for m in mem1)
+    assert any("项目B偏好" in m["content"] for m in mem2)
+
+
+def test_global_memory_visible_everywhere(store):
+    """全局记忆在所有项目中可见。"""
+    save_memory(store, kind="preference", content="全局偏好", scope="global")
+    p = store.create_project(title="测试", adaptation_type="short_drama", language="zh-CN", raw_text="")
+    memories = recall_memories(store, project_id=p.id)
+    assert any("全局偏好" in m["content"] for m in memories)
+
+
+def test_format_memories():
+    docs = [
+        {"kind": "preference", "content": "喜欢冷峻风格"},
+        {"kind": "decision", "content": "第3场冻结"},
+    ]
+    text = format_memories(docs)
+    assert "用户偏好" in text
+    assert "冷峻风格" in text
+    assert "项目决策" in text
+
+
+def test_format_memories_empty():
+    assert format_memories([]) == ""

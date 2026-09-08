@@ -30,9 +30,9 @@ def create_app() -> FastAPI:
     # 启动时注入 LangSmith 监控环境变量（LANGSMITH_* -> LANGCHAIN_*）。
     apply_langsmith_env(settings)
     app = FastAPI(
-        title="剧本智能体（Script Adaptation Agent）",
-        version="0.2.0",
-        description="基于 LangGraph + LangChain + Postgres（+ 可选 Milvus RAG）的剧本改编 Agent 工作台",
+        title="剧本工坊（Script Workshop）",
+        version="0.3.0",
+        description="小说 → 剧本 → AI 短剧 全链路 Agent 工作台",
     )
 
     # 开发环境 CORS（前端可能用不同端口）。

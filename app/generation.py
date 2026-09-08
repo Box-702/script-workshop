@@ -121,7 +121,7 @@ def _stage_scenes(llm: LLM, settings: Settings, *, bible: Bible, excerpts: list[
     from .profiles import profile_prompt
 
     characters = [c.model_dump() for c in bible.characters]
-    locations = [l.model_dump() for l in bible.locations]
+    locations = [loc.model_dump() for loc in bible.locations]
     excerpt_block = "\n".join(excerpts[:8])[:4000]
     prompt = (
         f"请为剧本规划场景，并为每个场景生成按阅读顺序混排的 beats 节拍流。\n"
@@ -209,12 +209,12 @@ def generate_script(
             # ---- 地点 ----
             used_locs: set[str] = set()
             locs: list[Location] = []
-            for i, l in enumerate(bible.locations):
-                lid = normalize_id(l.id, "loc", fallback=f"loc_{i + 1:03d}")
+            for i, loc in enumerate(bible.locations):
+                lid = normalize_id(loc.id, "loc", fallback=f"loc_{i + 1:03d}")
                 if lid in used_locs:
                     lid = f"{lid}_{i + 1}"[: 40]
                 used_locs.add(lid)
-                locs.append(Location(id=lid, name=l.name, description=l.description))
+                locs.append(Location(id=lid, name=loc.name, description=loc.description))
             if not locs:
                 locs = [Location(id="loc_main", name="主要场景")]
 

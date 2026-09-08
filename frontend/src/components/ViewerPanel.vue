@@ -1,30 +1,46 @@
 <script setup>
 // =====================================================================
-// ViewerPanel.vue —— 右侧文本查看面板
+// ViewerPanel.vue —— Inspector 面板（上下文感知）
 //
-// 三个 tab：
-//   - 剧本文本：以「标准剧本排版」渲染当前项目最新版本全文（可导出 txt/md/docx）；
-//   - 知识库：按类型分组的项目知识条目；
-//   - 版本对比：最新版本 vs 上一版本的差异列表。
-// 空态均为教学式文案，告诉用户如何让内容出现。
+// 两个 tab + 智能切换：
+//   - 剧本编辑：标准剧本排版（可编辑/导出/复制）
+//   - Agent 任务：后台子代理任务列表及进度
+//   - 有活跃任务时自动切到 Agent tab，任务完成后自动切回编辑器
 // =====================================================================
 
-import { computed, ref, onUnmounted } from 'vue'
+import { computed, ref, onUnmounted, watch } from 'vue'
 import ScreenplayView from './ScreenplayView.vue'
 import ScreenplayEditor from './ScreenplayEditor.vue'
+import AgentPanel from './AgentPanel.vue'
 import FolderTree from './FolderTree.vue'
-import FolderIcon from './FolderIcon.vue'
-import { store, showView, KIND_NAME, exportVersion, syncProjectToWorkspace, setVersionMilestone, notify, loadViewer, saveNotes, openProjectFile, closeOpenFile, downloadProjectFile } from '../stores/app'
-import { fmtVal } from '../utils/format'
+import { store, showView, focusScene, exportVersion, syncProjectToWorkspace, setVersionMilestone, notify, loadViewer, saveNotes } from '../stores/app'
 
 const TABS = [
-  { key: 'text', label: '剧本文本' },
-  { key: 'notes', label: '编剧设定' },
-  { key: 'knowledge', label: '知识库' },
-  { key: 'files', label: '本地文件' },
-  { key: 'diff', label: '版本对比' },
+  { key: 'editor', label: '剧本编辑', icon: '📄' },
+  { key: 'scene', label: '场景聚焦', icon: '🎯' },
+  { key: 'agents', label: 'Agent 任务', icon: '🤖', badge: true },
 ]
+
+// 聚焦场景数据
+const focusedScene = computed(() => {
+  if (!store.focusedSceneId || !store.viewerScript) return null
+  return (store.viewerScript.scenes || []).find((s) => s.id === store.focusedSceneId) || null
+})
+const charMap = computed(() => {
+  if (!store.viewerScript) return {}
+  return (store.viewerScript.characters || []).reduce((m, c) => ((m[c.id] = c.name), m), {})
+})
 const currentTitle = computed(() => store.projects.find((p) => p.id === store.pid)?.title || '未选择项目')
+
+// 活跃任务数（用于 badge）
+const activeTaskCount = computed(() => store.tasks.filter((t) => t.status === 'running' || t.status === 'pending').length)
+
+// 有新任务启动时自动切到 Agent tab
+watch(activeTaskCount, (newVal, oldVal) => {
+  if (newVal > oldVal && store.view !== 'agents') {
+    showView('agents')
+  }
+})
 
 const latestVersionId = computed(() => store.versions[0]?.id || null)
 const latestMilestone = computed(() => store.versions[0]?.milestone || null)
@@ -73,6 +89,14 @@ async function doExport(fmt) {
   }
 }
 
+/** PDF 导出：打开可打印 HTML 页面，浏览器自动弹出打印对话框。 */
+function doExportPdf() {
+  if (!latestVersionId.value) return
+  exportOpen.value = false
+  const url = `/api/versions/${latestVersionId.value}/export?fmt=pdf`
+  window.open(url, '_blank')
+}
+
 // ---- 同步到工作目录 ----
 const syncing = ref(false)
 const showWs = ref(false)
@@ -89,26 +113,6 @@ async function syncToWorkspace() {
   } finally {
     syncing.value = false
   }
-}
-
-/** diff 类型 -> 标签与配色。 */
-function diffMeta(t) {
-  return t === '+' ? { label: '＋ 新增', cls: 't-add' }
-    : t === '-' ? { label: '－ 删除', cls: 't-del' }
-    : { label: '～ 修改', cls: 't-mod' }
-}
-
-// ---- 本地文件 ----
-function fmtSize(b) {
-  if (!b && b !== 0) return ''
-  return b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : (b / 1024).toFixed(1) + ' KB'
-}
-function isTextFile(name) { return /\.(txt|md|markdown)$/i.test(name) }
-function fileMtime(t) {
-  if (!t) return ''
-  const d = new Date(t * 1000)
-  const p = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
 // ---- 内置剧本编辑器 ----
@@ -139,12 +143,16 @@ async function onSaveNotes() {
           v-for="t in TABS" :key="t.key"
           class="v-tab" :class="{ active: store.view === t.key }"
           @click="showView(t.key)"
-        >{{ t.label }}</button>
+        >
+          <span class="v-tab-icon">{{ t.icon }}</span>
+          {{ t.label }}
+          <span v-if="t.badge && activeTaskCount" class="v-tab-badge">{{ activeTaskCount }}</span>
+        </button>
       </div>
       <div class="vt">{{ currentTitle }}</div>
       <!-- 操作按钮：仅当有可操作的版本/文本时出现，并在出现/消失时平滑过渡，避免切换 tab 时突兀地弹出 -->
       <Transition name="vacts">
-        <div v-if="store.view === 'text' && latestVersionId" class="v-acts">
+        <div v-if="store.view === 'editor' && latestVersionId" class="v-acts">
           <button v-if="store.viewerScript && !editing" class="ghost small" @click="editing = true">✎ 编辑</button>
           <div class="export-wrap">
             <button class="ghost small" @click="exportOpen = !exportOpen">
@@ -154,6 +162,7 @@ async function onSaveNotes() {
               <button class="ghost small" @click="doExport('txt')">.txt 纯文本</button>
               <button class="ghost small" @click="doExport('md')">.md 文档</button>
               <button class="ghost small" @click="doExport('docx')">.docx Word</button>
+              <button class="ghost small" @click="doExportPdf">🖨 打印 PDF</button>
             </div>
           </div>
           <button class="ghost small" :disabled="!store.viewerText" @click="copyScript">
@@ -166,8 +175,8 @@ async function onSaveNotes() {
     <!-- 各 tab 内容：纯淡入淡出重叠 crossfade，切换时不位移、屏幕不抖动 -->
     <div class="v-body-wrap">
       <Transition name="tabfade">
-    <!-- 剧本文本：标准剧本排版 -->
-    <div v-if="store.view === 'text'" class="v-body">
+    <!-- 剧本编辑：标准剧本排版 -->
+    <div v-if="store.view === 'editor'" class="v-body">
       <ScreenplayEditor
         v-if="editing && store.viewerScript"
         :script="store.viewerScript"
@@ -202,92 +211,45 @@ async function onSaveNotes() {
       </div>
     </div>
 
-    <!-- 编剧圣经 / 设定备忘 -->
-    <div v-else-if="store.view === 'notes'" class="v-body">
-      <div v-if="store.pid" class="notes-wrap">
-        <div class="notes-hint">记录人物小传、时间线、伏笔清单等「剧本圣经」；这些作为你的创作设定随时可改。</div>
-        <textarea
-          v-model="store.viewerNotes"
-          class="notes-ta"
-          placeholder="例如：&#10;人物：林然（主角）——前刑警，寡言，怕火。&#10;时间线：1987 旧货市场失火 → 1997 重逢。&#10;伏笔：红雨衣、未寄出的照片。"
-          spellcheck="false"
-          @input="store.notesDirty = true"
-        ></textarea>
-        <div class="notes-foot">
-          <button class="small" :disabled="savingNotes" @click="onSaveNotes">{{ savingNotes ? '保存中…' : '保存设定' }}</button>
-          <span class="notes-tip">会自动写入工作目录的 04_知识库</span>
+    <!-- 场景聚焦视图 -->
+    <div v-else-if="store.view === 'scene'" class="v-body">
+      <div v-if="focusedScene" class="scene-focus">
+        <div class="sf-header">
+          <h3>{{ focusedScene.title || focusedScene.id }}</h3>
+          <button class="ghost small" @click="focusScene(null); showView('editor')">✕ 退出聚焦</button>
         </div>
-      </div>
-      <div v-else class="v-empty">选择剧本项目后，这里可以维护你的「编剧圣经 / 设定」。</div>
-    </div>
-
-    <!-- 本地剧本文件 -->
-    <div v-else-if="store.view === 'files'" class="v-body">
-      <!-- 打开的文本预览 -->
-      <div v-if="store.openFile" class="file-preview">
-        <div class="preview-head">
-          <span class="preview-name" :title="store.openFile.name">{{ store.openFile.name }}</span>
-          <button class="ghost small" @click="closeOpenFile()">关闭</button>
+        <div v-if="focusedScene.purpose" class="sf-section">
+          <div class="sf-label">目的</div>
+          <div class="sf-text">{{ focusedScene.purpose }}</div>
         </div>
-        <pre class="preview-body">{{ store.openFile.content }}</pre>
-      </div>
-
-      <template v-else>
-        <div v-if="store.projectFiles && store.projectFiles.persist === false" class="v-empty">
-          当前为「仅应用内」模式，未落盘文件。可在顶栏「工作目录」切换到落盘模式后，这里会自动列出你的剧本文件。
+        <div v-if="focusedScene.conflict" class="sf-section">
+          <div class="sf-label">冲突</div>
+          <div class="sf-text">{{ focusedScene.conflict }}</div>
         </div>
-        <template v-else-if="store.projectFiles && store.projectFiles.folders.length">
-          <section v-for="g in store.projectFiles.folders" :key="g.code" class="file-sec">
-            <div class="file-sec-head"><FolderIcon :open="true" /> {{ g.code }} <span class="file-sec-label">{{ g.label }}</span><span class="file-sec-count">{{ g.files.length }}</span></div>
-            <div v-for="f in g.files" :key="f.name" class="file-row">
-              <span class="file-ext" :class="{ extdoc: /\.(docx)$/i.test(f.name) }">{{ (f.name.split('.').pop() || '').toUpperCase() }}</span>
-              <span class="file-name" :title="f.name">{{ f.name }}</span>
-              <span class="file-meta">{{ fmtSize(f.size) }} · {{ fileMtime(f.mtime) }}</span>
-              <span class="file-acts">
-                <button v-if="isTextFile(f.name)" class="mini" @click="openProjectFile(g.code + '/' + f.name, true)">打开</button>
-                <button class="mini" @click="downloadProjectFile(g.code + '/' + f.name)"><template v-if="!isTextFile(f.name)">打开</template><template v-else>下载</template></button>
-              </span>
-            </div>
-          </section>
-        </template>
-        <div v-else class="v-empty">
-          <template v-if="store.pid">还没有本地文件。导入原著、生成初稿或导出后，文件会自动出现在这里（数据写在 <code class="mono">data/&lt;剧名&gt;/</code>）。</template>
-          <template v-else>选择剧本项目后，这里会列出该项目在磁盘上的剧本文件。</template>
+        <div v-if="focusedScene.characters?.length" class="sf-section">
+          <div class="sf-label">人物</div>
+          <div class="sf-chars">
+            <span v-for="cid in focusedScene.characters" :key="cid" class="pill dlg">{{ charMap[cid] || cid }}</span>
+          </div>
         </div>
-      </template>
-    </div>
-
-    <!-- 知识库 -->
-    <div v-else-if="store.view === 'knowledge'" class="v-body">
-      <template v-if="store.knowledge.length">
-        <template v-for="g in store.knowledge" :key="g.kind">
-          <div class="know-kind">{{ KIND_NAME[g.kind] || g.kind }}（{{ g.docs.length }}）</div>
-          <div v-for="(d, i) in g.docs" :key="i" class="know-row">{{ d.text }}</div>
-        </template>
-      </template>
-      <div v-else class="v-empty">还没有知识数据。导入原著会自动提取写作手法与作者风格；在对话里说「记住：…」也会记入这里。</div>
-    </div>
-
-    <!-- 版本对比 -->
-    <div v-else class="v-body">
-      <div v-if="store.diffMeta" class="diff-summary">{{ store.diffMeta }}</div>
-      <div v-if="store.diff.length">
-        <div v-for="(x, i) in store.diff" :key="i" class="diff-item">
-          <span :class="diffMeta(x.t).cls">{{ diffMeta(x.t).label }}</span>
-          <b class="mono">{{ x.p }}</b>
-          <div>
-            <template v-if="x.t === '~'">
-              <span class="old">{{ fmtVal(x.before) }}</span> → <span class="new">{{ fmtVal(x.after) }}</span>
-            </template>
-            <template v-else>
-              <span :class="diffMeta(x.t).cls">{{ fmtVal(x.before ?? x.after) }}</span>
-            </template>
+        <div v-if="focusedScene.beats?.length" class="sf-section">
+          <div class="sf-label">节拍（{{ focusedScene.beats.length }}）</div>
+          <div v-for="b in focusedScene.beats" :key="b.id" class="sf-beat" :class="'sf-' + b.type">
+            <span class="sf-beat-id">{{ b.id }}</span>
+            <span v-if="b.type === 'dialogue'" class="sf-beat-speaker">{{ charMap[b.speaker] || b.speaker }}</span>
+            <span class="sf-beat-text">{{ b.line || b.text || '' }}</span>
+            <span v-if="b.emotion" class="sf-beat-emotion">（{{ b.emotion }}）</span>
           </div>
         </div>
       </div>
       <div v-else class="v-empty">
-        {{ store.diffMeta ? '两版之间无差异。' : '生成第二个版本后，这里会展示最新一版的改动对比。' }}
+        点击左侧场景列表中的某个场景，这里会显示该场景的详细内容。
       </div>
+    </div>
+
+    <!-- Agent 任务面板 -->
+    <div v-else-if="store.view === 'agents'" class="v-body v-body-agents">
+      <AgentPanel />
     </div>
       </Transition>
     </div>
@@ -298,8 +260,20 @@ async function onSaveNotes() {
 .viewer {
   background: var(--panel);
   display: flex; flex-direction: column; min-height: 0; min-width: 0;
+  animation: panel-slide-in 350ms var(--ease) both;
 }
-.v-head { padding: 10px 12px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
+@keyframes panel-slide-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.v-head {
+  padding: 10px 12px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px;
+  animation: head-fade-in 300ms 100ms var(--ease) both;
+}
+@keyframes head-fade-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .vt {
   font-size: 11px; color: var(--dim); font-weight: 500; letter-spacing: 0.01em;
   flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -311,9 +285,24 @@ async function onSaveNotes() {
   background: transparent; border: 1px solid transparent; color: var(--muted);
   padding: 4px 8px; border-radius: 7px; font-size: 11.5px; font-weight: 500;
   white-space: nowrap; flex: none;
+  transition: all 200ms var(--ease);
+  animation: tab-pop 250ms var(--ease-bounce) both;
+}
+.v-tab:nth-child(1) { animation-delay: 120ms; }
+.v-tab:nth-child(2) { animation-delay: 180ms; }
+@keyframes tab-pop {
+  from { opacity: 0; transform: translateY(-4px) scale(0.9); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .v-tab:hover { color: var(--ink); background: color-mix(in oklch, var(--ink) 6%, transparent); }
 .v-tab.active { background: var(--select); color: var(--ink); font-weight: 600; }
+.v-tab-icon { font-size: 12px; }
+.v-tab-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; height: 16px; border-radius: 999px;
+  background: var(--ok); color: var(--on-accent); font-size: 9px; font-weight: 700;
+  padding: 0 4px; margin-left: 4px;
+}
 .v-acts { display: flex; gap: 4px; align-items: center; position: relative; }
 .export-wrap { position: relative; }
 .export-menu {
@@ -321,13 +310,21 @@ async function onSaveNotes() {
   display: flex; flex-direction: column; gap: 2px; min-width: 120px;
   background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 4px;
   box-shadow: 0 10px 28px oklch(0 0 0 / 0.4);
+  animation: menu-pop 200ms var(--ease-bounce) both;
+  transform-origin: top right;
+}
+@keyframes menu-pop {
+  from { opacity: 0; transform: scale(0.9) translateY(-4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }
 .export-menu button { text-align: left; }
 .v-body-wrap { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 .v-body { position: absolute; inset: 0; overflow-y: auto; min-height: 0; scrollbar-gutter: stable; }
-/* tab 切换：纯淡入淡出（重叠 crossfade，无位移、无空白帧），避免切换时屏幕抖动；全局已尊重 prefers-reduced-motion */
-.tabfade-enter-active, .tabfade-leave-active { transition: opacity var(--dur) var(--ease); }
-.tabfade-enter-from, .tabfade-leave-to { opacity: 0; }
+/* tab 切换：淡入 + 微上移 */
+.tabfade-enter-active { transition: opacity 250ms var(--ease), transform 250ms var(--ease); }
+.tabfade-leave-active { transition: opacity 150ms ease-in, transform 150ms ease-in; }
+.tabfade-enter-from { opacity: 0; transform: translateY(6px); }
+.tabfade-leave-to { opacity: 0; transform: translateY(-4px); }
 /* 头部操作按钮群：出现 / 消失平滑淡入淡出，不再硬切 */
 .vacts-enter-active, .vacts-leave-active { transition: opacity var(--dur) var(--ease); }
 .vacts-enter-from, .vacts-leave-to { opacity: 0; }
@@ -338,13 +335,7 @@ async function onSaveNotes() {
   font-size: 14px; line-height: 1.85; white-space: pre-wrap; word-break: break-word; color: oklch(0.88 0.005 75);
 }
 .v-empty { color: var(--dim); font-size: 12px; padding: 16px; line-height: 1.7; }
-.know-row { font-size: 11.5px; color: var(--muted); padding: 5px 12px; border-bottom: 1px dashed var(--line); }
-.know-kind { font-size: 11px; color: var(--cue); padding: 10px 12px 2px; font-weight: 600; }
-.diff-summary { font-size: 12px; color: var(--muted); padding: 6px 12px; }
-.diff-item { font-size: 12px; padding: 6px 12px; border-bottom: 1px dashed var(--line); }
-.t-add { color: var(--ok); }
-.t-del { color: var(--bad); }
-.t-mod { color: var(--warn); }
+.v-body-agents { padding: 0; }
 .v-foot {
   display: flex; flex-direction: column; gap: 8px;
   padding: 10px 16px; border-top: 1px dashed var(--line); margin-top: 8px;
@@ -352,36 +343,29 @@ async function onSaveNotes() {
 .foot-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .foot-msg { color: var(--ok); font-size: 11.5px; }
 .foot-ws { background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
-.notes-wrap { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; min-height: 100%; }
-.notes-hint { font-size: 11.5px; color: var(--muted); line-height: 1.6; }
-.notes-ta { flex: 1; min-height: 320px; resize: vertical; font-family: var(--mono); font-size: 12.5px; line-height: 1.7; }
-.notes-foot { display: flex; align-items: center; gap: 10px; }
-.notes-tip { color: var(--dim); font-size: 11px; }
-
-/* 本地文件 */
-.file-preview { display: flex; flex-direction: column; height: 100%; }
-.preview-head { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-bottom: 1px solid var(--line); }
-.preview-name { font-weight: 600; font-size: 12.5px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.preview-body { flex: 1; overflow: auto; margin: 0; padding: 14px 18px; font-family: var(--mono); font-size: 13px; line-height: 1.8; white-space: pre-wrap; word-break: break-word; color: oklch(0.88 0.005 75); }
-.file-sec { padding: 4px 0 4px; }
-.file-sec-head { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); font-weight: 600;
-  padding: 8px 16px 4px; }
-.file-sec-head .folder-icon { width: 14px; height: 14px; color: var(--muted); }
-.file-sec-label { color: var(--dim); font-weight: 400; }
-.file-sec-count { color: var(--dim); font-weight: 400; margin-left: auto; font-variant-numeric: tabular-nums; }
-.file-row { display: flex; align-items: center; gap: 8px; padding: 6px 16px; font-size: 12px; min-width: 0; }
-.file-row:hover { background: color-mix(in oklch, var(--ink) 4%, transparent); }
-.file-ext { flex: none; font-size: 9.5px; font-family: var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
-.file-ext.extdoc { color: var(--dlg); border-color: color-mix(in oklch, var(--dlg) 40%, var(--line)); }
-.file-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
-.file-meta { flex: none; color: var(--dim); font-size: 10.5px; font-variant-numeric: tabular-nums; }
-.file-acts { display: flex; gap: 6px; flex: none; }
-.file-acts .mini { background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: 6px;
-  padding: 0 7px; font-size: 11px; font-weight: 500; line-height: 1.6; cursor: pointer; }
-.file-acts .mini:hover { color: var(--ink); border-color: var(--line-strong); }
 .mile { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; padding: 1px 9px;
   border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
 .mile-final { color: var(--ok); border-color: color-mix(in oklch, var(--ok) 55%, var(--line)); }
 .mile-candidate { color: var(--warn); border-color: color-mix(in oklch, var(--warn) 55%, var(--line)); }
 .mile-draft { color: var(--muted); }
+
+/* 场景聚焦视图 */
+.scene-focus { padding: 16px; }
+.sf-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.sf-header h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--ink); }
+.sf-section { margin-bottom: 14px; }
+.sf-label { font-size: 10px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 4px; }
+.sf-text { font-size: 13px; color: var(--ink); line-height: 1.6; }
+.sf-chars { display: flex; gap: 4px; flex-wrap: wrap; }
+.sf-beat {
+  display: flex; align-items: baseline; gap: 8px; padding: 4px 0;
+  border-bottom: 1px dashed color-mix(in oklch, var(--ink) 6%, transparent);
+  font-size: 12.5px;
+}
+.sf-beat-id { font-size: 10px; color: var(--dim); font-family: var(--mono); flex: none; width: 48px; }
+.sf-beat-speaker { font-weight: 600; color: var(--ok); flex: none; }
+.sf-beat-text { flex: 1; color: var(--ink); }
+.sf-beat-emotion { font-size: 11px; color: var(--dim); font-style: italic; flex: none; }
+.sf-dialogue .sf-beat-text { color: var(--ink); }
+.sf-cue .sf-beat-text { color: var(--dim); font-style: italic; }
 </style>

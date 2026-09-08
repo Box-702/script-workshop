@@ -1,8 +1,7 @@
 # =====================================================================
 # __init__.py —— app 包声明
 # =====================================================================
-"""剧本智能体（Script Adaptation Agent）。
+"""剧本工坊（Script Workshop）。
 
-一个用 LangGraph + LangChain + Postgres（+ 可选 Milvus RAG）构建的
-「剧本改编 Agent」工作台。
+一个用 LangGraph + LangChain 构建的「小说 → 剧本 → AI 短剧」全链路 Agent 工作台。
 """

@@ -1,19 +1,21 @@
 # =====================================================================
-# deps.py —— 依赖单例（store / llm / vector / embedder / settings）
+# deps.py —— 依赖单例（无 RAG 版）
 #
-# 用 lru_cache 保证整个进程只创建一份后端实例（Postgres 连接、模型封装、
-# 向量后端等），业务路由直接从这取，避免重复初始化。
+# 用 lru_cache 保证整个进程只创建一份后端实例。
 # =====================================================================
 
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any
 
 from .config import Settings, get_settings
 from .llm import LLM, build_llm
 from .store import Store
-from .vector import build_embedder, build_vector_store
+from .subagents import SubAgentRunner, get_runner
+from .video import ProviderRegistry
+from .video import get_registry as get_video_registry
+from .video.queue import VideoJobManager
+from .video.queue import get_manager as get_video_manager
 
 
 @lru_cache
@@ -32,10 +34,15 @@ def llm() -> LLM:
 
 
 @lru_cache
-def embedder() -> Any:
-    return build_embedder(settings())
+def subagent_runner() -> SubAgentRunner:
+    return get_runner()
 
 
 @lru_cache
-def vector() -> Any:
-    return build_vector_store(settings(), embedder())
+def video_registry() -> ProviderRegistry:
+    return get_video_registry()
+
+
+@lru_cache
+def video_manager() -> VideoJobManager:
+    return get_video_manager()

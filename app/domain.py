@@ -333,3 +333,149 @@ class ScriptDocument(BaseModel):
 def script_from_dict(data: dict[str, Any]) -> Script:
     """从字典构建 Script，容错处理缺失字段。"""
     return Script.model_validate(data)
+
+
+# =====================================================================
+# 视频制作领域模型（v3.0 新增）
+#
+# 小说 → 剧本 → 分镜 → AI 短剧 全链路中的后半段数据结构。
+# =====================================================================
+
+# ---- 视频制作枚举 ----
+ShotType = Literal[
+    "extreme_wide", "wide", "medium", "close_up",
+    "extreme_close_up", "over_shoulder", "pov",
+]
+CameraMoveType = Literal[
+    "static", "pan", "tilt", "dolly", "tracking",
+    "crane", "handheld", "zoom", "steady",
+]
+CameraSpeed = Literal["slow", "medium", "fast"]
+PacingType = Literal["slow", "medium", "fast", "variable"]
+TransitionType = Literal["cut", "fade", "dissolve", "wipe", "none"]
+
+
+class CameraMovement(BaseModel):
+    """摄影机运动。"""
+
+    type: CameraMoveType = "static"
+    direction: str | None = None  # left / right / up / down / in / out
+    speed: CameraSpeed = "medium"
+
+
+class Shot(BaseModel):
+    """镜头：场景拆解后的最小视频生成单元。
+
+    每个镜头对应一段 5-10 秒的 AI 生成视频。
+    ``id`` 格式为 ``shot_sceneXXX_NNN``。
+    """
+
+    id: str = Field(pattern=r"^shot_[a-z0-9_]+_\d{3,}$")
+    scene_id: str = Field(pattern=r"^scene_[0-9]{3,}$")
+    order: int = Field(ge=0)
+    shot_type: ShotType = "medium"
+    camera: CameraMovement = Field(default_factory=CameraMovement)
+    subject: str = ""
+    action: str = ""
+    dialogue_ref: str | None = None  # 关联 beat_xxx
+    duration_sec: float = Field(default=5.0, ge=1.0, le=30.0)
+    lighting: str | None = None
+    mood: str | None = None
+    style_notes: str | None = None
+    # ---- 视频生成状态 ----
+    video_prompt: str | None = None
+    video_url: str | None = None
+    video_job_id: str | None = None
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _coerce_id(cls, v: object) -> object:
+        s = str(v).strip() if v is not None else ""
+        if s.startswith("shot_"):
+            return s
+        return f"shot_{_slug_token(s) or hashlib.md5(str(v).encode()).hexdigest()[:8]}"
+
+    @field_validator("scene_id", mode="before")
+    @classmethod
+    def _coerce_scene_id(cls, v: object) -> object:
+        return normalize_id(v, "scene", fallback=v)
+
+    @field_validator("dialogue_ref", mode="before")
+    @classmethod
+    def _coerce_dialogue_ref(cls, v: object) -> object:
+        if v is None or str(v).strip() == "":
+            return None
+        return normalize_id(v, "beat", fallback=v)
+
+
+class StoryboardFrame(BaseModel):
+    """分镜帧：一个镜头的视觉参考帧。
+
+    可由 AI 图片生成，也可由用户手动上传。
+    """
+
+    id: str = Field(pattern=r"^frame_[a-z0-9_]+_\d{3,}$")
+    shot_id: str = Field(pattern=r"^shot_[a-z0-9_]+_\d{3,}$")
+    image_url: str | None = None
+    image_prompt: str = ""
+    description: str = ""
+    dialogue: str | None = None
+    duration_sec: float = 5.0
+    transition: TransitionType = "cut"
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _coerce_id(cls, v: object) -> object:
+        s = str(v).strip() if v is not None else ""
+        if s.startswith("frame_"):
+            return s
+        return f"frame_{_slug_token(s) or hashlib.md5(str(v).encode()).hexdigest()[:8]}"
+
+
+class StyleGuide(BaseModel):
+    """视觉风格指南：由美术指导 Agent 生成。"""
+
+    color_palette: list[str] = Field(default_factory=list)
+    lighting_style: str = ""
+    camera_style: str = ""
+    visual_references: list[str] = Field(default_factory=list)
+    character_appearances: dict[str, str] = Field(default_factory=dict)
+    environment_descriptions: dict[str, str] = Field(default_factory=dict)
+
+
+class SceneBreakdown(BaseModel):
+    """场景拆解：由导演 Agent 生成，将一个 Scene 分解为多个 Shot。"""
+
+    scene_id: str = Field(pattern=r"^scene_[0-9]{3,}$")
+    director_notes: str = ""
+    visual_approach: str = ""
+    pacing: PacingType = "medium"
+    key_moments: list[str] = Field(default_factory=list)
+    shots: list[Shot] = Field(default_factory=list)
+
+    @field_validator("scene_id", mode="before")
+    @classmethod
+    def _coerce_scene_id(cls, v: object) -> object:
+        return normalize_id(v, "scene", fallback=v)
+
+
+class VideoVersion(BaseModel):
+    """视频版本快照：记录某次完整的分镜/镜头状态。"""
+
+    id: str = Field(pattern=r"^vver_[a-z0-9_]+$")
+    project_id: str
+    parent_version_id: str | None = None
+    source_type: str = "agent"  # agent / manual / generation
+    label: str | None = None
+    notes: str | None = None
+    milestone: str | None = None  # draft / candidate / final
+    shots: list[Shot] = Field(default_factory=list)
+    style_guide: StyleGuide = Field(default_factory=StyleGuide)
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _coerce_id(cls, v: object) -> object:
+        s = str(v).strip() if v is not None else ""
+        if s.startswith("vver_"):
+            return s
+        return f"vver_{_slug_token(s) or hashlib.md5(str(v).encode()).hexdigest()[:8]}"

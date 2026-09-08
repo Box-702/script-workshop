@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
 
@@ -36,8 +36,18 @@ def gen_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
 
+def _json_load(raw: str | None, default: Any = None) -> Any:
+    """安全解析 JSON 字符串, 失败返回 default。"""
+    if not raw:
+        return default if default is not None else []
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return default if default is not None else []
+
+
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _ensure_sqlite_dir(database_url: str) -> None:
@@ -68,12 +78,17 @@ class Project(Base):
     notes: Mapped[str] = mapped_column(default="")  # 编剧圣经 / 设定备忘（自由文本）
     status: Mapped[str] = mapped_column(default="ready")
     current_version_id: Mapped[str | None] = mapped_column(default=None)
+    # ---- v3.0 视频制作 ----
+    current_video_version_id: Mapped[str | None] = mapped_column(default=None)
+    video_style_json: Mapped[str] = mapped_column(default="{}")
     created_at: Mapped[datetime] = mapped_column(default=_now)
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
 
-    versions: Mapped[list["ScriptVersion"]] = relationship(back_populates="project")
-    agent_runs: Mapped[list["AgentRun"]] = relationship(back_populates="project")
-    conversations: Mapped[list["Conversation"]] = relationship(back_populates="project")
+    versions: Mapped[list[ScriptVersion]] = relationship(back_populates="project")
+    agent_runs: Mapped[list[AgentRun]] = relationship(back_populates="project")
+    conversations: Mapped[list[Conversation]] = relationship(back_populates="project")
+    video_versions: Mapped[list[VideoVersion]] = relationship(back_populates="project")
+    video_jobs: Mapped[list[VideoJob]] = relationship(back_populates="project")
 
 
 class ScriptVersion(Base):
@@ -89,6 +104,8 @@ class ScriptVersion(Base):
     notes: Mapped[str | None] = mapped_column(default=None)
     milestone: Mapped[str | None] = mapped_column(default=None)  # draft|candidate|final
     content_json: Mapped[str] = mapped_column(default="{}")
+    # ---- v3.0 场景拆解 ----
+    breakdown_json: Mapped[str] = mapped_column(default="{}")
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
     project: Mapped[Project] = relationship(back_populates="versions")
@@ -130,41 +147,41 @@ class AgentRun(Base):
     # ---- 便捷存取序列化字段 ----
     @property
     def scene_ids(self) -> list[str]:
-        return json.loads(self.scene_ids_json or "[]")
+        return _json_load(self.scene_ids_json, [])
 
     @property
     def plan(self) -> list[str]:
-        return json.loads(self.plan_json or "[]")
+        return _json_load(self.plan_json, [])
 
     @property
     def patch(self) -> list[dict[str, Any]]:
-        return json.loads(self.patch_json or "[]")
+        return _json_load(self.patch_json, [])
 
     @property
     def steps(self) -> list[str]:
-        return json.loads(self.steps_json or "[]")
+        return _json_load(self.steps_json, [])
 
     @property
     def decision(self) -> dict[str, Any] | None:
-        return json.loads(self.decision_json) if self.decision_json else None
+        return _json_load(self.decision_json, None)
 
 
 class Conversation(Base):
-    """项目下的一个对话（会话线程）。
+    """对话（会话线程）。
 
-    一个项目 = 一个剧本文件夹，其下可以新建多个对话；每个对话独立保存
-    消息历史，从而独立控制 Agent 的上下文（互不干扰）。
+    可以属于某个项目，也可以是全局独立对话（project_id 为 null）。
+    每个对话独立保存消息历史。
     """
 
     __tablename__ = "conversations"
 
     id: Mapped[str] = mapped_column(primary_key=True)
-    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), index=True, default=None)
     title: Mapped[str] = mapped_column(default="新对话")
     created_at: Mapped[datetime] = mapped_column(default=_now)
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
 
-    project: Mapped[Project] = relationship(back_populates="conversations")
+    project: Mapped[Project | None] = relationship(back_populates="conversations")
 
 
 class ChatMessage(Base):
@@ -188,11 +205,130 @@ class ChatMessage(Base):
 
     @property
     def payload(self) -> list[dict[str, Any]]:
-        return json.loads(self.payload_json or "[]")
+        return _json_load(self.payload_json, [])
 
     @property
     def events(self) -> list[dict[str, Any]]:
-        return json.loads(self.events_json or "[]")
+        return _json_load(self.events_json, [])
+
+
+# =====================================================================
+# v3.0 视频制作相关表
+# =====================================================================
+
+
+class ApiProvider(Base):
+    """API Provider 配置（LLM / 视频 / 图片 / TTS）。"""
+
+    __tablename__ = "api_providers"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(default="llm")  # llm | video | image | tts
+    name: Mapped[str] = mapped_column(default="")  # runway / kling / openai 等
+    label: Mapped[str] = mapped_column(default="")  # 显示名
+    base_url: Mapped[str] = mapped_column(default="")
+    api_key: Mapped[str] = mapped_column(default="")
+    config_json: Mapped[str] = mapped_column(default="{}")
+    enabled: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+    updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
+
+    @property
+    def config(self) -> dict[str, Any]:
+        return _json_load(self.config_json, {})
+
+
+class ModelPreference(Base):
+    """用户模型偏好：为每种任务类型指定默认 provider + model。"""
+
+    __tablename__ = "model_preferences"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    task_type: Mapped[str] = mapped_column(default="")  # screenplay | shot_design | video_gen | image_gen | tts
+    provider_id: Mapped[str | None] = mapped_column(ForeignKey("api_providers.id"), default=None)
+    model_name: Mapped[str] = mapped_column(default="")
+    params_json: Mapped[str] = mapped_column(default="{}")
+    is_default: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+
+    @property
+    def params(self) -> dict[str, Any]:
+        return _json_load(self.params_json, {})
+
+
+class VideoJob(Base):
+    """视频生成任务。"""
+
+    __tablename__ = "video_jobs"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    version_id: Mapped[str | None] = mapped_column(default=None)
+    shot_id: Mapped[str] = mapped_column(default="")
+    provider: Mapped[str] = mapped_column(default="")
+    model: Mapped[str] = mapped_column(default="")
+    prompt: Mapped[str] = mapped_column(default="")
+    params_json: Mapped[str] = mapped_column(default="{}")
+    status: Mapped[str] = mapped_column(default="pending")  # pending|queued|generating|succeeded|failed|cancelled
+    external_task_id: Mapped[str | None] = mapped_column(default=None)
+    video_url: Mapped[str | None] = mapped_column(default=None)
+    error_message: Mapped[str | None] = mapped_column(default=None)
+    cost_estimate: Mapped[float | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+    finished_at: Mapped[datetime | None] = mapped_column(default=None)
+
+    project: Mapped[Project] = relationship(back_populates="video_jobs")
+
+    @property
+    def params(self) -> dict[str, Any]:
+        return _json_load(self.params_json, {})
+
+
+class VideoVersion(Base):
+    """视频版本快照：记录某次完整的分镜/镜头状态。"""
+
+    __tablename__ = "video_versions"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    parent_version_id: Mapped[str | None] = mapped_column(default=None)
+    source_type: Mapped[str] = mapped_column(default="agent")  # agent | manual | generation
+    label: Mapped[str | None] = mapped_column(default=None)
+    notes: Mapped[str | None] = mapped_column(default=None)
+    milestone: Mapped[str | None] = mapped_column(default=None)  # draft | candidate | final
+    shots_json: Mapped[str] = mapped_column(default="[]")
+    style_guide_json: Mapped[str] = mapped_column(default="{}")
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+
+    project: Mapped[Project] = relationship(back_populates="video_versions")
+
+    @property
+    def shots(self) -> list[dict[str, Any]]:
+        return _json_load(self.shots_json, [])
+
+    @property
+    def style_guide(self) -> dict[str, Any]:
+        return _json_load(self.style_guide_json, {})
+
+
+# =====================================================================
+# v3.0 记忆系统（替代 RAG）
+# =====================================================================
+
+
+class Memory(Base):
+    """用户级记忆：偏好、决策、反馈、行为模式。"""
+
+    __tablename__ = "memories"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(default="preference")  # preference|decision|feedback|pattern
+    content: Mapped[str] = mapped_column(default="")
+    scope: Mapped[str] = mapped_column(default="global")  # global|project|conversation
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), default=None, index=True)
+    conversation_id: Mapped[str | None] = mapped_column(default=None, index=True)
+    source: Mapped[str] = mapped_column(default="user")  # user|agent|system
+    created_at: Mapped[datetime] = mapped_column(default=_now)
 
 
 # ---------- 会话 / 初始化 ----------
@@ -231,7 +367,7 @@ class Store:
         self._ensure_columns()
 
     def _ensure_columns(self) -> None:
-        """轻量迁移：给已存在的表补缺失列（如 milestone / notes）。
+        """轻量迁移：给已存在的表补缺失列（如 milestone / notes / video 字段）。
 
         新库由 create_all 直接建出含新列的表；老库（如已有 dev.db）不会自动加列，
         这里用 ALTER TABLE 补齐，避免启动后查询这些列报错。
@@ -241,14 +377,25 @@ class Store:
 
             insp = inspect(self.engine)
             tables = set(insp.get_table_names())
+
+            # ---- projects 表 ----
             cols_proj = {c["name"] for c in insp.get_columns("projects")} if "projects" in tables else set()
-            if "notes" not in cols_proj:
-                with self.engine.begin() as conn:
+            with self.engine.begin() as conn:
+                if "notes" not in cols_proj:
                     conn.execute(text("ALTER TABLE projects ADD COLUMN notes VARCHAR"))
+                if "current_video_version_id" not in cols_proj:
+                    conn.execute(text("ALTER TABLE projects ADD COLUMN current_video_version_id VARCHAR"))
+                if "video_style_json" not in cols_proj:
+                    conn.execute(text("ALTER TABLE projects ADD COLUMN video_style_json VARCHAR DEFAULT '{}'"))
+
+            # ---- script_versions 表 ----
             cols_ver = {c["name"] for c in insp.get_columns("script_versions")} if "script_versions" in tables else set()
-            if "milestone" not in cols_ver:
-                with self.engine.begin() as conn:
+            with self.engine.begin() as conn:
+                if "milestone" not in cols_ver:
                     conn.execute(text("ALTER TABLE script_versions ADD COLUMN milestone VARCHAR"))
+                if "breakdown_json" not in cols_ver:
+                    conn.execute(text("ALTER TABLE script_versions ADD COLUMN breakdown_json VARCHAR DEFAULT '{}'"))
+
         except Exception as e:  # noqa: BLE001
             # 表不存在或已是最新：迁移失败不阻塞启动，但必须可观测——
             # 静默失败会让老库缺列的报错延后到业务查询时才出现，难以排查。
@@ -258,6 +405,7 @@ class Store:
 
     def session(self):
         return self.session_factory()
+
 
     # ---- Project ----
     def create_project(self, *, title: str, adaptation_type: str, language: str, raw_text: str) -> Project:
@@ -279,18 +427,23 @@ class Store:
             return s.get(Project, project_id)
 
     def delete_project(self, project_id: str) -> None:
-        """删除项目及其所有关联数据（对话、消息、版本、运行记录）。"""
+        """删除项目及其所有关联数据（对话、消息、版本、运行记录、视频任务）。"""
         with self.session() as s:
-            # 删除对话消息（ChatMessage.thread_id 存的是 Conversation.id）
-            convs = s.query(Conversation).filter_by(project_id=project_id).all()
-            for c in convs:
-                s.query(ChatMessage).filter_by(thread_id=c.id).delete()
+            # 批量删除对话消息（先查出对话 id，再按 thread_id 批量删）
+            conv_ids = [
+                c.id for c in s.query(Conversation.id).filter_by(project_id=project_id).all()
+            ]
+            if conv_ids:
+                s.query(ChatMessage).filter(ChatMessage.thread_id.in_(conv_ids)).delete()
             # 删除对话
             s.query(Conversation).filter_by(project_id=project_id).delete()
             # 删除版本
             s.query(ScriptVersion).filter_by(project_id=project_id).delete()
             # 删除运行记录
             s.query(AgentRun).filter_by(project_id=project_id).delete()
+            # 删除视频任务和版本
+            s.query(VideoJob).filter_by(project_id=project_id).delete()
+            s.query(VideoVersion).filter_by(project_id=project_id).delete()
             # 删除项目
             s.query(Project).filter_by(id=project_id).delete()
             s.commit()
@@ -298,6 +451,63 @@ class Store:
     def list_projects(self) -> list[Project]:
         with self.session() as s:
             return s.query(Project).order_by(desc(Project.created_at)).all()
+
+    def list_project_summaries(self) -> list[dict[str, Any]]:
+        """批量查询项目摘要（版本数 / 运行数 / 最新运行），避免 N+1。"""
+        from sqlalchemy import func
+
+        with self.session() as s:
+            projects = s.query(Project).order_by(desc(Project.created_at)).all()
+            if not projects:
+                return []
+            pids = [p.id for p in projects]
+
+            # 版本计数
+            ver_counts: dict[str, int] = {}
+            for pid, cnt in (
+                s.query(ScriptVersion.project_id, func.count())
+                .filter(ScriptVersion.project_id.in_(pids))
+                .group_by(ScriptVersion.project_id)
+                .all()
+            ):
+                ver_counts[pid] = cnt
+
+            # 运行计数 + 最新运行
+            run_counts: dict[str, int] = {}
+            latest_runs: dict[str, AgentRun] = {}
+            all_runs = (
+                s.query(AgentRun)
+                .filter(AgentRun.project_id.in_(pids))
+                .order_by(AgentRun.created_at.desc())
+                .all()
+            )
+            seen: set[str] = set()
+            for r in all_runs:
+                run_counts[r.project_id] = run_counts.get(r.project_id, 0) + 1
+                if r.project_id not in seen:
+                    latest_runs[r.project_id] = r
+                    seen.add(r.project_id)
+
+            return [
+                {
+                    "id": p.id,
+                    "title": p.title,
+                    "adaptation_type": p.adaptation_type,
+                    "language": p.language,
+                    "status": p.status,
+                    "current_version_id": p.current_version_id,
+                    "created_at": p.created_at.isoformat(),
+                    "version_count": ver_counts.get(p.id, 0),
+                    "run_count": run_counts.get(p.id, 0),
+                    "latest_run": {
+                        "status": latest_runs[p.id].status,
+                        "updated_at": latest_runs[p.id].updated_at.isoformat(),
+                    }
+                    if p.id in latest_runs
+                    else None,
+                }
+                for p in projects
+            ]
 
     def get_project_notes(self, project_id: str) -> str:
         p = self.get_project(project_id)
@@ -439,7 +649,7 @@ class Store:
                 if key in {"scene_ids", "plan", "patch", "steps"}:
                     setattr(r, f"{key}_json", json.dumps(value))
                 elif key == "decision":
-                    setattr(r, "decision_json", json.dumps(value) if value is not None else "null")
+                    r.decision_json = json.dumps(value) if value is not None else "null"
                 else:
                     setattr(r, key, value)
             s.commit()
@@ -495,7 +705,7 @@ class Store:
 
     # ---- Conversation（项目下的对话线程）----
 
-    def create_conversation(self, project_id: str, title: str = "新对话") -> Conversation:
+    def create_conversation(self, project_id: str | None = None, title: str = "新对话") -> Conversation:
         with self.session() as s:
             c = Conversation(id=gen_id("conv"), project_id=project_id, title=title)
             s.add(c)
@@ -514,6 +724,25 @@ class Store:
                 .filter_by(project_id=project_id)
                 .order_by(Conversation.updated_at.desc())
                 .all()
+            )
+
+    def list_global_conversations(self) -> list[Conversation]:
+        """列出全局对话（不属于任何项目）。"""
+        with self.session() as s:
+            return (
+                s.query(Conversation)
+                .filter(Conversation.project_id.is_(None))
+                .order_by(Conversation.updated_at.desc())
+                .all()
+            )
+
+    def count_user_messages(self, conversation_id: str) -> int:
+        """统计对话中用户消息的数量（用于判断对话是否为空白）。"""
+        with self.session() as s:
+            return (
+                s.query(ChatMessage)
+                .filter_by(thread_id=conversation_id, role="user")
+                .count()
             )
 
     def rename_conversation(self, conversation_id: str, title: str) -> Conversation | None:
@@ -537,9 +766,235 @@ class Store:
             s.commit()
             return True
 
+    # =====================================================================
+    # v3.0 视频制作相关 CRUD
+    # =====================================================================
+
+    # ---- ApiProvider ----
+
+    def create_api_provider(
+        self,
+        *,
+        kind: str,
+        name: str,
+        label: str,
+        base_url: str = "",
+        api_key: str = "",
+        config: dict[str, Any] | None = None,
+        enabled: bool = True,
+    ) -> ApiProvider:
+        with self.session() as s:
+            p = ApiProvider(
+                id=gen_id("prov"),
+                kind=kind,
+                name=name,
+                label=label,
+                base_url=base_url,
+                api_key=api_key,
+                config_json=json.dumps(config or {}, ensure_ascii=False),
+                enabled=enabled,
+            )
+            s.add(p)
+            s.commit()
+            s.refresh(p)
+            return p
+
+    def get_api_provider(self, provider_id: str) -> ApiProvider | None:
+        with self.session() as s:
+            return s.get(ApiProvider, provider_id)
+
+    def list_api_providers(self, kind: str | None = None) -> list[ApiProvider]:
+        with self.session() as s:
+            q = s.query(ApiProvider)
+            if kind:
+                q = q.filter_by(kind=kind)
+            return q.order_by(ApiProvider.created_at.desc()).all()
+
+    def update_api_provider(self, provider_id: str, **fields: Any) -> ApiProvider | None:
+        with self.session() as s:
+            p = s.get(ApiProvider, provider_id)
+            if not p:
+                return None
+            for key, value in fields.items():
+                if key == "config":
+                    p.config_json = json.dumps(value, ensure_ascii=False)
+                elif hasattr(p, key):
+                    setattr(p, key, value)
+            p.updated_at = _now()
+            s.commit()
+            s.refresh(p)
+            return p
+
+    def delete_api_provider(self, provider_id: str) -> bool:
+        with self.session() as s:
+            p = s.get(ApiProvider, provider_id)
+            if not p:
+                return False
+            s.delete(p)
+            s.commit()
+            return True
+
+    # ---- ModelPreference ----
+
+    def get_model_preference(self, task_type: str) -> ModelPreference | None:
+        with self.session() as s:
+            return s.query(ModelPreference).filter_by(task_type=task_type, is_default=True).first()
+
+    def list_model_preferences(self) -> list[ModelPreference]:
+        with self.session() as s:
+            return s.query(ModelPreference).order_by(ModelPreference.task_type).all()
+
+    def set_model_preference(
+        self,
+        *,
+        task_type: str,
+        provider_id: str | None,
+        model_name: str,
+        params: dict[str, Any] | None = None,
+        is_default: bool = True,
+    ) -> ModelPreference:
+        with self.session() as s:
+            # 先清除同类型的旧默认
+            if is_default:
+                s.query(ModelPreference).filter_by(task_type=task_type, is_default=True).update({"is_default": False})
+            pref = ModelPreference(
+                id=gen_id("pref"),
+                task_type=task_type,
+                provider_id=provider_id,
+                model_name=model_name,
+                params_json=json.dumps(params or {}, ensure_ascii=False),
+                is_default=is_default,
+            )
+            s.add(pref)
+            s.commit()
+            s.refresh(pref)
+            return pref
+
+    # ---- VideoJob ----
+
+    def create_video_job(
+        self,
+        *,
+        project_id: str,
+        shot_id: str,
+        provider: str,
+        model: str,
+        prompt: str,
+        params: dict[str, Any] | None = None,
+        version_id: str | None = None,
+        cost_estimate: float | None = None,
+    ) -> VideoJob:
+        with self.session() as s:
+            j = VideoJob(
+                id=gen_id("vjob"),
+                project_id=project_id,
+                version_id=version_id,
+                shot_id=shot_id,
+                provider=provider,
+                model=model,
+                prompt=prompt,
+                params_json=json.dumps(params or {}, ensure_ascii=False),
+                cost_estimate=cost_estimate,
+            )
+            s.add(j)
+            s.commit()
+            s.refresh(j)
+            return j
+
+    def get_video_job(self, job_id: str) -> VideoJob | None:
+        with self.session() as s:
+            return s.get(VideoJob, job_id)
+
+    def list_video_jobs(self, project_id: str) -> list[VideoJob]:
+        with self.session() as s:
+            return (
+                s.query(VideoJob)
+                .filter_by(project_id=project_id)
+                .order_by(VideoJob.created_at.desc())
+                .all()
+            )
+
+    def update_video_job(self, job_id: str, **fields: Any) -> VideoJob | None:
+        with self.session() as s:
+            j = s.get(VideoJob, job_id)
+            if not j:
+                return None
+            for key, value in fields.items():
+                if key == "params":
+                    j.params_json = json.dumps(value, ensure_ascii=False)
+                elif hasattr(j, key):
+                    setattr(j, key, value)
+            s.commit()
+            s.refresh(j)
+            return j
+
+    # ---- VideoVersion ----
+
+    def create_video_version(
+        self,
+        *,
+        project_id: str,
+        shots: list[dict[str, Any]],
+        style_guide: dict[str, Any] | None = None,
+        source_type: str = "agent",
+        label: str | None = None,
+        notes: str | None = None,
+        parent_version_id: str | None = None,
+        set_current: bool = True,
+    ) -> VideoVersion:
+        with self.session() as s:
+            v = VideoVersion(
+                id=gen_id("vver"),
+                project_id=project_id,
+                parent_version_id=parent_version_id,
+                source_type=source_type,
+                label=label,
+                notes=notes,
+                shots_json=json.dumps(shots, ensure_ascii=False),
+                style_guide_json=json.dumps(style_guide or {}, ensure_ascii=False),
+            )
+            s.add(v)
+            if set_current:
+                db_proj = s.query(Project).filter_by(id=project_id).first()
+                if db_proj:
+                    db_proj.current_video_version_id = v.id
+                    db_proj.updated_at = _now()
+            s.commit()
+            s.refresh(v)
+            return v
+
+    def get_video_version(self, version_id: str) -> VideoVersion | None:
+        with self.session() as s:
+            return s.get(VideoVersion, version_id)
+
+    def list_video_versions(self, project_id: str) -> list[VideoVersion]:
+        with self.session() as s:
+            return (
+                s.query(VideoVersion)
+                .filter_by(project_id=project_id)
+                .order_by(VideoVersion.created_at.desc())
+                .all()
+            )
+
+    def set_video_version_milestone(self, version_id: str, milestone: str | None) -> VideoVersion | None:
+        with self.session() as s:
+            v = s.get(VideoVersion, version_id)
+            if not v:
+                return None
+            v.milestone = milestone
+            s.commit()
+            s.refresh(v)
+            return v
+
     def ensure_default_conversation(self, project_id: str) -> Conversation:
         """项目没有对话时自动建一个「默认对话」，保证任何项目都能直接开聊。"""
-        convs = self.list_conversations(project_id)
-        if convs:
-            return convs[0]
+        with self.session() as s:
+            existing = (
+                s.query(Conversation)
+                .filter_by(project_id=project_id)
+                .order_by(Conversation.created_at.asc())
+                .first()
+            )
+            if existing:
+                return existing
         return self.create_conversation(project_id, title="默认对话")

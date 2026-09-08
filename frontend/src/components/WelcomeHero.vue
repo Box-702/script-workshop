@@ -1,15 +1,6 @@
 <script setup>
 // =====================================================================
-// WelcomeHero.vue —— 对话区空态：品牌徽记 + 引导标语 + 建议卡片
-//
-// 形制参考 Codex / DeepSeek 的开始页：居中安静的徽记，一句「把当前项目
-// 变成问题」的标语，下面一组可点击的建议卡片。点击卡片不是直接发送，
-// 而是把文本填进下方输入框（由用户确认后发送），与 Codex 的交互一致；
-// 「新建剧本 / 工作目录」这类导航型卡片则直接打开对应弹窗。
-//
-// 两种模式随 store.pid 自适应：
-//   - 未选项目：卡片引导「导入原著」（创建项目是第一件事）；
-//   - 已选项目：标语带上剧名，卡片是具体改编动作。
+// WelcomeHero.vue —— 开始页（3D 卡片 + 渐变色 + 动效）
 // =====================================================================
 
 import { computed } from 'vue'
@@ -20,27 +11,20 @@ const projectName = computed(
   () => store.projects.find((p) => p.id === store.pid)?.title || ''
 )
 
-/** 填进输入框（draftSeq 触发 ChatComposer 关注并聚焦）。 */
-function fill(text) {
-  store.draft = text
-  store.draftSeq++
-}
+function fill(text) { store.draft = text; store.draftSeq++ }
 
-// 卡片定义：icon = 线稿图形名；fill 有值填输入框，否则 open 指定弹窗。
 const CREATE_CARDS = [
-  { icon: 'upload', title: '上传原著文件', desc: '.txt / .md / .docx，导入即建知识库', open: 'newProject' },
-  { icon: 'doc', title: '粘贴文本开始', desc: '复制一段小说，也能直接生成初稿', open: 'newProject' },
-  { icon: 'folder', title: '设置工作目录', desc: '剧本以真实文件落盘，随时打开', open: 'workspace' },
-  { icon: 'help', title: '它能做什么？', desc: '问问 Agent 的工作方式与边界', fill: '你能帮我做什么？' },
+  { icon: 'upload', title: '上传原著文件', desc: '.txt / .md / .docx，导入即建知识库', open: 'newProject', hue: 'gold' },
+  { icon: 'doc', title: '粘贴文本开始', desc: '复制一段小说，也能直接生成初稿', open: 'newProject', hue: 'violet' },
+  { icon: 'folder', title: '设置工作目录', desc: '剧本以真实文件落盘，随时打开', open: 'workspace', hue: 'cyan' },
+  { icon: 'help', title: '它能做什么？', desc: '问问 Agent 的工作方式与边界', fill: '你能帮我做什么？', hue: 'rose' },
 ]
-
 const PROJECT_CARDS = [
-  { icon: 'pen', title: '生成初稿', desc: '从原著产出结构化剧本', fill: '生成初稿' },
-  { icon: 'bubble', title: '打磨对白', desc: '把对白改得更口语、更像人说话', fill: '把对白改口语一点' },
-  { icon: 'pace', title: '调整节奏', desc: '节奏改紧凑一点，保留原结构', fill: '节奏改紧凑一点' },
-  { icon: 'search', title: '检索项目知识', desc: '同类剧的走向、手法与作者风格', fill: '这类悬疑剧怎么设计反转？' },
+  { icon: 'pen', title: '生成初稿', desc: '从原著产出结构化剧本', fill: '生成初稿', hue: 'gold' },
+  { icon: 'bubble', title: '打磨对白', desc: '把对白改得更口语、更像人说话', fill: '把对白改口语一点', hue: 'violet' },
+  { icon: 'pace', title: '调整节奏', desc: '节奏改紧凑一点，保留原结构', fill: '节奏改紧凑一点', hue: 'cyan' },
+  { icon: 'search', title: '检索项目知识', desc: '同类剧的走向、手法与作者风格', fill: '这类悬疑剧怎么设计反转？', hue: 'rose' },
 ]
-
 const cards = computed(() => (store.pid ? PROJECT_CARDS : CREATE_CARDS))
 
 function onCard(card) {
@@ -52,27 +36,33 @@ function onCard(card) {
 
 <template>
   <div class="hero">
-    <div class="hero-mark" aria-hidden="true">
-      <LogoMark :size="46" />
+    <!-- 背景装饰：渐变光晕 -->
+    <div class="hero-glow" aria-hidden="true"></div>
+
+    <div class="hero-mark floating" aria-hidden="true">
+      <LogoMark :size="52" />
     </div>
 
-    <h2 class="hero-title">
+    <h2 class="hero-title animate-in">
       <template v-if="store.pid">今天想把《{{ projectName }}》改成什么？</template>
       <template v-else>从一段原著，开始你的剧本</template>
     </h2>
-    <p class="hero-sub">
+    <p class="hero-sub animate-in" style="animation-delay: 0.1s">
       <template v-if="store.pid">每个改动都会先给提议：可逐条审阅、可编辑、可回滚。</template>
       <template v-else>导入小说或片段，AI 生成结构化初稿，再逐场对话打磨。</template>
     </p>
 
     <div class="hero-cards" role="list">
       <button
-        v-for="c in cards"
+        v-for="(c, i) in cards"
         :key="c.title"
-        class="hero-card"
+        class="hero-card animate-in"
+        :class="'hue-' + c.hue"
+        :style="{ animationDelay: (0.15 + i * 0.06) + 's' }"
         role="listitem"
         @click="onCard(c)"
       >
+        <div class="hero-card-glow" aria-hidden="true"></div>
         <svg viewBox="0 0 16 16" class="hero-icon" aria-hidden="true">
           <template v-if="c.icon === 'upload'">
             <path d="M8 10.5V3M5 5.5L8 2.5l3 3M3 10.5v1.7c0 .4.3.8.8.8h8.4c.5 0 .8-.4.8-.8v-1.7" />
@@ -108,54 +98,87 @@ function onCard(card) {
 
 <style scoped>
 .hero {
-  min-height: 100%;
-  display: flex; flex-direction: column;
+  min-height: 100%; display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  text-align: center;
-  padding: 40px 12px 48px;
+  text-align: center; padding: 40px 12px 48px;
+  position: relative; overflow: hidden;
 }
 
-/* 徽记：聚光灯下的品牌金，开始页唯一被点亮的元素 */
-.hero-mark { color: var(--gold); margin-bottom: 20px; }
+/* 背景渐变光晕 */
+.hero-glow {
+  position: absolute; top: -30%; left: 50%; transform: translateX(-50%);
+  width: 600px; height: 400px; pointer-events: none;
+  background: radial-gradient(ellipse, color-mix(in oklch, var(--gold) 8%, transparent) 0%, transparent 70%);
+  filter: blur(60px);
+}
+
+.hero-mark { color: var(--gold); margin-bottom: 20px; position: relative; z-index: 1; }
 
 .hero-title {
-  margin: 0; font-size: 20px; font-weight: 700; color: var(--ink);
-  letter-spacing: 0.01em; max-width: 36ch; line-height: 1.4;
+  margin: 0; font-size: 22px; font-weight: 700; color: var(--ink);
+  letter-spacing: 0.01em; max-width: 36ch; line-height: 1.4; position: relative; z-index: 1;
+  background: linear-gradient(135deg, var(--ink) 60%, var(--gold));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
 }
 .hero-sub {
   margin: 8px 0 0; font-size: 12.5px; color: var(--muted);
-  text-wrap: balance;
+  text-wrap: balance; position: relative; z-index: 1;
 }
 
-/* 建议卡片：--panel 底 + 1px 边，hover 亮一层；左对齐的图标 + 两行文案 */
+/* 3D 卡片网格 */
 .hero-cards {
-  margin-top: 30px;
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px; width: 100%; max-width: 780px;
+  margin-top: 30px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px; width: 100%; max-width: 780px; position: relative; z-index: 1;
+  perspective: 800px;
 }
 @media (max-width: 860px) { .hero-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .hero-card {
   background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
-  padding: 14px 14px 12px; text-align: left; cursor: pointer;
-  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
-  color: inherit; font-weight: 400;
-  transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  padding: 16px 14px 14px; text-align: left; cursor: pointer;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+  color: inherit; font-weight: 400; position: relative; overflow: hidden;
+  transition: all 300ms var(--ease);
+  transform: perspective(800px) rotateX(0) rotateY(0) translateZ(0);
 }
 .hero-card:hover {
-  background: var(--panel2);
-  border-color: var(--line-strong);
+  background: var(--panel2); border-color: var(--line-strong);
+  transform: perspective(800px) rotateX(-2deg) rotateY(1deg) translateZ(10px);
+  box-shadow: 0 12px 40px oklch(0 0 0 / 0.35);
 }
-.hero-card:active { background: color-mix(in oklch, var(--ink) 7%, var(--panel)); }
+
+/* 卡片底部渐变光晕 */
+.hero-card-glow {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 60%;
+  opacity: 0; transition: opacity 300ms var(--ease);
+  pointer-events: none;
+}
+.hero-card:hover .hero-card-glow { opacity: 1; }
+
+/* 不同色调的卡片光晕 */
+.hue-gold .hero-card-glow { background: linear-gradient(to top, color-mix(in oklch, var(--gold) 10%, transparent), transparent); }
+.hue-gold:hover { border-color: color-mix(in oklch, var(--gold) 30%, var(--line)); }
+.hue-gold .hero-icon { stroke: var(--gold); }
+
+.hue-violet .hero-card-glow { background: linear-gradient(to top, color-mix(in oklch, var(--violet) 10%, transparent), transparent); }
+.hue-violet:hover { border-color: color-mix(in oklch, var(--violet) 30%, var(--line)); }
+.hue-violet .hero-icon { stroke: var(--violet); }
+
+.hue-cyan .hero-card-glow { background: linear-gradient(to top, color-mix(in oklch, var(--cyan) 10%, transparent), transparent); }
+.hue-cyan:hover { border-color: color-mix(in oklch, var(--cyan) 30%, var(--line)); }
+.hue-cyan .hero-icon { stroke: var(--cyan); }
+
+.hue-rose .hero-card-glow { background: linear-gradient(to top, color-mix(in oklch, var(--rose) 10%, transparent), transparent); }
+.hue-rose:hover { border-color: color-mix(in oklch, var(--rose) 30%, var(--line)); }
+.hue-rose .hero-icon { stroke: var(--rose); }
 
 .hero-icon {
-  width: 16px; height: 16px; margin-bottom: 8px;
-  fill: none; stroke: var(--muted); stroke-width: 1.4;
-  stroke-linecap: round; stroke-linejoin: round;
-  transition: stroke var(--dur) var(--ease);
+  width: 18px; height: 18px; margin-bottom: 8px;
+  fill: none; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round;
+  transition: all 300ms var(--ease); position: relative; z-index: 1;
 }
-.hero-card:hover .hero-icon { stroke: var(--gold); }
+.hero-card:hover .hero-icon { transform: scale(1.15); filter: drop-shadow(0 0 6px currentColor); }
 
-.hero-card-title { font-size: 13px; font-weight: 600; color: var(--ink); }
-.hero-card-desc { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+.hero-card-title { font-size: 13px; font-weight: 600; color: var(--ink); position: relative; z-index: 1; }
+.hero-card-desc { font-size: 11.5px; color: var(--muted); line-height: 1.5; position: relative; z-index: 1; }
 </style>

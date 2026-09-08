@@ -67,7 +67,7 @@ def _scene_int_ext(scene: Any, loc_name: str) -> str:
 
 def _screenplay_lines(script: Script, *, markdown: bool = False) -> list[str]:
     """把结构化剧本渲染成剧本文本行序列。`markdown=True` 时加轻量 md 标记。"""
-    locs = {l.id: l.name for l in script.locations}
+    locs = {loc.id: loc.name for loc in script.locations}
     chars = {c.id: c.name for c in script.characters}
 
     lines: list[str] = []
@@ -213,7 +213,6 @@ def script_to_markdown(script: Script) -> str:
 _W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 _REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _PKG_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
-_SINGLE_QUOTE = "&#39;"
 
 
 def _esc_xml(text: str) -> str:
@@ -254,7 +253,7 @@ def script_to_docx(script: Script) -> bytes:
             f'<w:t xml:space="preserve">{_esc_xml(text)}</w:t></w:r></w:p>'
         )
 
-    locs = {l.id: l.name for l in script.locations}
+    locs = {loc.id: loc.name for loc in script.locations}
     chars = {c.id: c.name for c in script.characters}
 
     # 标题页
@@ -395,6 +394,89 @@ def _make_docx_zip(document_xml: str) -> bytes:
     return buf.getvalue()
 
 
+# ---------- HTML 打印版（PDF 用浏览器打印）----------
+
+
+def script_to_printable_html(script: Script) -> str:
+    """生成适合浏览器打印的 HTML 页面（用于 PDF 导出）。"""
+    locs = {loc.id: loc.name for loc in script.locations}
+    chars = {c.id: c.name for c in script.characters}
+
+    lines: list[str] = []
+    lines.append("<!DOCTYPE html><html><head><meta charset='utf-8'>")
+    lines.append(f"<title>{_esc_xml(script.title)}</title>")
+    lines.append("""<style>
+      @page { size: A4; margin: 2.5cm; }
+      body { font-family: 'Courier New', 'SimSun', monospace; font-size: 11pt; line-height: 1.6; color: #1a1a1a; }
+      h1 { text-align: center; font-size: 18pt; margin-bottom: 0.5em; }
+      .logline { text-align: center; font-style: italic; margin-bottom: 2em; color: #555; }
+      .characters { text-align: center; margin-bottom: 2em; }
+      .characters h2 { font-size: 12pt; margin-bottom: 0.5em; }
+      .characters p { margin: 2px 0; }
+      .scene-header { font-weight: bold; margin-top: 1.5em; margin-bottom: 0.5em; text-transform: uppercase; }
+      .purpose, .conflict { margin: 4px 0; color: #444; }
+      .action { margin: 8px 0; }
+      .speaker { text-align: center; font-weight: bold; text-transform: uppercase; margin-top: 12px; margin-bottom: 2px; }
+      .emotion { text-align: center; font-style: italic; color: #666; margin-bottom: 2px; }
+      .dialogue { margin-left: 2.5em; margin-bottom: 8px; }
+      .cue { text-align: center; font-style: italic; color: #666; margin: 8px 0; }
+      .transition { text-align: right; margin: 12px 0; font-weight: bold; }
+      .page-break { page-break-after: always; }
+    </style></head><body>""")
+
+    # 标题页
+    lines.append(f"<h1>{_esc_xml(_upper_zh(script.title))}</h1>")
+    if script.logline:
+        lines.append(f"<p class='logline'>{_esc_xml(script.logline)}</p>")
+
+    # 角色表
+    if script.characters:
+        lines.append("<div class='characters'><h2>人物</h2>")
+        for c in script.characters:
+            role = _role_zh(c.role)
+            lines.append(f"<p>{_esc_xml(c.name)}{'（' + _esc_xml(role) + '）' if role else ''}</p>")
+        lines.append("</div>")
+
+    lines.append("<div class='page-break'></div>")
+
+    # 场景
+    for i, sc in enumerate(script.scenes, 1):
+        loc = locs.get(sc.location_id, sc.location_id) or "场景"
+        int_ext = _scene_int_ext(sc, loc)
+        header = f"{int_ext} {_upper_zh(loc)}"
+        if (sc.time or "").strip():
+            header += f" - {sc.time.strip()}"
+        lines.append(f"<div class='scene-header'>{_esc_xml(header)}</div>")
+
+        for txt in (sc.purpose, sc.conflict):
+            if txt and txt.strip():
+                lines.append(f"<p class='purpose'>{_esc_xml(txt.strip())}</p>")
+
+        for b in sc.beats or []:
+            if b.type == "dialogue":
+                speaker = _upper_zh(chars.get(b.speaker, b.speaker or "") or "")
+                lines.append(f"<div class='speaker'>{_esc_xml(speaker)}</div>")
+                if b.emotion:
+                    lines.append(f"<div class='emotion'>（{_esc_xml(b.emotion)}）</div>")
+                line = str(b.line or "").strip()
+                if line:
+                    lines.append(f"<div class='dialogue'>{_esc_xml(line)}</div>")
+            elif b.type == "cue":
+                cue = str(b.text or "").strip()
+                if cue:
+                    lines.append(f"<div class='cue'>（{_esc_xml(cue)}）</div>")
+            else:
+                action = str(b.text or "").strip()
+                if action:
+                    lines.append(f"<p class='action'>{_esc_xml(action)}</p>")
+
+        if i < len(script.scenes):
+            lines.append("<div class='transition'>CUT TO:</div>")
+
+    lines.append("</body></html>")
+    return "\n".join(lines)
+
+
 # ---------- 统一入口 ----------
 
 # 导出格式 -> (扩展名, MIME)
@@ -402,11 +484,12 @@ EXPORT_FORMATS: dict[str, dict[str, str]] = {
     "txt": {"ext": ".txt", "mime": "text/plain; charset=utf-8"},
     "md": {"ext": ".md", "mime": "text/markdown; charset=utf-8"},
     "docx": {"ext": ".docx", "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+    "pdf": {"ext": ".html", "mime": "text/html; charset=utf-8"},
 }
 
 
 def export_script(script: Script, fmt: str) -> tuple[bytes, str]:
-    """按格式导出剧本，返回 (字节, 建议文件名无扩展名)。"""
+    """按格式导出剧本, 返回 (字节, 建议文件名无扩展名)."""
     fmt = (fmt or "txt").lower()
     if fmt == "txt":
         return script_to_screenplay(script).encode("utf-8"), EXPORT_FORMATS["txt"]["ext"]
@@ -414,4 +497,6 @@ def export_script(script: Script, fmt: str) -> tuple[bytes, str]:
         return script_to_markdown(script).encode("utf-8"), EXPORT_FORMATS["md"]["ext"]
     if fmt == "docx":
         return script_to_docx(script), EXPORT_FORMATS["docx"]["ext"]
+    if fmt == "pdf":
+        return script_to_printable_html(script).encode("utf-8"), EXPORT_FORMATS["pdf"]["ext"]
     raise ValueError(f"不支持的导出格式：{fmt}，可选：{'/'.join(EXPORT_FORMATS)}")

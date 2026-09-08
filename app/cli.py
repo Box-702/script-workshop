@@ -14,7 +14,7 @@ import json
 from typing import Any
 
 from . import agent as agent_svc
-from .deps import embedder, llm, settings, store, vector
+from .deps import llm, settings, store
 from .generation import generate_script
 from .patch import validate_script
 
@@ -73,8 +73,6 @@ def main() -> None:
         base_version=version,
         instruction="把对白改得更口语、节奏更紧凑，并把场景标题改得更抓人。",
         scene_ids=[],
-        vector=vector(),
-        embedder=embedder(),
     )
     _print_json("Agent 提议", {"run_id": run["run_id"], "status": run["status"], "plan": run["plan"], "patch": run["patch"]})
 
@@ -84,8 +82,6 @@ def main() -> None:
         run_id=run["run_id"],
         action="accept",
         patch_indexes=None,
-        vector=vector(),
-        embedder=embedder(),
     )
     _print_json("接受结果", result)
 

@@ -1,35 +1,35 @@
 <script setup>
 // =====================================================================
-// LogoMark.vue —— 品牌图形：场记板 + 剧本行
+// LogoMark.vue —— 剧本工坊品牌图标
 //
-// 「场记板」是剧本工作的行业符号，板身上的两行留白示意剧本正文。
-// 线稿风格（stroke 继承 currentColor），单色不抢戏，跟随 DESIGN.md
-// 的单色策略：hero 里做安静的徽记，顶栏里做白色圆角 tile 内的反白图形。
+// 设计：场记板 + 钢笔尖 + 星芒灵感。
+// 金色渐变，带微光 glow 效果。单色模式下回退为 currentColor。
 // =====================================================================
-
-defineProps({
-  size: { type: Number, default: 24 },
-})
+defineProps({ size: { type: Number, default: 24 } })
 </script>
 
 <template>
-  <svg
-    :width="size"
-    :height="size"
-    viewBox="0 0 32 32"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="2"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    aria-hidden="true"
-  >
-    <!-- 顶板（打板斜纹） -->
-    <rect x="4.5" y="6" width="23" height="6.5" rx="2" />
-    <path d="M10.5 7.2l2.4 4.2M17 7.2l2.4 4.2M23.5 7.2l2.4 4.2" />
-    <!-- 板身 -->
-    <rect x="4.5" y="16.5" width="23" height="10.5" rx="2.6" />
-    <!-- 剧本行 -->
-    <path d="M9.5 21h13M9.5 24.2h8.5" />
+  <svg :width="size" :height="size" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="lg" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#F5C542" />
+        <stop offset="100%" stop-color="#D4882A" />
+      </linearGradient>
+      <filter id="gl"><feGaussianBlur stdDeviation="1.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    </defs>
+    <!-- 场记板外框 -->
+    <rect x="8" y="18" width="48" height="38" rx="6" stroke="url(#lg)" stroke-width="2.5" fill="none" />
+    <!-- 顶板横条 -->
+    <path d="M8 26h48" stroke="url(#lg)" stroke-width="2.5" stroke-linecap="round" />
+    <!-- 斜纹 -->
+    <path d="M16 18v8M26 18v8M36 18v8M46 18v8" stroke="url(#lg)" stroke-width="1.8" stroke-linecap="round" opacity="0.5" />
+    <!-- 钢笔尖 -->
+    <path d="M32 30l-7 16h5l2-6 2 6h5z" fill="url(#lg)" filter="url(#gl)" />
+    <!-- 笔尖高光 -->
+    <path d="M32 30l-2.5 7h5z" fill="#FFF3D0" opacity="0.4" />
+    <!-- 星芒 -->
+    <circle cx="19" cy="42" r="1.8" fill="url(#lg)" opacity="0.45" />
+    <circle cx="45" cy="42" r="1.8" fill="url(#lg)" opacity="0.45" />
+    <path d="M32 10l2 5h-4z" fill="#F5C542" opacity="0.6" />
   </svg>
 </template>

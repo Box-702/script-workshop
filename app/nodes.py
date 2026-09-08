@@ -18,7 +18,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -38,6 +39,7 @@ from .review import DIMENSION_LABELS, review_patch
 from .state import (
     STATUS_APPLIED,
     STATUS_CONTEXTING,
+    STATUS_FAILED,
     STATUS_PLANNING,
     STATUS_REJECTED,
     STATUS_REVIEWING,
@@ -47,6 +49,13 @@ from .store import Project, Store
 
 # guard 自纠错循环的最大迭代次数，防止「发现问题 -> 重做」死循环。
 MAX_PROPOSE_ITERATIONS = 3
+
+
+def _parse_ops(patch_data: list[dict[str, Any]]) -> list[Any]:
+    """将状态中的 patch 字典列表解析为 PatchOp 列表（单次解析，多处复用）。"""
+    from .patch import PatchOp
+
+    return [PatchOp.model_validate(op) for op in (patch_data or [])]
 
 
 def _selected_scenes(script: Script, scene_ids: list[str]) -> list[object]:
@@ -64,17 +73,16 @@ def _build_context(
     *,
     scene_ids: list[str],
     instruction: str = "",
-    retriever: Callable[[str, int], list[str]] | None,
-    knowledge_retriever: Callable[[str, int, list[str] | None], list[dict]] | None = None,
+    store: Store | None = None,
 ) -> dict[str, Any]:
     """把本次改编所需的上下文组织成一个字典，供提示词与工具使用。
 
-    检索质量优化（接地 / 混合检索）：不再用固定泛化查询，而是把「改编需求
-    instruction + 场景/题材」拼进检索 query，让 RAG 真正服务于这次改编目标。
+    无 RAG 版：知识直接从内存字典读取，原文搜索由 Agent 工具按需调用。
     """
+    from .knowledge import detect_genres, format_author_style, format_genre_knowledge
+
     profile = profile_for(project.adaptation_type)
     scenes = _selected_scenes(script, scene_ids)
-    instruction = (instruction or "").strip()
     scene_list = [
         {
             "id": s.id,
@@ -88,31 +96,24 @@ def _build_context(
         }
         for s in scenes
     ]
-    # 尝试用检索器给每个目标场景补充相关原文（可选 RAG），失败则忽略。
-    # 检索 query = 改编需求 + 场景标题/目的，让命中的原文真正服务本次改编。
-    episode_sources: list[str] = []
-    if retriever is not None:
-        for s in scenes:
-            q = " ".join((f"{script.title} {s.title} {s.purpose} {instruction}").split())
-            ep = retriever(q, 2)
-            if ep:
-                episode_sources.append(f"【{s.title}】\n" + "\n".join(ep[:2]))
-    # 项目级「改编知识」：同类剧本走向 / 写作手法 / 作者风格（始终尝试，失败忽略）。
-    # 检索 query 同样以改编需求为主、辅以种类标签，保证命中内容与本次目标强相关。
-    knowledge: dict[str, list[str]] = {}
-    if knowledge_retriever is not None:
-        for kind, label in (
-            ("plot_direction", "同类剧本可能走向"),
-            ("technique", "写作手法"),
-            ("author_style", "作者语言风格"),
-        ):
-            query = " ".join((f"{instruction} {label}").split())
-            try:
-                hits = knowledge_retriever(query, 2, [kind])
-            except Exception:  # noqa: BLE001
-                hits = []
-            if hits:
-                knowledge[kind] = [f"{h.get('text', '')}（来源：{h.get('source', '')}）" for h in hits]
+
+    # 题材知识（直接从内存字典）
+    genres = detect_genres(raw_text, top=2)
+    genre_knowledge = format_genre_knowledge(genres)
+
+    # 作者风格（规则提取）
+    author_style = format_author_style(raw_text)
+
+    # 用户记忆（从 DB）
+    user_memories = ""
+    if store:
+        try:
+            from .memory import format_memories, recall_memories
+            memories = recall_memories(store, project_id=project.id, limit=5)
+            user_memories = format_memories(memories)
+        except Exception:
+            pass
+
     return {
         "script": {
             "title": script.title,
@@ -122,10 +123,11 @@ def _build_context(
             "adaptation": profile,
         },
         "characters": {c.id: {"name": c.name, "role": c.role, "goal": c.goal} for c in script.characters},
-        "locations": {l.id: {"name": l.name, "description": l.description} for l in script.locations},
+        "locations": {loc.id: {"name": loc.name, "description": loc.description} for loc in script.locations},
         "selected_scenes": scene_list,
-        "source_excerpts": episode_sources,
-        "knowledge": knowledge,
+        "genre_knowledge": genre_knowledge,
+        "author_style": author_style,
+        "user_memories": user_memories,
         "raw_text_excerpt": " ".join((raw_text or "").split())[:2000],
     }
 
@@ -137,8 +139,9 @@ def _system_prompt(settings: Settings, script: Script) -> str:
         "你是剧本改编助手。你只读取上下文并修改「选中的场景」，不要新增场景、人物或地点。\n"
         "已有节拍必须保留原 id；新增节拍可以省略 id 或使用未占用的 beat_数字。\n"
         "对白说话人必须是该场景已有的人物 id。\n"
-        "上下文 context.knowledge 里带有该项目知识库检索到的同类剧本走向、写作手法与作者风格，"
-        "改写时请自然借鉴这些知识与作者风格，保持原味，但不要照抄。\n"
+        "上下文中的 genre_knowledge 带有同类剧本走向与写作手法，author_style 带有作者语言风格，"
+        "user_memories 带有用户偏好，改写时请自然借鉴，保持原味，但不要照抄。\n"
+        "你可以通过 search_source 工具搜索原文，通过 get_genre_knowledge 查看题材知识。\n"
         "请严格按以下 JSON 结构输出，字段名不要改动：\n"
         '{\n'
         '  "plan": ["计划步骤一", "计划步骤二"],\n'
@@ -171,8 +174,6 @@ def build_nodes(
     *,
     settings: Settings,
     tools: list[Any],
-    retriever: Callable[[str, int], list[str]] | None,
-    knowledge_retriever: Callable[[str, int, list[str] | None], list[dict]] | None = None,
 ) -> dict[str, Callable[[AgentState], dict[str, Any]]]:
     """构造全部图节点。"""
 
@@ -183,8 +184,7 @@ def build_nodes(
             raw_text,
             scene_ids=state.get("scene_ids", []),
             instruction=state.get("instruction", ""),
-            retriever=retriever,
-            knowledge_retriever=knowledge_retriever,
+            store=store,
         )
         system = SystemMessage(content=_system_prompt(settings, script))
         human = HumanMessage(content=f"用户改编需求：{state.get('instruction','')}")
@@ -255,9 +255,7 @@ def build_nodes(
         任一防线发现问题即写回 critique 并回到 propose；都通过则交给人类审阅。
         没有模型时走纯规则校验（兜底 patch 通常一次通过）。
         """
-        from .patch import PatchOp
-
-        ops = [PatchOp.model_validate(op) for op in (state.get("patch") or [])]
+        ops = _parse_ops(state.get("patch"))
         try:
             applied = apply_patch(script, ops)
         except Exception as e:  # noqa: BLE001
@@ -327,9 +325,7 @@ def build_nodes(
         - 显式选择但全部下标无效 -> 返回空（用户无法表达「一条都不要」时，
           把无效选择回退为全接受是危险的：等于悄悄接受了用户没勾的改动）。
         """
-        from .patch import PatchOp
-
-        patch = [PatchOp.model_validate(op) for op in (state.get("patch") or [])]
+        patch = _parse_ops(state.get("patch"))
         decision = state.get("decision") or {}
         indexes = decision.get("patch_indexes")
         if indexes is None:
@@ -337,12 +333,10 @@ def build_nodes(
         return [patch[i] for i in indexes if 0 <= i < len(patch)]
 
     def apply_node(state: AgentState) -> dict[str, Any]:
-        from .patch import PatchOp
-
         decision = state.get("decision") or {}
         # 若人类在中断处「编辑」了 patch，优先采用人工修订后的操作。
         if decision.get("patch"):
-            ops = [PatchOp.model_validate(op) for op in decision["patch"]]
+            ops = _parse_ops(decision["patch"])
         else:
             ops = select_ops(state)
         if not ops:

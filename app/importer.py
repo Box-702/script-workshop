@@ -11,8 +11,8 @@
 from __future__ import annotations
 
 import re
-import zipfile
 import xml.etree.ElementTree as ET
+import zipfile
 from io import BytesIO
 
 # docx 的命名空间。

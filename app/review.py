@@ -119,7 +119,7 @@ def _build_review_context(
     """组装评审输入：人物设定 + 被改动场景 + 上下文知识，尽量精简避免超长。"""
     lines: list[str] = []
     lines.append(f"【改编需求】{instruction.strip()}")
-    lines.append(f"【人物设定】")
+    lines.append("【人物设定】")
     for c in base.characters:
         bits = [c.name, f"role={c.role or 'other'}"]
         if c.goal:

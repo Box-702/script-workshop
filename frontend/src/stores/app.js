@@ -28,12 +28,24 @@ export const store = reactive({
   // 项目树数据
   projects: [],        // 项目列表 [{ id, title, version_count }]
   convMap: {},         // pid -> 对话列表（懒加载缓存）
+  scenesMap: {},       // pid -> 场景列表 [{id, title, characters, beats_count}]（懒加载）
   expanded: {},        // pid -> 是否展开
+
+  // 全局对话（不绑定项目）
+  globalConvs: [],     // [{ id, title, user_message_count, created_at }]
+  // 工作区文件树
+  workspaceTree: null, // { root, folders: [{name, type, children}] }
+  // 左栏当前 tab
+  leftTab: 'chat',     // 'chat' | 'workspace'
 
   // 对话与版本
   messages: [],        // 当前对话消息 [{ role, content, events, payloads, streaming }]
   versions: [],        // 当前项目的版本列表
 
+  // 左侧面板开关（默认展开，记忆在 localStorage）
+  leftOpen: true,
+  // 场景聚焦模式（点击左侧场景时设置，右栏显示单个场景详情）
+  focusedSceneId: null,
   // 右侧查看面板开关（默认收起，记忆在 localStorage）
   rightOpen: false,
 
@@ -61,6 +73,32 @@ export const store = reactive({
   // 改编提议审阅抽屉（对话里只显示摘要，细节在抽屉里看）
   drawer: { open: false, payload: null },
 
+  // 子代理任务面板
+  tasks: [],              // [{id, name, status, steps, result, created_at, finished_at}]
+
+  // ---- v3.0 视频制作 ----
+  // 镜头数据
+  shots: [],              // 当前项目的镜头列表
+  videoVersions: [],      // 视频版本列表
+  videoJobs: [],          // 视频生成任务列表
+  // 剧组面板
+  showCrew: false,        // 剧组工位面板开关
+  showSettings: false,    // 设置弹窗开关
+  crewAgents: [           // 剧组成员状态
+    { name: 'writer', label: '编剧', emoji: '📝', status: 'idle', detail: '' },
+    { name: 'director', label: '导演', emoji: '🎬', status: 'idle', detail: '' },
+    { name: 'dp', label: '摄影', emoji: '📹', status: 'idle', detail: '' },
+    { name: 'art_director', label: '美术', emoji: '🎨', status: 'idle', detail: '' },
+    { name: 'storyboarder', label: '分镜', emoji: '🖼', status: 'idle', detail: '' },
+    { name: 'editor', label: '剪辑', emoji: '✂️', status: 'idle', detail: '' },
+    { name: 'producer', label: '制片', emoji: '🏢', status: 'idle', detail: '' },
+  ],
+  pipelineStage: 'idle',  // 流水线阶段
+  // 视频播放器
+  playingVideo: null,     // { url, title, meta }
+  // Prompt 编辑
+  editingPrompt: null,    // 正在编辑的 shot 对象
+
   // 开始页建议卡片 -> 输入框的填充通道（draftSeq 变化触发 ChatComposer 取稿）
   draft: '',
   draftSeq: 0,
@@ -78,6 +116,28 @@ export function notify(message, type = 'error') {
 export function dismissToast() {
   clearTimeout(_toastTimer)
   store.toast = null
+}
+
+// ---------------------------------------------------------------------
+// 子代理任务管理
+// ---------------------------------------------------------------------
+/** 从后端拉取活跃任务列表（轮询用）。 */
+export async function refreshTasks() {
+  try {
+    const tasks = await api('/tasks?active_only=false')
+    store.tasks = tasks || []
+  } catch { /* 静默 */ }
+}
+
+/** SSE 收到 sub_agent_started payload 时，触发后端任务刷新。 */
+export function onSubAgentStarted() {
+  // 异步刷新，不阻塞消息流
+  setTimeout(() => refreshTasks(), 500)
+}
+
+/** 清除已完成的任务。 */
+export function clearCompletedTasks() {
+  store.tasks = store.tasks.filter((t) => t.status === 'running' || t.status === 'pending')
 }
 
 // ---------------------------------------------------------------------
@@ -104,14 +164,30 @@ export async function deleteProject(pid) {
 // ---------------------------------------------------------------------
 // 右侧查看面板开关
 // ---------------------------------------------------------------------
-/** 开/关右侧查看面板；偏好记忆在 localStorage（默认收起）。 */
+/** 开/关左侧导航面板。 */
+export function toggleLeftPanel() {
+  store.leftOpen = !store.leftOpen
+  localStorage.setItem('sw-layout:leftOpen', store.leftOpen ? '1' : '0')
+}
+
+/** 聚焦到单个场景（右栏显示场景详情）。传 null 退出聚焦。 */
+export function focusScene(sceneId) {
+  store.focusedSceneId = sceneId
+  if (sceneId && !store.rightOpen) {
+    store.rightOpen = true
+    localStorage.setItem('sw-layout:rightOpen', '1')
+  }
+  if (sceneId) store.view = 'scene'
+}
+/** 开/右侧查看面板；偏好记忆在 localStorage（默认收起）。 */
 export function toggleRightPanel() {
   store.rightOpen = !store.rightOpen
   localStorage.setItem('sw-layout:rightOpen', store.rightOpen ? '1' : '0')
 }
 /** 恢复上次的面板开关偏好（App 挂载时调用）。 */
-export function restoreRightPanelPref() {
-  store.rightOpen = localStorage.getItem('sw-layout:rightOpen') === '1'
+export function restorePanelPrefs() {
+  store.leftOpen = localStorage.getItem('sw-layout:leftOpen') !== '0'  // 默认开
+  store.rightOpen = localStorage.getItem('sw-layout:rightOpen') === '1'  // 默认关
 }
 
 // ---------------------------------------------------------------------
@@ -137,10 +213,33 @@ export async function loadConversations(pid) {
   try { store.convMap[pid] = await api(`/projects/${pid}/conversations`) } catch { store.convMap[pid] = [] }
 }
 
+/** 展开时懒加载某项目的场景列表（从最新版本提取）。 */
+export async function loadScenes(pid) {
+  try {
+    const versions = await api(`/projects/${pid}/versions`)
+    if (versions.length) {
+      const v = await api(`/versions/${versions[0].id}`)
+      const scenes = (v.script?.scenes || []).map((s) => ({
+        id: s.id,
+        title: s.title || s.id,
+        characters: s.characters || [],
+        beats_count: (s.beats || []).length,
+        purpose: s.purpose || '',
+      }))
+      store.scenesMap[pid] = scenes
+    } else {
+      store.scenesMap[pid] = []
+    }
+  } catch { store.scenesMap[pid] = [] }
+}
+
 /** 折叠/展开项目节点。 */
 export async function toggleProject(pid) {
   store.expanded[pid] = !store.expanded[pid]
-  if (store.expanded[pid]) await loadConversations(pid)
+  if (store.expanded[pid]) {
+    await loadConversations(pid)
+    await loadScenes(pid)
+  }
 }
 
 /** 选中项目：重置对话选择，自动选第一个对话，刷新右侧面板。 */
@@ -177,19 +276,13 @@ export async function selectConversation(pid, convId, token = ++_navSeq) {
 
 /** 新建对话（自动命名，不弹窗）。若当前项目已有空白对话则直接选中，不重复创建。 */
 export async function newConversation(pid) {
-  // 检查是否有空白对话（无用户消息的对话）
+  // 检查是否有空白对话（无用户消息的对话）——利用列表接口已返回的 user_message_count，无需逐个请求。
   const convs = store.convMap[pid] || []
-  for (const c of convs) {
-    try {
-      const msgs = await api(`/conversations/${c.id}/messages`)
-      // 只有欢迎语（0 条用户消息）的对话视为空白
-      const hasUserMsg = msgs.some((m) => m.role === 'user')
-      if (!hasUserMsg) {
-        store.hint = '当前已有空白对话，直接使用即可。'
-        await selectConversation(pid, c.id)
-        return
-      }
-    } catch { /* 查询失败继续 */ }
+  const blank = convs.find((c) => (c.user_message_count ?? 0) === 0)
+  if (blank) {
+    store.hint = '当前已有空白对话，直接使用即可。'
+    await selectConversation(pid, blank.id)
+    return
   }
   // 没有空白对话才真正创建
   const count = convs.length
@@ -221,8 +314,73 @@ export async function deleteConversation(convId, pid = store.pid) {
     }
     const target = pid || store.pid
     if (target) await loadConversations(target)
+    else await loadGlobalConversations()
     notify('已删除对话', 'ok')
   } catch (e) { notify(e.message) }
+}
+
+// ---------------------------------------------------------------------
+// 全局对话（不绑定项目）
+// ---------------------------------------------------------------------
+
+/** 加载全局对话列表。 */
+export async function loadGlobalConversations() {
+  try { store.globalConvs = await api('/conversations') } catch { store.globalConvs = [] }
+}
+
+/** 新建全局对话。 */
+export async function newGlobalConversation() {
+  const blank = store.globalConvs.find((c) => (c.user_message_count ?? 0) === 0)
+  if (blank) {
+    store.hint = '当前已有空白对话，直接使用即可。'
+    await selectGlobalConversation(blank.id)
+    return
+  }
+  const count = store.globalConvs.length
+  try {
+    const c = await api('/conversations', 'POST', { title: `对话 ${count + 1}` })
+    await loadGlobalConversations()
+    await selectGlobalConversation(c.id)
+  } catch (e) { notify('新建对话失败：' + e.message) }
+}
+
+/** 选中一个全局对话（不关联项目）。 */
+export async function selectGlobalConversation(convId) {
+  const token = ++_navSeq
+  store.pid = null
+  store.convId = convId
+  store.focusedSceneId = null
+  store.messages = []
+  store.versions = []
+  await loadHistory(token)
+}
+
+// ---------------------------------------------------------------------
+// 工作区文件树
+// ---------------------------------------------------------------------
+
+/** 加载工作区目录结构。 */
+export async function loadWorkspaceTree() {
+  try {
+    const ws = await api('/workspace')
+    if (!ws.configured || !ws.root) {
+      store.workspaceTree = null
+      return
+    }
+    // 加载根目录下的项目文件夹
+    const folders = []
+    for (const p of store.projects) {
+      try {
+        const files = await api(`/projects/${p.id}/files`)
+        if (files.folders) {
+          folders.push({ name: p.title, pid: p.id, folders: files.folders })
+        }
+      } catch {}
+    }
+    store.workspaceTree = { root: ws.root, folders }
+  } catch {
+    store.workspaceTree = null
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -244,7 +402,7 @@ export async function loadHistory(token = _navSeq) {
 // ---------------------------------------------------------------------
 // 右侧查看面板
 // ---------------------------------------------------------------------
-/** 加载最新版本全文 + 结构化剧本 + 知识库；token 过期时不写入。 */
+/** 加载最新版本全文 + 结构化剧本；token 过期时不写入。 */
 export async function loadViewer(token = _navSeq) {
   if (!store.pid) { store.viewerText = ''; store.viewerScript = null; return }
   try {
@@ -264,11 +422,8 @@ export async function loadViewer(token = _navSeq) {
       store.viewerText = ''
       store.viewerScript = null
     }
-    await loadKnowledge()
-    await loadNotes()
   } catch (e) {
     if (!_isCurrent(token)) return
-    // 错误只进提示，不写进剧本文本字段（会被当成正文渲染、复制、导出）。
     store.viewerScript = null
     notify('剧本内容加载失败：' + e.message)
   }
@@ -319,11 +474,10 @@ export async function loadDiff() {
   } catch (e) { store.diff = []; store.diffMeta = `对比失败：${e.message}` }
 }
 
-/** 切换查看面板 tab；切到「版本对比」时按需加载。 */
+/** 切换查看面板 tab。 */
 export async function showView(name) {
   store.view = name
-  if (name === 'diff') await loadDiff()
-  if (name === 'files') await loadProjectFiles()
+  if (name === 'agents') await refreshTasks()
 }
 
 // ---------------------------------------------------------------------
@@ -487,13 +641,17 @@ function handleStreamEvent(ev, reply) {
   } else if (ev.event === 'done') {
     reply.content = ev.data.reply || reply.content
     reply.payloads = ev.data.payloads || []
+    // 子代理启动时立即刷新任务列表
+    if ((ev.data.payloads || []).some((p) => p.type === 'sub_agent_started')) {
+      onSubAgentStarted()
+    }
     afterAgentDone(ev.data)
   } else if (ev.event === 'error') {
     reply.content = `出错：${ev.data.message}`
   }
 }
 
-/** done 事件后的收尾：首轮对话时挂上项目/对话，并刷新右侧面板。 */
+/** done 事件后的收尾：首轮对话时挂上项目/对话，并刷新右侧面板与子代理任务。 */
 async function afterAgentDone(data) {
   if (data.project_id && !store.pid) {
     store.pid = data.project_id
@@ -503,6 +661,8 @@ async function afterAgentDone(data) {
     await loadTree()
   }
   if (store.pid) await loadViewer()
+  // 刷新子代理任务（子代理在后台运行，done 时可能已完成或仍在运行）
+  await refreshTasks()
 }
 
 // ---------------------------------------------------------------------
@@ -570,4 +730,136 @@ export async function submitNewProject({ title, adapt, file, raw }) {
   await selectProject(r.id)
   if (r.conversation_id) await selectConversation(r.id, r.conversation_id)
   for (const w of r.warnings || []) notify(w)
+}
+
+// =====================================================================
+// v3.0 视频制作相关函数
+// =====================================================================
+
+/** 加载项目的镜头列表（从最新 video version 读取）。 */
+export async function loadShots() {
+  if (!store.pid) { store.shots = []; return }
+  try {
+    const versions = await api(`/projects/${store.pid}/video-versions`)
+    store.videoVersions = versions
+    if (versions.length > 0) {
+      const latest = await api(`/video-versions/${versions[0].id}`)
+      store.shots = latest.shots || []
+    } else {
+      store.shots = []
+    }
+  } catch { store.shots = [] }
+}
+
+/** 加载项目的视频生成任务列表。 */
+export async function loadVideoJobs() {
+  if (!store.pid) { store.videoJobs = []; return }
+  try {
+    store.videoJobs = await api(`/projects/${store.pid}/video/jobs`)
+  } catch { store.videoJobs = [] }
+}
+
+/** 提交视频生成任务。 */
+export async function submitVideoJob(shot) {
+  if (!store.pid || !shot?.video_prompt) return
+  // 从已配置的 video providers 中选第一个
+  let provider = 'kling'
+  let model = 'kling-v3'
+  try {
+    const providers = await api('/providers?kind=video')
+    const configured = providers.find(p => p.configured && p.enabled)
+    if (configured) {
+      provider = configured.name
+      model = configured.config?.model || model
+    }
+  } catch {}
+
+  try {
+    const job = await api(`/projects/${store.pid}/video/generate`, 'POST', {
+      shot_id: shot.id,
+      provider,
+      model,
+      prompt: shot.video_prompt,
+    })
+    notify(`视频任务已提交：${shot.subject || shot.id}`, 'ok')
+    await loadVideoJobs()
+    return job
+  } catch (e) {
+    notify(`提交失败：${e.message}`, 'error')
+  }
+}
+
+/** 取消视频生成任务。 */
+export async function cancelVideoJob(jobId) {
+  try {
+    await api(`/video/jobs/${jobId}/cancel`, 'POST')
+    await loadVideoJobs()
+  } catch (e) {
+    notify(`取消失败：${e.message}`, 'error')
+  }
+}
+
+/** 重试视频生成任务。 */
+export async function retryVideoJob(jobId) {
+  try {
+    await api(`/video/jobs/${jobId}/retry`, 'POST')
+    await loadVideoJobs()
+  } catch (e) {
+    notify(`重试失败：${e.message}`, 'error')
+  }
+}
+
+/** 打开视频播放器。 */
+export function playVideo(shot) {
+  if (shot?.video_url) {
+    store.playingVideo = { url: shot.video_url, title: shot.subject || shot.id, meta: { provider: shot.video_job_id } }
+  }
+}
+
+/** 关闭视频播放器。 */
+export function closeVideo() {
+  store.playingVideo = null
+}
+
+/** 打开 Prompt 编辑器。 */
+export function openPromptEditor(shot) {
+  store.editingPrompt = shot
+}
+
+/** 关闭 Prompt 编辑器。 */
+export function closePromptEditor() {
+  store.editingPrompt = null
+}
+
+/** 更新镜头的 video_prompt（保存到最新 video version）。 */
+export async function saveShotPrompt(shot) {
+  if (!store.pid || !shot) return
+  // 重新创建一个 video version 来保存修改
+  try {
+    const updatedShots = store.shots.map(s => s.id === shot.id ? { ...s, video_prompt: shot.video_prompt } : s)
+    await api(`/projects/${store.pid}/video-versions`, 'POST', {
+      shots: updatedShots,
+      source_type: 'manual',
+      label: '手动编辑 Prompt',
+    })
+    store.shots = updatedShots
+    notify('Prompt 已保存', 'ok')
+    closePromptEditor()
+  } catch (e) {
+    notify(`保存失败：${e.message}`, 'error')
+  }
+}
+
+/** 更新剧组 Agent 状态（从 SSE sub_agent_started 事件调用）。 */
+export function updateCrewAgentStatus(name, status, detail = '') {
+  const agent = store.crewAgents.find(a => a.name === name)
+  if (agent) {
+    agent.status = status
+    agent.detail = detail
+  }
+}
+
+/** 设置流水线阶段。 */
+export function setPipelineStage(stage) {
+  store.pipelineStage = stage
 }

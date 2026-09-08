@@ -60,17 +60,18 @@ watch(() => store.draftSeq, () => {
         v-model="text"
         rows="1"
         placeholder="描述你想改编的内容…"
+        aria-label="输入改编需求"
         @keydown="onKeydown"
         @input="autoSize"
       ></textarea>
       <div class="toolbar">
         <div class="toolbar-left">
-          <button class="plus" title="新建剧本" @click.stop="store.showNewProject = true">＋</button>
+          <button class="plus" title="新建剧本" aria-label="新建剧本" @click.stop="store.showNewProject = true">＋</button>
           <span v-if="store.hint" class="hint">{{ store.hint }}</span>
         </div>
         <div class="toolbar-right">
           <span v-if="store.streaming" class="streaming"><span class="pulse"></span>生成中</span>
-          <button class="send" :class="{ ready: canSend }" :disabled="!canSend" @click.stop="send">
+          <button class="send" :class="{ ready: canSend }" :disabled="!canSend" aria-label="发送消息" @click.stop="send">
             <svg viewBox="0 0 16 16" aria-hidden="true">
               <path d="M10 3L5 8l5 5" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
@@ -84,16 +85,16 @@ watch(() => store.draftSeq, () => {
 <style scoped>
 .composer { padding: 10px 24px 18px; background: transparent; }
 
-/* 圆角容器：文本域 + 工具行 */
+/* 圆角容器：文本域 + 工具行（金色光晕聚焦） */
 .input-box {
   background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
   padding: 8px 10px 6px; cursor: text;
   max-width: 820px; margin: 0 auto;
-  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  transition: all var(--dur) var(--ease);
 }
 .input-box:focus-within {
-  border-color: color-mix(in oklch, var(--accent) 35%, var(--line));
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: color-mix(in oklch, var(--gold) 40%, var(--line));
+  box-shadow: 0 0 0 3px var(--gold-soft), 0 0 30px color-mix(in oklch, var(--gold) 5%, transparent);
 }
 textarea {
   display: block; width: 100%; min-height: 20px; max-height: 160px; line-height: 1.5;
@@ -117,19 +118,24 @@ textarea:focus-visible { outline: none; }
 .plus:hover { color: var(--ink); border-color: var(--line-strong); background: color-mix(in oklch, var(--ink) 6%, transparent); }
 .hint { color: var(--dim); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .toolbar-right { display: flex; align-items: center; gap: 8px; flex: none; }
-.streaming { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11.5px; }
-/* Agent 工作呼吸灯：品牌金（聚光灯亮起 = 正在生成） */
-.pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); animation: pulse 1.1s ease-in-out infinite; }
-@keyframes pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+.streaming { display: inline-flex; align-items: center; gap: 5px; color: var(--gold); font-size: 11.5px; }
+.pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); animation: pulse 1.1s ease-in-out infinite; box-shadow: 0 0 8px var(--gold-soft); }
+@keyframes pulse { 0%, 100% { opacity: 0.3; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.1); } }
 
 /* 发送按钮 */
 .send {
-  width: 28px; height: 28px; padding: 0; border-radius: 8px;
+  width: 30px; height: 30px; padding: 0; border-radius: 10px;
   background: transparent; color: var(--dim);
   display: inline-grid; place-items: center; flex: none;
+  transition: all 200ms var(--ease);
 }
 .send svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.send.ready { background: var(--accent); color: var(--on-accent); }
-.send.ready:hover:not(:disabled) { background: var(--accent-hover); }
+.send.ready {
+  background: linear-gradient(135deg, var(--gold), color-mix(in oklch, var(--gold) 80%, var(--amber)));
+  color: var(--on-accent);
+  box-shadow: 0 2px 12px color-mix(in oklch, var(--gold) 25%, transparent);
+}
+.send.ready:hover:not(:disabled) { transform: scale(1.08); box-shadow: 0 4px 20px color-mix(in oklch, var(--gold) 35%, transparent); }
+.send.ready:active:not(:disabled) { transform: scale(0.95); }
 .send:disabled { opacity: 0.45; cursor: default; }
 </style>

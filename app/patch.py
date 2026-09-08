@@ -23,10 +23,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 from .domain import (
-    DialogueLine,
+    Scene,
     Script,
     ScriptBeat,
-    Scene,
     Source,
     normalize_id,
 )
@@ -608,7 +607,7 @@ def validate_script(script: Script) -> list[ValidationIssue]:
     """
     issues: list[ValidationIssue] = []
     char_ids = {c.id for c in script.characters}
-    loc_ids = {l.id for l in script.locations}
+    loc_ids = {loc.id for loc in script.locations}
     scene_ids: set[str] = set()
 
     for si, scene in enumerate(script.scenes):

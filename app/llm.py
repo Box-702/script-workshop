@@ -50,11 +50,16 @@ class LLM:
                 base_url=settings.openai_base_url.rstrip("/"),
                 temperature=0.4,
             )
+        elif settings.zhipuai_api_key.strip():
+            self.provider_label = "zhipuai"
+            self._model = ChatOpenAI(
+                model=settings.zhipuai_model,
+                api_key=settings.zhipuai_api_key,
+                base_url=settings.zhipuai_base_url.rstrip("/"),
+                temperature=0.4,
+            )
         elif settings.deepseek_api_key.strip():
             self.provider_label = "deepseek"
-            # DeepSeek V3.x/V4 支持 thinking 开关；默认关闭深度思考可显著降低延迟
-            # （单次 ~50s -> ~10s）。注意：必须用 extra_body 透传（model_kwargs
-            # 会被 langchain 展开成 kwargs 而报错）。
             extra = {"thinking": {"type": "enabled" if settings.deepseek_thinking else "disabled"}}
             self._model = ChatOpenAI(
                 model=settings.deepseek_model,

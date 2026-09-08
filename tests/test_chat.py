@@ -1,29 +1,20 @@
 # =====================================================================
-# test_chat.py —— 对话式 Agent 测试
+# test_chat.py —— 对话式 Agent 测试（无 RAG 版）
 #
-# 无模型 key 环境下验证：
-#   1. 对话工具层：create_project -> generate_script -> run_adaptation
-#      -> resume(accept) 全链路闭环（底层仍是 LangGraph 工作流）；
-#   2. 审阅确定性路径：reject / 已处理防重；
-#   3. chat_once 无模型回退：消息持久化 + 历史读取。
+# 无模型 key 环境下验证对话工具全链路。
 # =====================================================================
 
 from app.chat import _handle_resume, build_chat_tools, chat_once, load_history
-from app.vector import HashingEmbedder
 
 
-def _embedder():
-    return HashingEmbedder(dim=768)
-
-
-def _make_tools(store, llm, settings, vector_store):
+def _make_tools(store, llm):
     collector = {"project_id": None, "payloads": []}
-    tools = {t.name: t for t in build_chat_tools(store, llm, settings, vector_store, _embedder(), collector)}
+    tools = {t.name: t for t in build_chat_tools(store, llm, collector)}
     return tools, collector
 
 
-def test_chat_tool_flow_closed_loop(store, llm, settings, vector_store, sample_text):
-    tools, collector = _make_tools(store, llm, settings, vector_store)
+def test_chat_tool_flow_closed_loop(store, llm, settings, sample_text):
+    tools, collector = _make_tools(store, llm)
 
     # 1) 对话式「新建剧本」
     r = tools["create_project"].invoke({"title": "雨夜", "adaptation_type": "短剧", "raw_text": sample_text})
@@ -48,7 +39,7 @@ def test_chat_tool_flow_closed_loop(store, llm, settings, vector_store, sample_t
 
     # 4) 审阅：接受全部 -> 生成新版本
     res = _handle_resume(
-        store, llm, settings, vector_store, _embedder(),
+        store, llm, settings,
         run_id=review["run_id"], action="accept", patch_indexes=None, feedback=None, patch=None,
     )
     assert res["payloads"][0]["type"] == "version_applied", res
@@ -57,8 +48,8 @@ def test_chat_tool_flow_closed_loop(store, llm, settings, vector_store, sample_t
     assert new_version.source_type == "agent_adaptation"
 
 
-def test_chat_tool_reject(store, llm, settings, vector_store, sample_text):
-    tools, collector = _make_tools(store, llm, settings, vector_store)
+def test_chat_tool_reject(store, llm, settings, sample_text):
+    tools, collector = _make_tools(store, llm)
     tools["create_project"].invoke({"title": "雨夜", "adaptation_type": "short_drama", "raw_text": sample_text})
     pid = collector["project_id"]
     tools["generate_script"].invoke({"project_id": pid})
@@ -66,7 +57,7 @@ def test_chat_tool_reject(store, llm, settings, vector_store, sample_text):
     run_id = collector["payloads"][0]["run_id"]
 
     res = _handle_resume(
-        store, llm, settings, vector_store, _embedder(),
+        store, llm, settings,
         run_id=run_id, action="reject", patch_indexes=None, feedback=None, patch=None,
     )
     assert "拒绝" in res["reply"]
@@ -74,21 +65,21 @@ def test_chat_tool_reject(store, llm, settings, vector_store, sample_text):
 
     # 防重：再次操作应提示已处理
     res2 = _handle_resume(
-        store, llm, settings, vector_store, _embedder(),
+        store, llm, settings,
         run_id=run_id, action="accept", patch_indexes=None, feedback=None, patch=None,
     )
     assert "已处理过" in res2["reply"]
 
 
-def test_chat_once_persists_history(store, llm, settings, vector_store, sample_text):
-    tools, collector = _make_tools(store, llm, settings, vector_store)
+def test_chat_once_persists_history(store, llm, settings, sample_text):
+    tools, collector = _make_tools(store, llm)
     tools["create_project"].invoke({"title": "雨夜", "adaptation_type": "short_drama", "raw_text": sample_text})
     pid = collector["project_id"]
     conv = store.ensure_default_conversation(pid)
     assert conv.project_id == pid
 
     # 无模型：conductor 回退提示，但消息应持久化、历史可读。
-    out = chat_once(store, llm, settings, vector_store, _embedder(),
+    out = chat_once(store, llm, settings,
                     conversation_id=conv.id, project_id=pid, message="你好", meta=None)
     assert out["thread_id"] == conv.id
     assert "没有配置对话模型" in out["reply"]
@@ -102,9 +93,9 @@ def test_chat_once_persists_history(store, llm, settings, vector_store, sample_t
     assert load_history(store, None) == []
 
 
-def test_project_multiple_conversations_isolated(store, llm, settings, vector_store, sample_text):
+def test_project_multiple_conversations_isolated(store, llm, settings, sample_text):
     """一个项目下多个对话：上下文与历史彼此隔离。"""
-    tools, collector = _make_tools(store, llm, settings, vector_store)
+    tools, collector = _make_tools(store, llm)
     tools["create_project"].invoke({"title": "雨夜", "adaptation_type": "short_drama", "raw_text": sample_text})
     pid = collector["project_id"]
 
@@ -112,7 +103,7 @@ def test_project_multiple_conversations_isolated(store, llm, settings, vector_st
     conv_b = store.create_conversation(pid, title="对话B")
     assert len(store.list_conversations(pid)) >= 2
 
-    chat_once(store, llm, settings, vector_store, _embedder(),
+    chat_once(store, llm, settings,
               conversation_id=conv_a.id, project_id=pid, message="在A里说", meta=None)
     assert len(load_history(store, conv_a.id)) == 2
     assert len(load_history(store, conv_b.id)) == 0, "B 对话不应看到 A 的消息"
@@ -124,9 +115,9 @@ def test_project_multiple_conversations_isolated(store, llm, settings, vector_st
     assert store.get_conversation(conv_b.id) is None
 
 
-def test_chat_resume_via_meta(store, llm, settings, vector_store, sample_text):
+def test_chat_resume_via_meta(store, llm, settings, sample_text):
     """前端审阅按钮走后端 chat 接口（meta.intent=resume）也应闭环。"""
-    tools, collector = _make_tools(store, llm, settings, vector_store)
+    tools, collector = _make_tools(store, llm)
     tools["create_project"].invoke({"title": "雨夜", "adaptation_type": "short_drama", "raw_text": sample_text})
     pid = collector["project_id"]
     conv = store.ensure_default_conversation(pid)
@@ -135,7 +126,7 @@ def test_chat_resume_via_meta(store, llm, settings, vector_store, sample_text):
     run_id = collector["payloads"][0]["run_id"]
 
     out = chat_once(
-        store, llm, settings, vector_store, _embedder(),
+        store, llm, settings,
         conversation_id=conv.id, project_id=pid, message="",
         meta={"intent": "resume", "run_id": run_id, "action": "accept", "patch_indexes": None},
     )

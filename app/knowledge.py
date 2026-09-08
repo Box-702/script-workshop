@@ -1,18 +1,15 @@
 # =====================================================================
-# knowledge.py —— 项目级「改编知识」RAG 层
+# knowledge.py —— 改编知识（纯内存，无 RAG）
 #
-# 这是对话式 Agent 的记忆底座。除了把「原著原文」分块入库，我们还为
-# 每个项目额外维护三类可检索的知识（与原文一起存在同一个向量库里）：
+# 提供三类知识，全部以内存数据结构 + 工具函数的形式存在：
 #
-#   - plot_direction（可能走向）：同类剧本常见的剧情走向 / 反转结构，
-#     让改编建议有「类型套路」可以参考；
-#   - technique（写作手法）：同类作品常用的写作技法（钩子、潜台词、
-#     意象、节奏……），让改写更专业；
-#   - author_style（作者语言风格）：从原著文本自动提取（或用对话记忆）
-#     的当前作者风格画像，让改编保持原味。
+#   1. 题材种子知识：按题材分类的剧情走向与写作手法（硬编码）；
+#   2. 作者风格提取：从原文启发式提取的语言风格画像（规则引擎）；
+#   3. 知识格式化：将上述知识格式化为 prompt 片段。
 #
-# 检索时按 project_id 隔离，三种知识 + 原文可以一起被命中并注入到
-# 改编工作流与对话 Agent 的上下文里。
+# 这些知识不再向量化存储，而是：
+#   - 种子知识 → 按题材查字典，直接注入 prompt 或由 Agent 工具调用；
+#   - 作者风格 → 项目创建时提取一次，存入项目 notes，Agent 可随时读取。
 # =====================================================================
 
 from __future__ import annotations
@@ -22,12 +19,11 @@ import re
 from typing import Any
 
 from .llm import LLM
-from .vector import Embedder, VectorStore, index_project
 
 # 知识种类。
 KNOWLEDGE_KINDS: tuple[str, ...] = ("plot_direction", "technique", "author_style")
 
-# 各知识种类的中文标签（用于展示与提示词）。
+# 各知识种类的中文标签。
 KIND_LABELS: dict[str, str] = {
     "plot_direction": "同类剧本的可能走向",
     "technique": "同类剧本的写作手法",
@@ -62,9 +58,6 @@ def detect_genres(raw_text: str, top: int = 2) -> list[str]:
 
 
 # ---------- 同类剧本种子知识库 ----------
-#
-# 每一类题材提供「可能走向」与「写作手法」两条知识，新建项目时按识别到
-# 的题材索引进该项目的知识库，让 RAG 能检索到「类似剧本会怎么走、怎么写」。
 
 SEED_KNOWLEDGE: dict[str, dict[str, list[str]]] = {
     "悬疑": {
@@ -168,6 +161,34 @@ SEED_KNOWLEDGE: dict[str, dict[str, list[str]]] = {
 }
 
 
+def get_genre_conventions(genre: str) -> dict[str, list[str]]:
+    """按题材获取种子知识（纯内存字典查询）。"""
+    return SEED_KNOWLEDGE.get(genre, SEED_KNOWLEDGE[_DEFAULT_GENRE])
+
+
+def get_all_genre_knowledge(genres: list[str]) -> dict[str, list[str]]:
+    """合并多个题材的知识（去重）。"""
+    merged: dict[str, set[str]] = {"plot_direction": set(), "technique": set()}
+    for genre in genres:
+        conv = get_genre_conventions(genre)
+        for kind in ("plot_direction", "technique"):
+            merged[kind].update(conv.get(kind, []))
+    return {k: sorted(v) for k, v in merged.items()}
+
+
+def format_genre_knowledge(genres: list[str]) -> str:
+    """将题材知识格式化为可读文本（用于 prompt 注入或工具返回）。"""
+    knowledge = get_all_genre_knowledge(genres)
+    lines = [f"识别题材：{'、'.join(genres)}"]
+    for kind, label in [("plot_direction", "可能走向"), ("technique", "写作手法")]:
+        items = knowledge.get(kind, [])
+        if items:
+            lines.append(f"\n{label}：")
+            for item in items:
+                lines.append(f"  - {item}")
+    return "\n".join(lines)
+
+
 # ---------- 作者语言风格提取 ----------
 
 _IMAGERY_WORDS = ["像", "仿佛", "如同", "如", "月光", "雨", "风", "影子", "灯光", "雾气", "铁", "黄", "灰", "暗", "湿", "冷"]
@@ -223,13 +244,12 @@ def _heuristic_style(raw_text: str) -> dict[str, Any]:
 
 
 def extract_author_style(raw_text: str, *, llm: LLM | None = None, language: str = "zh-CN") -> dict[str, Any]:
-    """提取作者语言风格：规则画像（分维度）+ 可选模型润色。
+    """提取作者语言风格：规则画像 + 可选模型润色。
 
     返回结构：
       - summary:   一句话总述
       - metrics:   数值指标
-      - dimensions: 分维度描述（句式/节奏/对白/意象/氛围/语气），
-                    便于按维度拆成可检索的知识文档。
+      - dimensions: 分维度描述
     """
     profile = _heuristic_style(raw_text)
     m = profile["metrics"]
@@ -282,211 +302,10 @@ def extract_author_style(raw_text: str, *, llm: LLM | None = None, language: str
     return profile
 
 
-# ---------- 索引 / 检索 ----------
-
-
-def _knowledge_docs(
-    raw_text: str, title: str, *, llm: LLM | None = None, language: str = "zh-CN"
-) -> list[dict[str, str]]:
-    """组装该项目的全部知识文档（不含原文分块）。
-
-    优化：文本干净（不含「【题材·类型】」前缀，前缀在格式化展示时再加），
-    嵌入时直接用 text；作者风格拆成「总述 + 各维度」多条原子知识，
-    便于按维度精确检索。
-    """
-    from .vector import _extract_keywords
-
-    genres = detect_genres(raw_text)
-    docs: list[dict[str, str]] = []
-    for genre in genres:
-        seed = SEED_KNOWLEDGE.get(genre, SEED_KNOWLEDGE[_DEFAULT_GENRE])
-        for kind in ("plot_direction", "technique"):
-            for line in seed.get(kind, []):
-                docs.append(
-                    {
-                        "kind": kind,
-                        "source": f"genre:{genre}",
-                        "text": line,
-                    }
-                )
-    # 作者风格：一条总述 + 每个维度一条，共 1 + 6 条。
+def format_author_style(raw_text: str, *, llm: LLM | None = None, language: str = "zh-CN") -> str:
+    """提取并格式化作者风格为可读文本。"""
     style = extract_author_style(raw_text, llm=llm, language=language)
-    docs.append(
-        {
-            "kind": "author_style",
-            "source": "auto-extract",
-            "text": f"作者语言风格：{style.get('summary', '')}",
-        }
-    )
+    lines = [f"作者语言风格：{style.get('summary', '')}"]
     for dim_name, dim_text in (style.get("dimensions") or {}).items():
-        docs.append(
-            {
-                "kind": "author_style",
-                "source": "auto-extract",
-                "text": f"{dim_name}风格：{dim_text}",
-            }
-        )
-    # 题材元信息：方便按题材提问。
-    docs.append(
-        {
-            "kind": "plot_direction",
-            "source": "meta",
-            "text": f"《{title}》识别题材：{'、'.join(genres)}。改编时优先借鉴对应题材的套路与技法。",
-        }
-    )
-    # 预计算关键词（供混合检索关键词打分）。
-    for d in docs:
-        d["keywords"] = ",".join(_extract_keywords(d["text"], top=8))
-    return docs
-
-
-def index_project_knowledge(
-    vector: VectorStore,
-    embedder: Embedder,
-    *,
-    project_id: str,
-    raw_text: str,
-    title: str,
-    llm: LLM | None = None,
-    language: str = "zh-CN",
-) -> dict[str, int]:
-    """把一个项目的「原文分块 + 改编知识」整体重建入库（先清空该项目旧数据）。
-
-    返回 {"source_chunks": 原文块数, "knowledge_docs": 知识文档数}。
-    """
-    vector.delete_project(project_id)
-    counts: dict[str, int] = {"source_chunks": 0, "knowledge_docs": 0}
-    try:
-        counts["source_chunks"] = index_project(
-            vector, embedder, project_id=project_id, raw_text=raw_text, title=title, kind="source"
-        )
-    except Exception:  # noqa: BLE001
-        counts["source_chunks"] = 0
-    docs = _knowledge_docs(raw_text, title, llm=llm, language=language)
-    if docs:
-        # 干净嵌入：只用正文，前缀/标题不进向量。
-        vectors = embedder.embed([d["text"] for d in docs])
-        rows = [
-            {
-                "id": f"{project_id}_k{i:04d}",
-                "vector": vectors[i],
-                "text": d["text"],
-                "project_id": project_id,
-                "chapter_index": -1,
-                "kind": d["kind"],
-                "source": d["source"],
-                "chapter": "",
-                "char_offset": 0,
-                "doc_id": f"{project_id}:{d['kind']}:{i}",
-                "keywords": d.get("keywords", ""),
-            }
-            for i, d in enumerate(docs)
-        ]
-        vector.upsert(rows)
-        counts["knowledge_docs"] = len(rows)
-    return counts
-
-
-def remember_knowledge(
-    vector: VectorStore,
-    embedder: Embedder,
-    *,
-    project_id: str,
-    kind: str,
-    content: str,
-    source: str = "user",
-) -> bool:
-    """把用户在对话里表达的偏好 / 知识写入该项目的知识库。"""
-    if kind not in KNOWLEDGE_KINDS:
-        return False
-    from .vector import _extract_keywords
-
-    text = content.strip()
-    vec = embedder.embed([text])[0]
-    vector.upsert(
-        [
-            {
-                "id": f"{project_id}_k{_next_knowledge_seq(vector, project_id)}",
-                "vector": vec,
-                "text": text,
-                "project_id": project_id,
-                "chapter_index": -1,
-                "kind": kind,
-                "source": source,
-                "chapter": "",
-                "char_offset": 0,
-                "doc_id": f"{project_id}:{kind}:user:{_next_knowledge_seq(vector, project_id)}",
-                "keywords": ",".join(_extract_keywords(text, top=8)),
-            }
-        ]
-    )
-    return True
-
-
-def _next_knowledge_seq(vector: VectorStore, project_id: str) -> int:
-    """为新增知识生成不冲突的序号（基于现有知识文档数）。"""
-    try:
-        existing = vector.list_project(project_id)
-        return max(len(existing), 0)
-    except Exception:  # noqa: BLE001
-        return 0
-
-
-def retrieve_knowledge(
-    vector: VectorStore,
-    embedder: Embedder,
-    *,
-    project_id: str,
-    query: str,
-    k: int = 3,
-    kinds: list[str] | None = None,
-) -> list[dict[str, Any]]:
-    """按查询检索项目知识库，可按 kind 过滤。返回 [{kind, source, text, score}]。
-
-    优化：走混合检索（向量 + 关键词 + MMR 多样性 + 去重 + 阈值）；
-    多 kind 时分别检索再合并，保证各 kind 均衡覆盖。
-    """
-    from .vector import hybrid_retrieve
-
-    wanted = [k for k in (kinds or list(KNOWLEDGE_KINDS)) if k in KNOWLEDGE_KINDS]
-    if not wanted:
-        return []
-    out: list[dict[str, Any]] = []
-    if len(wanted) == 1:
-        hits = hybrid_retrieve(vector, embedder, project_id=project_id, query=query, k=k, kinds=wanted)
-        for h in hits:
-            out.append(
-                {
-                    "kind": h["kind"],
-                    "source": h["source"],
-                    "text": h["text"],
-                    "score": h["score"],
-                }
-            )
-        return out
-    # 多 kind：每类各取 ceil(k/n)，保证覆盖。
-    per = max(1, (k + len(wanted) - 1) // len(wanted))
-    for kind in wanted:
-        hits = hybrid_retrieve(vector, embedder, project_id=project_id, query=query, k=per, kinds=[kind])
-        for h in hits:
-            out.append(
-                {
-                    "kind": h["kind"],
-                    "source": h["source"],
-                    "text": h["text"],
-                    "score": h["score"],
-                }
-            )
-    out.sort(key=lambda d: d["score"], reverse=True)
-    return out[:k]
-
-
-def format_knowledge(docs: list[dict[str, Any]]) -> str:
-    """把检索到的知识格式化为提示词片段。"""
-    if not docs:
-        return "（暂无相关知识）"
-    lines = []
-    for d in docs:
-        kind_label = KIND_LABELS.get(d.get("kind", ""), d.get("kind", ""))
-        lines.append(f"- [{kind_label}] {d.get('text', '')}")
+        lines.append(f"  {dim_name}：{dim_text}")
     return "\n".join(lines)
