@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,10 +26,51 @@ _ROOT_DIR = Path(__file__).resolve().parent.parent
 _DIST_DIR = _ROOT_DIR / "frontend" / "dist"
 
 
+def _wire_video_job_writeback() -> None:
+    """把视频队列的状态变化写回数据库。
+
+    队列（VideoJobManager）只维护内存状态，而前端轮询的是 DB 里的
+    video_jobs 表；启动时挂上这个回调，任务进度才能被 API 看到。
+    """
+    from datetime import UTC, datetime
+
+    from .deps import store as get_store
+    from .deps import video_manager
+
+    status_map = {
+        "pending": "pending",
+        "submitting": "pending",
+        "queued": "queued",
+        "generating": "generating",
+        "succeeded": "succeeded",
+        "failed": "failed",
+        "timeout": "failed",
+        "cancelled": "cancelled",
+    }
+
+    def _writeback(job_id: str, info: dict[str, Any]) -> None:
+        fields: dict[str, Any] = {"status": status_map.get(str(info.get("status")), "pending")}
+        if info.get("external_task_id"):
+            fields["external_task_id"] = info["external_task_id"]
+        if info.get("video_url"):
+            fields["video_url"] = info["video_url"]
+        if info.get("error"):
+            fields["error_message"] = str(info["error"])
+        if info.get("finished_at"):
+            fields["finished_at"] = datetime.now(UTC)
+        try:
+            get_store().update_video_job(job_id, **fields)
+        except Exception:  # noqa: BLE001
+            pass
+
+    video_manager().on_complete(_writeback)
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     # 启动时注入 LangSmith 监控环境变量（LANGSMITH_* -> LANGCHAIN_*）。
     apply_langsmith_env(settings)
+    _wire_video_job_writeback()
     app = FastAPI(
         title="剧本工坊（Script Workshop）",
         version="0.3.0",

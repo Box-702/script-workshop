@@ -61,7 +61,9 @@ class Settings(BaseSettings):
     checkpoint_dsn: str = Field(default="", alias="CHECKPOINT_DSN")
 
     # ---------- 对话模型（OpenAI 兼容 / DeepSeek / 智谱） ----------
-    # 优先级：OPENAI_* > ZHIPUAI_* > DEEPSEEK_*
+    # 默认优先级：OPENAI_* > ZHIPUAI_* > DEEPSEEK_*（见 app/llm/registry.py）。
+    # 想换顺序或指定别的厂商，设 CHAT_PROVIDER=ollama/moonshot/qwen 等即可。
+    chat_provider: str = Field(default="", alias="CHAT_PROVIDER")
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     openai_base_url: str = Field(default="https://api.openai.com/v1", alias="OPENAI_BASE_URL")
     openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
@@ -72,6 +74,20 @@ class Settings(BaseSettings):
     deepseek_base_url: str = Field(default="https://api.deepseek.com", alias="DEEPSEEK_BASE_URL")
     deepseek_model: str = Field(default="deepseek-chat", alias="DEEPSEEK_MODEL_NAME")
     deepseek_thinking: bool = Field(default=False, alias="DEEPSEEK_THINKING")
+    # 本地模型（无 key，仅当 CHAT_PROVIDER=ollama 时启用）。
+    ollama_base_url: str = Field(default="http://127.0.0.1:11434/v1", alias="OLLAMA_BASE_URL")
+    ollama_model: str = Field(default="qwen2.5:7b", alias="OLLAMA_MODEL")
+
+    # ---------- 视觉（定妆图质检）与文生图（参考资产） ----------
+    # 留空则自动复用支持该能力的厂商 key（见 app/llm/registry.py 的 resolve_vision/resolve_image）。
+    vision_provider: str = Field(default="", alias="VISION_PROVIDER")
+    vision_api_key: str = Field(default="", alias="VISION_API_KEY")
+    vision_base_url: str = Field(default="", alias="VISION_BASE_URL")
+    vision_model: str = Field(default="", alias="VISION_MODEL")
+    image_provider: str = Field(default="", alias="IMAGE_PROVIDER")
+    image_api_key: str = Field(default="", alias="IMAGE_API_KEY")
+    image_base_url: str = Field(default="", alias="IMAGE_BASE_URL")
+    image_model: str = Field(default="", alias="IMAGE_MODEL")
 
     # ---------- 可选第三方服务 ----------
     tavily_api_key: str = Field(default="", alias="TAVILY_API_KEY")

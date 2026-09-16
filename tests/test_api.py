@@ -10,14 +10,20 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.api as api_mod
+from app.agent.skills import SubAgentRunner
 from app.main import create_app
 
 
 @pytest.fixture()
 def client(store, llm, settings, monkeypatch):
-    monkeypatch.setattr(api_mod, "store", lambda: store)
-    monkeypatch.setattr(api_mod, "llm", lambda: llm)
-    monkeypatch.setattr(api_mod, "settings", lambda: settings)
+    # 路由统一通过 app.api.deps 取值，因此替换这一处即可覆盖全部路由。
+    monkeypatch.setattr(api_mod.deps, "store", lambda: store)
+    monkeypatch.setattr(api_mod.deps, "llm", lambda: llm)
+    monkeypatch.setattr(api_mod.deps, "settings", lambda: settings)
+    # 子代理 runner 也要绑到测试库，否则会去连 .env 里的开发库。
+    monkeypatch.setattr(
+        api_mod.deps, "subagent_runner", lambda: SubAgentRunner(storage=store)
+    )
     return TestClient(create_app())
 
 
@@ -42,6 +48,19 @@ def test_status_reports_memory_enabled(client):
     payload = client.get("/api/status").json()
     assert payload["memory"]["enabled"] is True
     assert payload["memory"]["backend"] == "database"
+
+
+def test_tasks_endpoint_degrades_without_db(monkeypatch):
+    """子代理任务落库不可用时 /api/tasks 不应 500（退化为纯内存列表）。"""
+
+    def _boom():
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(api_mod.deps, "store", _boom)
+    monkeypatch.setattr(api_mod.deps, "subagent_runner", lambda: SubAgentRunner())
+    resp = TestClient(create_app()).get("/api/tasks")
+    assert resp.status_code == 200
+    assert resp.json() == []
 
 
 def test_chat_stream_emits_done_frame(client, sample_text):

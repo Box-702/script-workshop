@@ -37,20 +37,29 @@ def _slug_token(value: str) -> str:
     return re.sub(r"_+", "_", s).strip("_")
 
 
+def _strip_prefix(seed: str, prefix: str) -> str:
+    """剥掉字符串开头已有的 `<prefix>_` 前缀（大小写不敏感）。"""
+    low = seed.lower()
+    if low.startswith(prefix.lower() + "_"):
+        return seed[len(prefix) + 1 :]
+    if low.startswith(prefix.lower()):
+        return seed[len(prefix) :]
+    return seed
+
+
 def normalize_id(value: object, prefix: str, *, fallback: str | None = None) -> str:
     """把 LLM 给的 id 规整为 `<prefix>_[a-z0-9_]+`。
 
     策略：保留已合格 id；去掉已有 prefix 再重加；无剩余内容时用 fallback 或 hash。
     对 scene / beat 这类数字 id，不足三位自动补零，保证稳定可寻址。
+
+    注意：fallback 也要先剥前缀，否则 fallback 传进来的 "loc_main" 会被再拼一次，
+    变成 "loc_loc_main"，导致引用对不上。
     """
     seed = str(value).strip() if value is not None else (fallback or "")
-    if seed.lower().startswith(prefix.lower() + "_"):
-        seed = seed[len(prefix) + 1 :]
-    elif seed.lower().startswith(prefix.lower()):
-        seed = seed[len(prefix) :]
-    slug = _slug_token(seed)
+    slug = _slug_token(_strip_prefix(seed, prefix))
     if not slug:
-        slug = _slug_token(fallback or "")
+        slug = _slug_token(_strip_prefix(str(fallback or "").strip(), prefix))
     if not slug:
         slug = hashlib.md5(str(value).encode("utf-8")).hexdigest()[:8]
     if prefix in {"scene", "beat"} and slug.isdigit():
@@ -348,7 +357,7 @@ ShotType = Literal[
 ]
 CameraMoveType = Literal[
     "static", "pan", "tilt", "dolly", "tracking",
-    "crane", "handheld", "zoom", "steady",
+    "crane", "handheld", "zoom", "steady", "orbit",
 ]
 CameraSpeed = Literal["slow", "medium", "fast"]
 PacingType = Literal["slow", "medium", "fast", "variable"]
@@ -356,11 +365,19 @@ TransitionType = Literal["cut", "fade", "dissolve", "wipe", "none"]
 
 
 class CameraMovement(BaseModel):
-    """摄影机运动。"""
+    """摄影机运动。
+
+    只写 ``type``（推/摇/移）不足以让视频模型拍出想要的运动——它不知道镜头
+    从哪儿出发、到哪儿停下。``path`` / ``height`` 把「摄影师规划好的运动轨迹」
+    写成文字：把摄影机设想成一台贴近人物飞行的虚拟无人机，写清起点到终点的
+    相对距离、机位高度与运动方式（前进/后退/侧移/环绕/升降/偏航/俯仰与惯性）。
+    """
 
     type: CameraMoveType = "static"
     direction: str | None = None  # left / right / up / down / in / out
     speed: CameraSpeed = "medium"
+    path: str = ""    # 运镜轨迹：起点 → 终点，含与主体的距离/角度变化与运动规律
+    height: str = ""  # 机位高度：如「与人物胸口齐平，随后降到贴地」
 
 
 class Shot(BaseModel):
@@ -368,6 +385,11 @@ class Shot(BaseModel):
 
     每个镜头对应一段 5-10 秒的 AI 生成视频。
     ``id`` 格式为 ``shot_sceneXXX_NNN``。
+
+    一致性锚定：文生视频每个镜头是独立采样，仅靠 prompt 无法跨镜锁住
+    场景与人物。通过以下字段把「共享参考素材 / 首尾帧接力」显式建模：
+      - reference_images/videos：贯穿全片的共享环境参考图、上一镜成片参考；
+      - first/last_frame_image：首尾帧控制（镜头 N 尾帧 → 镜头 N+1 首帧）。
     """
 
     id: str = Field(pattern=r"^shot_[a-z0-9_]+_\d{3,}$")
@@ -381,7 +403,18 @@ class Shot(BaseModel):
     duration_sec: float = Field(default=5.0, ge=1.0, le=30.0)
     lighting: str | None = None
     mood: str | None = None
-    style_notes: str | None = None
+    # ---- 画面调度的文字证据：视频模型看不见导演的脑内画面，只能靠这些字段 ----
+    spatial: str = ""            # 空间关系：人物编号、人物间相对距离、离镜头/地面多高，及其在运镜中的变化
+    background_action: str = ""  # 背景人物各自独立、不同步的生活化行为（允许少数人静止）
+    cut_reason: str = ""               # 为什么必须在这里切镜（写不出理由就该合并）
+    # ---- 一致性计划（导演输出的符号化接力方案，运行时再解析为下面的 URL）----
+    reference_group: str = ""          # 共享环境参考图分组键：同组镜头共用一张环境参考图
+    chain_from: int | None = None      # 首帧接力：本镜首帧取自该 order 镜头的尾帧；None=序列起点/硬切
+    # ---- 一致性锚定（多模态输入，对接 VideoJobParams）----
+    reference_images: list[str] = Field(default_factory=list)  # 共享环境/人物参考图 URL
+    reference_videos: list[str] = Field(default_factory=list)  # 参考上一镜成片 URL，锁风格/运镜/光影
+    first_frame_image: str | None = None  # 首帧图（接上一镜尾帧）
+    last_frame_image: str | None = None   # 尾帧图（供下一镜接力）
     # ---- 视频生成状态 ----
     video_prompt: str | None = None
     video_url: str | None = None
@@ -433,7 +466,11 @@ class StoryboardFrame(BaseModel):
 
 
 class StyleGuide(BaseModel):
-    """视觉风格指南：由美术指导 Agent 生成。"""
+    """视觉风格指南：由美术指导 Agent 生成。
+
+    ``reference_images`` 是图像级视觉锚的注册表：{人物名/地点名: 定妆图 URL}。
+    由参考资产流水线（app/media/refs.py）生成并质检后回填，供镜头作为 reference_images 使用。
+    """
 
     color_palette: list[str] = Field(default_factory=list)
     lighting_style: str = ""
@@ -441,6 +478,7 @@ class StyleGuide(BaseModel):
     visual_references: list[str] = Field(default_factory=list)
     character_appearances: dict[str, str] = Field(default_factory=dict)
     environment_descriptions: dict[str, str] = Field(default_factory=dict)
+    reference_images: dict[str, str] = Field(default_factory=dict)
 
 
 class SceneBreakdown(BaseModel):

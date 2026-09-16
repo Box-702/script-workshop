@@ -2,12 +2,12 @@
 
 小说 → 剧本 → AI 短剧 全链路 Agent 工作台。
 
-基于 LangGraph 的多 Agent 协作系统，模仿真实剧组分工（编剧/导演/摄影/美术/剪辑/制片），通过对话完成从导入小说到生成短剧的完整流程。AI 给出可解释、可逐条选择、可回滚的修改建议，由人来决定接受、编辑或拒绝。
+基于 LangGraph 的多 Agent 协作系统，模仿真实剧组分工（编剧生成 → 导演拆镜 → 美术定视觉 → 摄影出提示词），通过对话完成从导入小说到生成短剧的完整流程。AI 给出可解释、可逐条选择、可回滚的修改建议，由人来决定接受、编辑或拒绝。
 
 - Python 3.12+ / LangGraph 1.x / LangChain 1.x / FastAPI
 - 后端 FastAPI（REST + 流式对话），前端 Vue 3 + Vite
 - 可选 Postgres（业务库 + checkpointer）
-- 对话模型：智谱 GLM / DeepSeek / OpenAI 兼容
+- 模型接入：统一门面 `app/llm/`，一套 OpenAI 兼容协议覆盖 OpenAI / DeepSeek / 智谱 GLM / Kimi / Qwen / Ollama；对话、视觉质检、文生图三维度可分别用不同厂商
 - 视频生成：MiniMax 海螺 / Runway / Kling / CogVideoX / Sora
 
 ## 为什么做这个项目
@@ -34,13 +34,21 @@
 
 ### AI 短剧制作
 
-- **剧组 Agent 系统**：8 个 Agent 模仿真实剧组分工（编剧/剧本医生/导演/摄影指导/美术指导/分镜师/剪辑师/制片人）。
-- **镜头级视频生成**：每个场景拆解为 3-8 个镜头，每镜头生成 5-10 秒视频，最后 FFmpeg 拼接。
+- **剧组 Agent 系统**：导演 / 美术指导 / 摄影指导三个 Agent 各司其职（美术指导产出的角色造型与环境描述是全片视觉锚的唯一来源，下游逐字复用）。
+- **参考资产流水线（图像级一致性）**：为角色与场景生成定妆图 → 视觉模型质检 → 注册为全局参考 → 回填到镜头，让视频模型「看见」同一个角色，而不是只靠文字描述。
+- **镜头级视频生成**：镜头数由导演按剧情内容决定（分镜 = 一段连贯的角色动作或一段连贯的角色对话剧情），首尾帧接力 + 参考图/参考视频锁一致性，最后 FFmpeg 拼接。
 - **视频 Provider 抽象层**：统一接口适配 Runway / Kling / CogVideoX / Sora / MiniMax，用户自由切换。
-- **4 个 HITL 审批节点**：剧本定稿、分镜方案、视频 Prompt、成片审核。
+- **人审环节**：剧本改编走 `interrupt` 暂停 / `Command.resume` 恢复的四决策闭环（接受 / 编辑 / 重新生成 / 拒绝）；视频侧以「分镜版本 → 提示词版本 → 成片版本」的链式快照承载人工审核与回退。
 - **版本迭代**：视频版本链式快照，支持回溯/分叉/里程碑标记。
 
-### Agent 工具（12 个）
+> 开发指引与踩坑记录见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)；
+> 包结构、模型接入层、Agent 清单与核心链路见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
+
+### 工具集
+
+**对话 Conductor 工具（14 个）**：`create_project` / `generate_script` / `run_adaptation` / `get_script_overview` / `ask` / `remember` / `analyze_scenes` / `check_style` / `polish_dialogue` / `breakdown_scenes` / `generate_style_guide` / `generate_video_prompts` / `generate_reference_assets` / `web_search`。
+
+**改编图 ReAct 工具（11 个）**：
 
 | 工具 | 说明 |
 |------|------|
@@ -52,10 +60,11 @@
 | `get_author_style` | 查看作者语言风格 |
 | `list_versions` | 查看历史版本 |
 | `validate_tool` | 校验剧本一致性 |
-| `web_search` | 联网搜索（Tavily） |
 | `remember_preference` | 记住用户偏好 |
 | `recall_preferences` | 回忆用户偏好 |
-| `breakdown_scenes` | 场景拆解为镜头 |
+| `web_search` | 联网搜索（Tavily） |
+
+两组工具都会自动合并 `app/plugin/` 注册的插件工具（内置 `research` 插件提供 `deep_research`）。
 
 ### 其他
 
@@ -76,15 +85,18 @@
 └─────────────┘    └─────────────┘    └─────────────┘
 ```
 
-- `app/api.py`：REST 路由 + SSE 流式对话，对外提供 `/api/*`。
-- `app/chat.py`：对话式 Agent（ChatConductor），持有工具集并编排对话。
-- `app/agent.py`：运行服务，负责启动运行、恢复审阅与兜底。
-- `app/graph.py` + `app/nodes.py` + `app/tools.py`：LangGraph StateGraph 编排。
-- `app/crew/`：剧组 Agent（director / dp / art_director / editor / producer）。
-- `app/video/`：视频生成 Provider 抽象层 + 异步任务队列。
-- `app/memory.py`：用户级记忆系统（替代 RAG）。
+分层（依赖单向向下，见 `docs/ARCHITECTURE.md`）：
+
+- `app/llm/`：**统一模型接入层**。门面 `LLM` + 厂商表 + 配置解析（`.env` / DB），覆盖 chat / vision / image 三个能力维度。
+- `app/pipeline/`：**内容生产线**。导入解析、两阶段生成、patch 与校验、题材知识、记忆、评审、搜索、导出；不依赖 LangGraph，也不感知 HTTP。
+- `app/agent/`：**改编智能体**。`graph` / `nodes` / `tools` / `state` 是 LangGraph 状态图，`runner` 是薄服务层，`skills` 是后台专职子代理。
+- `app/chat/`：**对话式编排**（ChatConductor），绑定工具理解意图，底层复用 `app/agent` 的审阅工作流。
+- `app/crew/`：**剧组 Agent**（导演 / 美术指导 / 摄影指导）。
+- `app/media/`：**参考资产流水线**（定妆图 → 视觉质检 → 注册 → 回填镜头）。
+- `app/video/`：视频 Provider 抽象层 + 异步任务队列 + 连续性解析（尚未接入投递路径）+ FFmpeg 拼接。
+- `app/plugin/`：插件系统（内置 / 用户级 / 项目级）。插件 `mcp:` 清单段已能解析，MCP 执行层尚未接线。
+- `app/api/`：**REST 路由包**，按域拆分为 system / projects / versions / agent_runs / chat / video / plugins；统一经 `api/deps.py` 取依赖。
 - `app/store.py`：业务持久化（SQLAlchemy，Postgres / SQLite）。
-- `app/llm.py`：模型接入（智谱 / OpenAI 兼容 / DeepSeek）。
 - `frontend/`：Vue 3 + Vite 单页，三栏布局（聊天 + 创作区 + Inspector）。
 
 ### LangGraph 图拓扑
@@ -157,36 +169,65 @@ Script Workshop/
 │
 ├── app/
 │   ├── main.py               # FastAPI 入口
-│   ├── api.py                # REST 路由
-│   ├── chat.py               # 对话式 Agent
-│   ├── agent.py              # Agent 运行服务
-│   ├── graph.py              # LangGraph 图编排
-│   ├── nodes.py              # 图节点实现
-│   ├── tools.py              # ReAct 工具集（12 个）
+│   ├── config.py             # 配置管理（.env → Settings）
+│   ├── deps.py               # 依赖单例装配点
 │   ├── domain.py             # 领域模型（Script + Shot + StyleGuide）
 │   ├── store.py              # 业务持久化
-│   ├── llm.py                # 模型接入（智谱/DeepSeek/OpenAI）
-│   ├── config.py             # 配置管理
-│   ├── memory.py             # 用户记忆系统
-│   ├── knowledge.py          # 题材知识 + 风格提取
-│   ├── search.py             # 联网搜索（Tavily）
-│   ├── generation.py         # 剧本生成流水线
-│   ├── patch.py              # patch 引擎
-│   ├── review.py             # 评审打分
-│   ├── export.py             # 剧本导出
+│   ├── workspace.py          # 工作目录文件树
+│   │
+│   ├── api/                  # ★ REST 路由包（按业务域拆分）
+│   │   ├── system.py         #   运行状态 / 子代理任务 / 工作目录
+│   │   ├── projects.py       #   项目生命周期、导入、落盘、笔记、文件
+│   │   ├── versions.py       #   剧本版本 + 导出
+│   │   ├── agent_runs.py     #   改编智能体的运行与审阅
+│   │   ├── chat.py           #   对话式 Agent 与会话管理
+│   │   ├── video.py          #   Provider / 模型偏好 / 视频版本 / 生成任务
+│   │   └── plugins.py        #   插件管理
+│   │
+│   ├── llm/                  # ★ 统一模型接入层
+│   │   ├── client.py         #   LLM 门面（chat / structured / vision / image）
+│   │   ├── providers.py      #   厂商表（OpenAI 兼容 / DeepSeek / 智谱 / Kimi / Qwen / Ollama）
+│   │   ├── registry.py       #   配置解析（.env 优先级链 + DB 偏好）
+│   │   ├── vision.py         #   视觉质检客户端
+│   │   └── image.py          #   文生图客户端
+│   │
+│   ├── pipeline/             # ★ 内容生产线（无 LangGraph / 无 HTTP 依赖）
+│   │   ├── generation.py     #   两阶段生成：故事圣经 → 场景规划
+│   │   ├── patch.py          #   结构化 patch + 剧本校验
+│   │   ├── profiles.py       #   改编类型 profile
+│   │   ├── knowledge.py      #   题材知识 + 作者风格
+│   │   ├── memory.py         #   用户/项目记忆
+│   │   ├── review.py         #   五维评审打分
+│   │   ├── search.py         #   Tavily 联网搜索
+│   │   ├── importer.py       #   文件导入解析
+│   │   ├── export.py         #   导出 txt / md / docx
+│   │   └── chunking.py       #   文本切片
+│   │
+│   ├── agent/                # ★ 改编智能体
+│   │   ├── graph.py          #   LangGraph 图拓扑
+│   │   ├── nodes.py          #   图节点实现
+│   │   ├── tools.py          #   ReAct 工具集
+│   │   ├── state.py          #   AgentState
+│   │   ├── runner.py         #   运行服务（启动 / 恢复 / 兜底）
+│   │   └── skills.py         #   后台子代理（场景分析 / 风格检查 / 对白润色）
+│   │
+│   ├── chat/
+│   │   └── conductor.py      # 对话式 Agent（ChatConductor）
+│   ├── media/
+│   │   └── refs.py           # 参考资产流水线（定妆图 → 质检 → 回填）
 │   ├── crew/                 # 剧组 Agent
-│   │   ├── director.py       # 导演
-│   │   ├── dp.py             # 摄影指导
-│   │   ├── art_director.py   # 美术指导
-│   │   ├── editor.py         # 剪辑师
-│   │   └── producer.py       # 制片人
+│   │   ├── director.py       #   导演（分镜）
+│   │   ├── art_director.py   #   美术指导（视觉锚唯一来源）
+│   │   └── dp.py             #   摄影指导（视频提示词构建）
 │   ├── video/                # 视频生成
-│   │   ├── base.py           # Provider 抽象基类
-│   │   ├── registry.py       # Provider 注册表
-│   │   ├── queue.py          # 异步任务队列
-│   │   ├── assemble.py       # FFmpeg 拼接
-│   │   └── providers/        # 5 个 Provider 适配器
-│   └── vector.py             # 文本切片工具
+│   │   ├── base.py           #   Provider 抽象基类
+│   │   ├── registry.py       #   Provider 注册表
+│   │   ├── queue.py          #   异步任务队列
+│   │   ├── continuity.py     #   连续性解析（接力 → 参考视频）
+│   │   ├── assemble.py       #   FFmpeg 拼接
+│   │   └── providers/        #   5 个 Provider 适配器
+│   ├── plugin/               # 插件系统（内置 / 用户级 / 项目级）
+│   └── plugins/builtin/      # 内置插件（research）
 │
 ├── frontend/
 │   └── src/
@@ -201,27 +242,33 @@ Script Workshop/
 │           ├── CrewPanel.vue         # 剧组工位面板
 │           └── ...
 │
-└── tests/                    # 测试套件（67 tests）
+└── tests/                    # 测试套件（98 tests）
 ```
 
 ## 环境变量
 
+模型接入统一由 `app/llm/registry.py` 解析：**显式指定 > `.env` 优先级链（OPENAI > ZHIPUAI > DEEPSEEK）> 数据库里配的 provider**。
+对话、视觉质检、文生图三维度可分别配置，互相独立。
+
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `ZHIPUAI_API_KEY` | 智谱对话模型 key | - |
-| `ZHIPUAI_MODEL_NAME` | 智谱模型名 | `GLM-5.3-Flash` |
-| `DEEPSEEK_API_KEY` | DeepSeek key（备用） | - |
-| `OPENAI_API_KEY` | OpenAI 兼容 key（备用） | - |
+| `CHAT_PROVIDER` | 强制指定对话厂商（`openai` / `deepseek` / `zhipu` / `ollama` / `moonshot` / `qwen`） | 按优先级链自动选 |
+| `ZHIPUAI_API_KEY` | 智谱 key（GLM 对话 / CogView 文生图 / CogVideoX 视频共用） | - |
+| `DEEPSEEK_API_KEY` | DeepSeek key（也用于默认视觉质检模型） | - |
+| `OPENAI_API_KEY` | OpenAI 或任意兼容服务的 key | - |
+| `DEEPSEEK_THINKING` | 推理模型是否开启思考链 | `false` |
+| `VISION_PROVIDER` / `VISION_MODEL` / `VISION_API_KEY` | 视觉质检单独配置（留空则自动复用支持视觉的厂商） | 自动 |
+| `IMAGE_PROVIDER` / `IMAGE_MODEL` / `IMAGE_API_KEY` | 文生图单独配置（`cogview` / `openai`） | `cogview` → `openai` |
 | `MINIMAX_API_KEY` | MiniMax 视频生成 key | - |
 | `TAVILY_API_KEY` | 联网搜索 key | - |
 | `DATABASE_URL` | 数据库连接串 | SQLite |
-| `CHECKPOINTER` | checkpointer 类型 | `memory` |
+| `CHECKPOINTER` | checkpointer 类型（`memory` / `postgres`） | `memory` |
 
 ## 运行测试
 
 ```bash
 python -m pytest tests -q
-# 67 passed
+# 98 passed
 ```
 
 ## 许可证

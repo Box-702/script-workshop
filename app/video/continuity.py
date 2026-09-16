@@ -1,0 +1,63 @@
+# =====================================================================
+# continuity.py —— 分镜连续性解析
+#
+# 导演产出「连续性计划」：每个镜头带 reference_group（共享环境参考分组）
+# 与 chain_from（首尾帧接力，指向前序镜头的 order）。本模块在镜头成片后，
+# 把这些符号化计划解析成运行时输入（reference_videos），从而让独立生成的
+# 镜头之间共享视觉锚点，解决「分镜导致场景/人物不统一」的问题。
+#
+# 说明：MiniMax 等 provider 的参考素材需要公开 URL。成片后的 video_url
+# 正好是公开直链，因此无需额外图片托管即可实现「上一镜成片作为下一镜参考」。
+# =====================================================================
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+log = logging.getLogger(__name__)
+
+
+def resolve_continuity(shots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """把连续性计划解析成运行时输入，原地补齐每个镜头的 reference_videos。
+
+    规则：
+      1. 每个 reference_group 内，以「组内第一个已成片镜头」为锚点，
+         该组后续镜头追加锚镜的 video_url 作为参考视频（锁场景/光影/人物）。
+      2. chain_from=N：追加第 N 个镜头（order=N）的成片 URL 作为参考视频，
+         实现首尾帧接力 / 风格锁定。
+
+    无成片 URL 的镜头被跳过（不会把自己或空值当作参考）。
+    """
+    order_to_url: dict[int, str] = {
+        int(s.get("order", -1)): s["video_url"]
+        for s in shots
+        if s.get("video_url")
+    }
+
+    # 组内锚点：reference_group -> 组内最先成片的镜头 order。
+    group_anchor: dict[str, int] = {}
+    for s in sorted(shots, key=lambda x: int(x.get("order", 0))):
+        g = str(s.get("reference_group") or "")
+        if g and s.get("video_url") and g not in group_anchor:
+            group_anchor[g] = int(s["order"])
+
+    for s in shots:
+        refs: list[str] = list(s.get("reference_videos") or [])
+        # 首尾帧接力：链到更早镜头的成片。
+        chain = s.get("chain_from")
+        if chain is not None:
+            url = order_to_url.get(int(chain))
+            if url and url not in refs:
+                refs.append(url)
+        # 环境参考：同组锚镜（且不是自己）。
+        g = str(s.get("reference_group") or "")
+        anchor = group_anchor.get(g)
+        if anchor is not None and anchor != int(s.get("order", -1)):
+            url = order_to_url.get(anchor)
+            if url and url not in refs:
+                refs.append(url)
+        if refs:
+            s["reference_videos"] = refs
+
+    return shots

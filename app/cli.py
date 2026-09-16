@@ -13,10 +13,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from . import agent as agent_svc
+from .agent import runner as agent_svc
 from .deps import llm, settings, store
-from .generation import generate_script
-from .patch import validate_script
+from .pipeline.generation import generate_script
+from .pipeline.patch import validate_script
 
 SAMPLE_TEXT = (
     "第一章　雨夜\n"

@@ -4,9 +4,9 @@
 # 验证最核心的「LangGraph 人机协同」链路。
 # =====================================================================
 
-from app import agent as agent_svc
-from app.generation import generate_script
-from app.patch import validate_script
+from app.agent import runner as agent_svc
+from app.pipeline.generation import generate_script
+from app.pipeline.patch import validate_script
 from app.store import Store
 
 

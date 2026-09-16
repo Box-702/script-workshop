@@ -23,8 +23,8 @@ log = logging.getLogger(__name__)
 
 # 轮询间隔（秒）
 POLL_INTERVAL = 5
-# 最大轮询次数（5分钟 / 5秒 = 60 次）
-MAX_POLLS = 60
+# 最大轮询次数（20分钟 / 5秒 = 240 次；MiniMax 高峰期排队可能超过 10 分钟）
+MAX_POLLS = 240
 
 
 class VideoJobManager:
@@ -42,6 +42,8 @@ class VideoJobManager:
         self._jobs: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
         self._callbacks: list[Callable[[str, dict[str, Any]], None]] = []
+        # 已通知过的状态指纹，避免每轮轮询都重复触发回调。
+        self._notified: dict[str, tuple[Any, ...]] = {}
 
     def on_complete(self, callback: Callable[[str, dict[str, Any]], None]) -> None:
         """注册任务完成回调。callback(job_id, job_info)。"""
@@ -138,19 +140,25 @@ class VideoJobManager:
             )
         finally:
             loop.close()
-            # 触发回调
-            with self._lock:
-                job_info = self._jobs.get(job_id, {})
-            for cb in self._callbacks:
-                try:
-                    cb(job_id, job_info)
-                except Exception as e:  # noqa: BLE001
-                    log.warning("视频任务回调失败：%s", e)
 
     def _update(self, job_id: str, **fields: Any) -> None:
+        """更新内存任务状态；状态有实质变化时通知回调（回调会把状态写回 DB）。"""
         with self._lock:
-            if job_id in self._jobs:
-                self._jobs[job_id].update(fields)
+            job = self._jobs.get(job_id)
+            if not job:
+                return
+            job.update(fields)
+            snapshot = dict(job)
+
+        fingerprint = (snapshot.get("status"), snapshot.get("video_url"), snapshot.get("error"))
+        if self._notified.get(job_id) == fingerprint:
+            return
+        self._notified[job_id] = fingerprint
+        for cb in self._callbacks:
+            try:
+                cb(job_id, snapshot)
+            except Exception as e:  # noqa: BLE001
+                log.warning("视频任务回调失败：%s", e)
 
     def get(self, job_id: str) -> dict[str, Any] | None:
         with self._lock:

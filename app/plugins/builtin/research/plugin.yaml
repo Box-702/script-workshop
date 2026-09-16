@@ -1,0 +1,17 @@
+name: research
+version: "1.0"
+description: 联网调研工具，对指定主题进行搜索和汇总
+author: builtin
+type: tool
+
+tools:
+  - name: deep_research
+    description: 对指定主题进行深度调研，搜索多个来源并汇总成结构化报告
+    parameters:
+      topic:
+        type: string
+        description: 调研主题
+        required: true
+      focus:
+        type: string
+        description: 调研重点（如：写作技法、市场分析、同类作品）

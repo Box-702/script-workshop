@@ -50,9 +50,18 @@ class ProviderRegistry:
         """按名称获取 Provider 实例。
 
         优先返回已注册的实例；没有则尝试用注册的类 + kwargs 实例化。
+        已缓存实例可能是在无 key 情况下创建的（例如仅用于费用估算），
+        此时若调用方带了 key 配置，就地补齐，避免拿不到鉴权。
         """
         if name in self._instances:
-            return self._instances[name]
+            inst = self._instances[name]
+            api_key = kwargs.get("api_key") or ""
+            if api_key and not inst.api_key:
+                inst.api_key = api_key
+                base_url = kwargs.get("base_url") or ""
+                if base_url:
+                    inst.base_url = base_url.rstrip("/")
+            return inst
         cls = self._classes.get(name)
         if cls is None:
             return None

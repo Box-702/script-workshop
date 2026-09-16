@@ -1,0 +1,260 @@
+# =====================================================================
+# registry.py —— 配置解析（.env / DB → ModelConfig）
+#
+# 上层业务永远不直接读环境变量或数据库：只问这里要一个 ModelConfig。
+# 两条配置来源，优先级明确：
+#   1. 显式指定（CHAT_PROVIDER / VISION_PROVIDER / IMAGE_PROVIDER）；
+#   2. .env 的厂商优先级链（保持历史行为：OPENAI > ZHIPUAI > DEEPSEEK）；
+#   3. 数据库 api_providers / model_preferences（前端「设置」里配的）。
+#
+# 每一维（chat / vision / image）各自解析，互不干扰：对话用 DeepSeek、
+# 质检用智谱视觉、文生图用 CogView 这种混搭是允许的。
+# =====================================================================
+
+from __future__ import annotations
+
+import logging
+import os
+from typing import Any
+
+from .base import ModelConfig
+from .providers import all_provider_specs, get_provider_spec
+
+log = logging.getLogger(__name__)
+
+# 兼容别名：.env 里可能写成 zhipuai / glm / openai-compatible 等。
+_ALIASES = {
+    "openai-compatible": "openai",
+    "zhipuai": "zhipu",
+    "glm": "zhipu",
+    "bigmodel": "zhipu",
+    "dashscope": "qwen",
+    "kimi": "moonshot",
+    "local": "ollama",
+}
+
+# .env 优先级链（历史行为，不要随意调整顺序）。
+_ENV_CHAIN = ("openai", "zhipu", "deepseek")
+
+
+def _canonical(name: str) -> str:
+    key = (name or "").strip().lower()
+    return _ALIASES.get(key, key)
+
+
+def _settings_attr(settings: Any, *names: str) -> str:
+    """按顺序取第一个非空的 Settings 字段。"""
+    for name in names:
+        value = getattr(settings, name, "") or ""
+        if str(value).strip():
+            return str(value).strip()
+    return ""
+
+
+def _from_settings(provider: str, settings: Any) -> ModelConfig | None:
+    """从 .env / Settings 构造某个厂商的 ModelConfig；没有 key 则返回 None。"""
+    name = _canonical(provider)
+    spec = get_provider_spec(name)
+    if spec is None:
+        return None
+
+    api_key = base_url = model = ""
+    extra_body: dict[str, Any] = {}
+
+    if name == "openai":
+        api_key = _settings_attr(settings, "openai_api_key")
+        base_url = _settings_attr(settings, "openai_base_url")
+        model = _settings_attr(settings, "openai_model")
+    elif name == "zhipu":
+        api_key = _settings_attr(settings, "zhipuai_api_key")
+        base_url = _settings_attr(settings, "zhipuai_base_url")
+        model = _settings_attr(settings, "zhipuai_model")
+    elif name == "deepseek":
+        api_key = _settings_attr(settings, "deepseek_api_key")
+        base_url = _settings_attr(settings, "deepseek_base_url")
+        model = _settings_attr(settings, "deepseek_model")
+        # 推理模型：由 .env 控制是否开启思考链（默认关闭，直出 content）。
+        extra_body = {"_thinking": bool(getattr(settings, "deepseek_thinking", False))}
+    elif name == "ollama":
+        # 本地服务无需 key；端点与模型可由环境变量覆盖。
+        api_key = _settings_attr(settings, "ollama_api_key") or "not-needed"
+        base_url = _settings_attr(settings, "ollama_base_url")
+        model = _settings_attr(settings, "ollama_model")
+    else:
+        # 未在 Settings 里声明字段的厂商（moonshot / qwen / 自建网关）：
+        # 支持用真实环境变量配置（.env 需被 python-dotenv 加载进 os.environ 才生效）。
+        api_key = os.environ.get(spec.env_key, "").strip()
+
+    if spec.requires_key and not api_key:
+        return None
+
+    return ModelConfig(
+        provider=name,
+        label=spec.label,
+        model=model or spec.default_model,
+        api_key=api_key,
+        base_url=base_url or spec.default_base_url,
+        extra_body=extra_body,
+        source="env",
+    )
+
+
+def _from_store(store: Any, kind: str, task_type: str = "") -> ModelConfig | None:
+    """从数据库的 api_providers / model_preferences 构造 ModelConfig。"""
+    if store is None:
+        return None
+    try:
+        # 先看用户为某类任务显式选择的默认模型。
+        if task_type:
+            pref = store.get_model_preference(task_type)
+            if pref and pref.provider_id:
+                row = store.get_api_provider(pref.provider_id)
+                if row and row.api_key:
+                    return _from_db_row(row, override_model=pref.model_name,
+                                        params=getattr(pref, "params", None) or {})
+        for row in store.list_api_providers(kind=kind):
+            if row.enabled and row.api_key:
+                return _from_db_row(row)
+    except Exception as e:  # noqa: BLE001
+        log.debug("读取 DB 模型配置失败：%s", e)
+    return None
+
+
+def _from_db_row(
+    row: Any, override_model: str = "", params: dict[str, Any] | None = None
+) -> ModelConfig:
+    config = getattr(row, "config", None) or {}
+    spec = get_provider_spec(_canonical(getattr(row, "name", "")))
+    return ModelConfig(
+        provider=_canonical(getattr(row, "name", "")) or "custom",
+        label=getattr(row, "label", "") or (spec.label if spec else ""),
+        model=override_model or config.get("model") or (spec.default_model if spec else ""),
+        api_key=getattr(row, "api_key", "") or "",
+        base_url=getattr(row, "base_url", "") or (spec.default_base_url if spec else ""),
+        extra_body=dict(params or {}),
+        source="db",
+    )
+
+
+# ---------- 三个能力维度的解析入口 ----------
+
+
+def resolve_chat(settings: Any, store: Any = None) -> ModelConfig | None:
+    """对话模型：显式指定 > .env 优先级链 > DB。"""
+    forced = _canonical(_settings_attr(settings, "chat_provider"))
+    if forced:
+        return _from_settings(forced, settings) or _from_store(store, "llm", "chat") or None
+    for name in _ENV_CHAIN:
+        config = _from_settings(name, settings)
+        if config:
+            return config
+    return _from_store(store, "llm", "chat")
+
+
+def resolve_vision(settings: Any, store: Any = None) -> ModelConfig | None:
+    """视觉模型：显式指定 > DB > 复用支持视觉的对话厂商 > 常见视觉厂商链。"""
+    forced = _canonical(_settings_attr(settings, "vision_provider"))
+    explicit_key = _settings_attr(settings, "vision_api_key")
+
+    if explicit_key:
+        base = _from_settings(forced, settings) if forced else None
+        spec = get_provider_spec(forced) if forced else None
+        return ModelConfig(
+            provider=forced or "custom",
+            label=spec.label if spec else "自定义视觉",
+            model=_settings_attr(settings, "vision_model") or (spec.vision_model if spec else ""),
+            api_key=explicit_key,
+            base_url=_settings_attr(settings, "vision_base_url") or (base.base_url if base else ""),
+            source="env",
+        )
+
+    if forced:
+        spec = get_provider_spec(forced)
+        config = _from_settings(forced, settings)
+        if config and spec and spec.supports_vision:
+            chosen = _settings_attr(settings, "vision_model")
+            config.model = chosen or spec.vision_model or config.model
+            return config
+
+    from_store = _from_store(store, "vision") or _from_store(store, "llm", "vision")
+    if from_store:
+        return from_store
+
+    # 复用当前对话厂商（若它自带视觉能力），否则按 key 的可用性挑一家。
+    for name in ("deepseek", "zhipu", "openai", "qwen"):
+        spec = get_provider_spec(name)
+        if spec is None or not spec.supports_vision:
+            continue
+        config = _from_settings(name, settings)
+        if config:
+            chosen = _settings_attr(settings, "vision_model")
+            config.model = chosen or spec.vision_model or config.model
+            return config
+    return None
+
+
+def resolve_image(settings: Any, store: Any = None) -> ModelConfig | None:
+    """文生图模型：显式指定 > DB > 智谱 CogView > OpenAI Images。"""
+    forced = _canonical(_settings_attr(settings, "image_provider"))
+    explicit_key = _settings_attr(settings, "image_api_key")
+
+    if forced or explicit_key:
+        name = forced or "cogview"
+        spec = get_provider_spec(name)
+        # cogview 与 zhipu 共用同一个 key。
+        source = _from_settings("zhipu" if name == "cogview" else name, settings)
+        api_key = explicit_key or (source.api_key if source else "")
+        if api_key:
+            return ModelConfig(
+                provider=name,
+                label=spec.label if spec else "自定义文生图",
+                model=_settings_attr(settings, "image_model") or (spec.image_model if spec else ""),
+                api_key=api_key,
+                base_url=_settings_attr(settings, "image_base_url")
+                or (spec.default_base_url if spec else ""),
+                source="env",
+            )
+
+    from_store = _from_store(store, "image", "image_gen")
+    if from_store:
+        return from_store
+
+    for name in ("cogview", "openai"):
+        spec = get_provider_spec(name)
+        if spec is None:
+            continue
+        source = _from_settings("zhipu" if name == "cogview" else name, settings)
+        if source and source.api_key:
+            return ModelConfig(
+                provider=name,
+                label=spec.label,
+                model=spec.image_model,
+                api_key=source.api_key,
+                base_url=spec.default_base_url,
+                source="env",
+            )
+    return None
+
+
+def describe_providers() -> list[dict[str, Any]]:
+    """给设置页/接口用的厂商能力清单（不含任何 key）。"""
+    return [
+        {
+            "name": s.name,
+            "label": s.label,
+            "default_base_url": s.default_base_url,
+            "default_model": s.default_model,
+            "env_key": s.env_key,
+            "requires_key": s.requires_key,
+            "modalities": [
+                m
+                for m, ok in (
+                    ("chat", True),
+                    ("vision", s.supports_vision),
+                    ("image", s.supports_image),
+                )
+                if ok
+            ],
+        }
+        for s in all_provider_specs()
+    ]

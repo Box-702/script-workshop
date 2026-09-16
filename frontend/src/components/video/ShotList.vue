@@ -46,6 +46,11 @@
               <span v-if="shot.lighting" class="meta-tag">💡 {{ shot.lighting }}</span>
               <span v-if="shot.mood" class="meta-tag">🎭 {{ shot.mood }}</span>
             </div>
+            <div v-if="shot.camera?.path" class="shot-path">🎥 {{ truncate(shot.camera.path, 80) }}</div>
+            <div v-if="shot.spatial" class="shot-path">📐 {{ truncate(shot.spatial, 80) }}</div>
+            <div v-if="shot.background_action" class="shot-path">
+              👥 {{ truncate(shot.background_action, 80) }}
+            </div>
             <div v-if="shot.video_prompt" class="shot-prompt">
               <span class="prompt-label">Prompt:</span>
               <span class="prompt-text">{{ truncate(shot.video_prompt, 100) }}</span>
@@ -123,7 +128,10 @@ function shotTypeLabel(t) { return shotTypeLabels[t] || t }
 
 function cameraLabel(cam) {
   if (!cam) return ''
-  const labels = { pan: '摇', tilt: '俯仰', dolly: '推拉', tracking: '跟', crane: '升降', handheld: '手持', zoom: '变焦' }
+  const labels = {
+    pan: '摇', tilt: '俯仰', dolly: '推拉', tracking: '跟', crane: '升降',
+    handheld: '手持', zoom: '变焦', orbit: '环绕', steady: '稳定',
+  }
   const dir = cam.direction || ''
   const speed = cam.speed === 'slow' ? '慢' : cam.speed === 'fast' ? '快' : ''
   return `${speed}${labels[cam.type] || cam.type}${dir ? ' ' + dir : ''}`
@@ -194,6 +202,7 @@ function truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '...' : s }
 .shot-subject { font-size: 13px; margin-bottom: 2px; }
 .shot-action { font-size: 11px; color: var(--text2, #888); margin-bottom: 4px; }
 .shot-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+.shot-path { font-size: 10px; color: var(--text2, #777); margin-bottom: 2px; line-height: 1.4; }
 .meta-tag { font-size: 10px; padding: 1px 5px; background: rgba(255,255,255,.04); border-radius: 3px; color: var(--text2, #777); }
 
 .shot-prompt { font-size: 10px; color: var(--text2, #666); margin-bottom: 6px; line-height: 1.4; }

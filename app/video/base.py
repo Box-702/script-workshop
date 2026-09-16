@@ -26,7 +26,15 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class VideoJobParams:
-    """视频生成请求参数（统一格式）。"""
+    """视频生成请求参数（统一格式）。
+
+    除基础参数外，包含多模态输入入口（对应 MiniMax H3 V2 接口的
+    content 数组：文本 / 图片 / 视频 / 音频）：
+      - image_url        首帧图（图生视频）
+      - last_frame_image 尾帧图（首尾帧控制）
+      - reference_*      多模态参考生视频（参考图 / 参考视频 / 参考音频）
+      - content          原生 content 数组直通（优先级最高，格式随 Provider）
+    """
 
     resolution: str = "1280x720"  # WxH 格式
     duration_sec: int = 5
@@ -34,7 +42,12 @@ class VideoJobParams:
     aspect_ratio: str = "16:9"
     seed: int | None = None
     negative_prompt: str | None = None
-    image_url: str | None = None  # 图生视频的输入图
+    image_url: str | None = None  # 图生视频的首帧输入图
+    last_frame_image: str | None = None  # 尾帧图（首尾帧控制）
+    reference_images: list[str] = field(default_factory=list)  # 参考图（≤9）
+    reference_videos: list[str] = field(default_factory=list)  # 参考视频（≤3）
+    reference_audios: list[str] = field(default_factory=list)  # 参考音频（≤3）
+    content: list[dict[str, Any]] | None = None  # 原生多模态 content 数组直通
     extra: dict[str, Any] = field(default_factory=dict)  # provider 特有参数
 
 

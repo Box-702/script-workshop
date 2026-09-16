@@ -4,14 +4,14 @@
 # 覆盖：题材识别、作者风格提取、种子知识查询、用户记忆读写。
 # =====================================================================
 
-from app.knowledge import (
+from app.pipeline.knowledge import (
     detect_genres,
     extract_author_style,
     format_genre_knowledge,
     get_all_genre_knowledge,
     get_genre_conventions,
 )
-from app.memory import format_memories, recall_memories, save_memory
+from app.pipeline.memory import format_memories, recall_memories, save_memory
 
 
 def test_detect_genres():
@@ -67,7 +67,7 @@ def test_format_genre_knowledge():
 
 
 def test_format_author_style(sample_text):
-    from app.knowledge import format_author_style
+    from app.pipeline.knowledge import format_author_style
     text = format_author_style(sample_text)
     assert "作者语言风格" in text
     assert len(text) > 20

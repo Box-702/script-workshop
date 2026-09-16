@@ -7,7 +7,7 @@ from io import BytesIO
 
 import pytest
 
-from app.importer import extension_of, is_supported, parse_file
+from app.pipeline.importer import extension_of, is_supported, parse_file
 
 
 def _make_docx(paragraphs: list[str]) -> bytes:

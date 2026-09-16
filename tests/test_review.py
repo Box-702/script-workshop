@@ -13,8 +13,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from app.patch import make_source_script
-from app.review import (
+from app.pipeline.patch import make_source_script
+from app.pipeline.review import (
     DIMENSION_LABELS,
     PatchReview,
     ReviewDimension,

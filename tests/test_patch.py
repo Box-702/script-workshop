@@ -5,11 +5,10 @@
 # 在不依赖模型、数据库、向量库的情况下正确且稳定。
 # =====================================================================
 
-from app.patch import (
+from app.pipeline.patch import (
     PatchProposal,
     SceneChange,
     BeatChange,
-    DialogueChange,
     apply_patch,
     build_patch,
     fallback_patch,
@@ -59,7 +58,7 @@ def test_apply_patch_produces_valid_version():
     ops = [
         {"op": "set", "path": "/script/scenes/0/title", "value": "雨夜"},
     ]
-    from app.patch import PatchOp
+    from app.pipeline.patch import PatchOp
 
     new_script = apply_patch(script, [PatchOp.model_validate(o) for o in ops])
     assert new_script.scenes[0].title == "雨夜"

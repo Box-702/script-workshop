@@ -50,6 +50,22 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _as_datetime(value: Any) -> datetime | None:
+    """把 datetime 或 ISO 字符串统一成 datetime；解析不了返回 None。
+
+    SubAgentTask.to_dict() 输出的是 ISO 字符串，落库时要还原成 datetime
+    才能写进 DateTime 列（否则会被静默丢弃）。
+    """
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
 def _ensure_sqlite_dir(database_url: str) -> None:
     """SQLite 文件库需要父目录存在，否则建表会失败。"""
     prefix = "sqlite:///"
@@ -331,6 +347,25 @@ class Memory(Base):
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
 
+class SubAgentTaskRow(Base):
+    """后台子代理任务的落库快照。
+
+    子代理在线程里跑，内存态随进程消失；这里保存「启动」与「结束」两个时刻的
+    快照，使已完成的任务历史在重启后仍可查询（进行中的任务本身已随线程终止，
+    不假装它还活着）。
+    """
+
+    __tablename__ = "subagent_tasks"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(default="")
+    status: Mapped[str] = mapped_column(default="pending")  # pending|running|done|failed
+    steps_json: Mapped[str] = mapped_column(default="[]")
+    result: Mapped[str | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+    finished_at: Mapped[datetime | None] = mapped_column(default=None)
+
+
 # ---------- 会话 / 初始化 ----------
 
 
@@ -525,6 +560,39 @@ class Store:
             s.refresh(p)
             return p
 
+    # ---- 视觉风格指南（StyleGuide：随项目持久化，含参考资产注册表）----
+
+    def get_video_style(self, project_id: str) -> dict[str, Any]:
+        """读取项目的视觉风格指南；未生成时返回空 dict。"""
+        with self.session() as s:
+            p = s.get(Project, project_id)
+            if not p:
+                return {}
+            return _json_load(p.video_style_json, {}) or {}
+
+    def set_video_style(self, project_id: str, style: dict[str, Any]) -> dict[str, Any]:
+        """整体覆盖写入视觉风格指南，返回写入后的内容。"""
+        with self.session() as s:
+            p = s.get(Project, project_id)
+            if not p:
+                return {}
+            p.video_style_json = json.dumps(style, ensure_ascii=False)
+            p.updated_at = _now()
+            s.commit()
+            return dict(style)
+
+    def merge_video_style(self, project_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        """局部合并（例如仅回填 reference_images），保留已有字段。"""
+        with self.session() as s:
+            p = s.get(Project, project_id)
+            if not p:
+                return {}
+            merged = {**(_json_load(p.video_style_json, {}) or {}), **patch}
+            p.video_style_json = json.dumps(merged, ensure_ascii=False)
+            p.updated_at = _now()
+            s.commit()
+            return merged
+
     # ---- ScriptVersion ----
     def create_version(
         self,
@@ -596,6 +664,25 @@ class Store:
             s.commit()
             s.refresh(v)
             return v
+
+    def get_version_breakdown(self, version_id: str) -> list[dict[str, Any]]:
+        """读取某版本的分镜方案（导演 Agent 的产出）；没有则返回空列表。"""
+        with self.session() as s:
+            v = s.get(ScriptVersion, version_id)
+            if not v:
+                return []
+            data = _json_load(v.breakdown_json, [])
+            return data if isinstance(data, list) else []
+
+    def set_version_breakdown(self, version_id: str, breakdown: list[dict[str, Any]]) -> bool:
+        """保存分镜方案到版本上（与剧本文本一起随版本走）。"""
+        with self.session() as s:
+            v = s.get(ScriptVersion, version_id)
+            if not v:
+                return False
+            v.breakdown_json = json.dumps(breakdown, ensure_ascii=False)
+            s.commit()
+            return True
 
     # ---- AgentRun ----
     def create_agent_run(
@@ -998,3 +1085,51 @@ class Store:
             if existing:
                 return existing
         return self.create_conversation(project_id, title="默认对话")
+
+    # ---- SubAgentTask ----
+
+    def save_subagent_task(self, task: dict[str, Any]) -> None:
+        """按 task_id upsert 一条子代理任务快照（由 SubAgentRunner 在起止时刻调用）。"""
+        with self.session() as s:
+            row = s.get(SubAgentTaskRow, task["id"])
+            if row is None:
+                row = SubAgentTaskRow(id=task["id"])
+                s.add(row)
+            row.name = task.get("name", "")
+            row.status = task.get("status", "pending")
+            row.steps_json = json.dumps(task.get("steps") or [], ensure_ascii=False)
+            row.result = task.get("result")
+            created = _as_datetime(task.get("created_at"))
+            if created is not None:
+                row.created_at = created
+            row.finished_at = _as_datetime(task.get("finished_at"))
+            s.commit()
+
+    def get_subagent_task(self, task_id: str) -> dict[str, Any] | None:
+        with self.session() as s:
+            row = s.get(SubAgentTaskRow, task_id)
+            return _subagent_task_dict(row) if row else None
+
+    def list_subagent_tasks(self, limit: int = 50) -> list[dict[str, Any]]:
+        """按创建时间倒序返回历史任务（含进行中的快照）。"""
+        with self.session() as s:
+            rows = (
+                s.query(SubAgentTaskRow)
+                .order_by(desc(SubAgentTaskRow.created_at))
+                .limit(limit)
+                .all()
+            )
+            return [_subagent_task_dict(r) for r in rows]
+
+
+def _subagent_task_dict(row: SubAgentTaskRow) -> dict[str, Any]:
+    """把落库的任务行还原成 API / 前端使用的形状。"""
+    return {
+        "id": row.id,
+        "name": row.name,
+        "status": row.status,
+        "steps": _json_load(row.steps_json, []),
+        "result": row.result,
+        "created_at": row.created_at.isoformat(),
+        "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+    }

@@ -84,14 +84,11 @@ export const store = reactive({
   // 剧组面板
   showCrew: false,        // 剧组工位面板开关
   showSettings: false,    // 设置弹窗开关
-  crewAgents: [           // 剧组成员状态
+  crewAgents: [           // 剧组成员状态（与后端实际 Agent 对齐）
     { name: 'writer', label: '编剧', emoji: '📝', status: 'idle', detail: '' },
     { name: 'director', label: '导演', emoji: '🎬', status: 'idle', detail: '' },
-    { name: 'dp', label: '摄影', emoji: '📹', status: 'idle', detail: '' },
     { name: 'art_director', label: '美术', emoji: '🎨', status: 'idle', detail: '' },
-    { name: 'storyboarder', label: '分镜', emoji: '🖼', status: 'idle', detail: '' },
-    { name: 'editor', label: '剪辑', emoji: '✂️', status: 'idle', detail: '' },
-    { name: 'producer', label: '制片', emoji: '🏢', status: 'idle', detail: '' },
+    { name: 'dp', label: '摄影', emoji: '📹', status: 'idle', detail: '' },
   ],
   pipelineStage: 'idle',  // 流水线阶段
   // 视频播放器
