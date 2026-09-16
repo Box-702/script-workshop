@@ -81,8 +81,9 @@ def _duration(path: Path) -> float:
 
 
 def extract_frames(video_url: str, *, count: int = 5) -> list[str]:
-    """下载成片 → ffmpeg 等距抽帧 → base64 data URI 列表。
+    """下载（或读取本地）成片 → ffmpeg 等距抽帧 → base64 data URI 列表。
 
+    video_url 也可以是本地文件路径（离线质检/测试用）。
     data URI 由服务端直接解码，比外链 URL 稳（URL 可能过期/需要鉴权）。
     任一环节失败返回空列表，调用方按「跳过质检」处理。
     """
@@ -92,13 +93,17 @@ def extract_frames(video_url: str, *, count: int = 5) -> list[str]:
         return []
     try:
         with tempfile.TemporaryDirectory(prefix="video_qa_") as tmp:
-            raw = Path(tmp) / "clip.mp4"
-            with httpx.Client(timeout=120, follow_redirects=True, trust_env=False) as client:
-                with client.stream("GET", video_url) as resp:
-                    resp.raise_for_status()
-                    with raw.open("wb") as f:
-                        for chunk in resp.iter_bytes():
-                            f.write(chunk)
+            local = Path(video_url)
+            if local.exists():
+                raw = local
+            else:
+                raw = Path(tmp) / "clip.mp4"
+                with httpx.Client(timeout=120, follow_redirects=True, trust_env=False) as client:
+                    with client.stream("GET", video_url) as resp:
+                        resp.raise_for_status()
+                        with raw.open("wb") as f:
+                            for chunk in resp.iter_bytes():
+                                f.write(chunk)
             total = _duration(raw)
             import subprocess
 
@@ -150,6 +155,16 @@ def qa_check(video_url: str, vision: Any = None, *, count: int | None = None) ->
             vision = facade.vision() if facade else None
         except Exception:  # noqa: BLE001
             vision = None
+        if vision is None or not vision.available:
+            # deps 侧解析失败（如 DB 不可用）时，回退到纯 .env 解析。
+            try:
+                from ..llm.registry import resolve_vision
+                from ..llm.vision import VisionClient
+
+                cfg = resolve_vision(get_settings())
+                vision = VisionClient(cfg) if cfg else None
+            except Exception:  # noqa: BLE001
+                vision = None
     if vision is None or not vision.available:
         return {"verdict": "skipped", "issues": [], "frames": 0}
 

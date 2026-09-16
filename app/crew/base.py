@@ -76,23 +76,35 @@ class CrewAgent(ABC):
         return str(resp.content or "").strip()
 
     def _invoke_json(self, system: str, user: str) -> dict[str, Any]:
-        """发送一轮对话，尝试解析 JSON 响应。"""
+        """发送一轮对话，尝试解析 JSON 响应；解析失败重采样一次。
+
+        结构化输出偶发格式抖动（漏围栏/引号转义错/截断），同提示词重采样
+        通常就能拿到合法 JSON——先重试再报错，别让一次抖动打断整条流水线。
+        """
         import json
         import re
 
-        text = self._invoke(system, user)
-        # 尝试从 markdown 代码围栏中提取 JSON
-        match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
-        if match:
-            text = match.group(1)
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            # 尝试找到第一个 { 或 [ 开始的 JSON
-            for i, ch in enumerate(text):
-                if ch in "{[":
-                    try:
-                        return json.loads(text[i:])
-                    except json.JSONDecodeError:
-                        continue
-            raise ValueError(f"无法解析 JSON 响应：{text[:200]}") from None
+        def _parse(text: str) -> dict[str, Any]:
+            # 尝试从 markdown 代码围栏中提取 JSON
+            match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
+            if match:
+                text = match.group(1)
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                # 尝试找到第一个 { 或 [ 开始的 JSON
+                for i, ch in enumerate(text):
+                    if ch in "{[":
+                        try:
+                            return json.loads(text[i:])
+                        except json.JSONDecodeError:
+                            continue
+                raise ValueError(f"无法解析 JSON 响应：{text[:200]}") from None
+
+        last_error: ValueError | None = None
+        for _ in range(2):
+            try:
+                return _parse(self._invoke(system, user))
+            except ValueError as e:
+                last_error = e
+        raise last_error if last_error else ValueError("无法解析 JSON 响应：空响应")
