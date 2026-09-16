@@ -14,7 +14,7 @@ import asyncio
 
 from app.crew.art_director import art_system
 from app.crew.director import DirectorAgent
-from app.crew.dp import DPAgent, dp_system, language_for
+from app.crew.dp import DPAgent, _strip_spoken_quotes, dp_system, language_for
 from app.domain import (
     CameraMovement,
     Character,
@@ -26,7 +26,7 @@ from app.domain import (
     Source,
     StyleGuide,
 )
-from app.video.continuity import resolve_continuity
+from app.video.continuity import resolve_continuity, resolve_submission_references
 
 # ---------- 测试夹具 ----------
 
@@ -200,11 +200,11 @@ def test_dp_system_carries_the_five_prompt_rules():
     """图里那套提示词逻辑要固化成系统提示词，漏掉任何一条都会让画面失控。"""
     zh = dp_system(language="zh", provider_label="MiniMax", max_duration=10, has_anchors=True)
     for kw in ["虚拟无人机", "呼吸感", "光从哪个方向来", "编上号", "背景人物", "只写画面里看得见的东西",
-               "不越轴", "主事件", "禁止否定句"]:
+               "不越轴", "主事件", "禁止否定句", "台词不进提示词"]:
         assert kw in zh
     en = dp_system(language="en", provider_label="Runway", max_duration=10, has_anchors=True)
     for kw in ["virtual drone", "lens breathing", "light direction", "Number the main characters",
-               "no axis crossing", "never negations"]:
+               "no axis crossing", "never negations", "Never put spoken lines"]:
         assert kw in en
 
 
@@ -359,3 +359,140 @@ def test_minimax_poll_maps_processing_to_generating(monkeypatch):
     st = asyncio.run(mm.MiniMaxProvider(api_key="k").poll_job("t3"))
     assert st.status == "generating"
     assert st.video_url is None
+
+
+# ---------- 提交时兜底：台词剥除 + 参考解析 ----------
+
+
+def test_strip_spoken_quotes_removes_dialogue_but_keeps_signs():
+    """说话动词后的引用是台词，必须剥掉（假说话问题）；招牌/字幕类引用不能误伤。"""
+    body = "小赵快步迎上，开口报告：「死者从七楼摔下。」苏砚点头。"
+    assert "死者从七楼摔下" not in _strip_spoken_quotes(body)
+    assert "苏砚点头" in _strip_spoken_quotes(body)
+    sign = "警戒带上写着「禁止入内」三个字，雨丝不断。"
+    assert _strip_spoken_quotes(sign) == sign
+
+
+def test_dp_apply_strips_quoted_dialogue_from_prompt_body():
+    """DP 组装最终提示词时也要过一遍台词兜底，引用台词不能漏进成片提示词。"""
+    script = _script()
+    shots = [Shot(id="shot_scene_001_000", scene_id="scene_001", order=0,
+                  camera=CameraMovement(type="static"))]
+    llm_out = {"scenes": [{"scene_id": "scene_001", "shots": [
+        {"shot_id": "shot_scene_001_000", "characters": ["齐夏"],
+         "prompt_body": "齐夏站在门口，开口说道：「你终于来了。」然后抬头。"},
+    ]}]}
+    out = _dp()._apply(shots, llm_out, script, "", None)[0].video_prompt
+    assert "你终于来了" not in out
+    assert "然后抬头" in out
+
+
+def test_resolve_submission_references_chains_videos_and_fills_images():
+    """提交时解析：前镜成片接力（chain_from / reference_group）+ 定妆图回填。"""
+    script = _script()
+    plan = [
+        {"id": "shot_scene_001_000", "scene_id": "scene_001", "order": 0,
+         "reference_group": "ext_01", "chain_from": None},
+        {"id": "shot_scene_001_001", "scene_id": "scene_001", "order": 1,
+         "reference_group": "ext_01", "chain_from": 0},
+    ]
+    registry = {"密室": "http://img/env", "齐夏": "http://img/charA"}
+
+    refs = resolve_submission_references(
+        shot_id="shot_scene_001_001", shot_plan=plan,
+        completed_urls={"shot_scene_001_000": "http://v/0.mp4"},
+        image_registry=registry, script=script,
+    )
+    # 接力：镜 2 拿到镜 1 的成片；镜 1 自己（无更早成片）为空。
+    assert refs["reference_videos"] == ["http://v/0.mp4"]
+    # 定妆图：场景环境图在前、人物图按出场顺序在后。
+    assert refs["reference_images"] == ["http://img/env", "http://img/charA"]
+
+    first = resolve_submission_references(
+        shot_id="shot_scene_001_000", shot_plan=plan,
+        completed_urls={}, image_registry=registry, script=script,
+    )
+    assert first["reference_videos"] == []
+    assert first["reference_images"] == ["http://img/env", "http://img/charA"]
+
+
+# ---------- 成片质检 + 有界重 roll ----------
+
+
+def test_qa_check_aggregates_fatal_frames_and_skips_without_frames(monkeypatch):
+    """致命问题才 FAIL、逐帧聚合；抽帧失败降级为 skipped，绝不阻断任务。"""
+    from app.video import qa
+
+    class FakeVision:
+        available = True
+
+        def __init__(self, answers: list[str]) -> None:
+            self.answers = list(answers)
+
+        def ask(self, image_url: str, question: str) -> str:
+            return self.answers.pop(0)
+
+    monkeypatch.setattr(qa, "extract_frames", lambda url, count=5: ["data:a", "data:b", "data:c"])
+    res = qa.qa_check("http://v", FakeVision([
+        "VERDICT: PASS\nISSUE: none",
+        "VERDICT: FAIL\nISSUE: 带子从肩膀穿过身体",
+        "VERDICT: PASS\nISSUE: none",
+    ]))
+    assert res["verdict"] == "fail"
+    assert res["frames"] == 3
+    assert "带子从肩膀穿过身体" in res["issues"][0]
+
+    monkeypatch.setattr(qa, "extract_frames", lambda url, count=5: [])
+    assert qa.qa_check("http://v", FakeVision([]))["verdict"] == "skipped"
+
+    # 解析不到判定时保守按通过（避免误判引发无意义的重 roll）
+    assert qa._parse_answer("模型输出无法解析") == (True, "（未能解析判定，按通过处理）")
+
+
+def test_reroll_if_needed_bounded_and_records_verdict(monkeypatch):
+    """不合格且有预算 → 同参数重 roll（qa_attempt+1）；预算用尽 → 留备注不重 roll；合格 → 不动。"""
+    from types import SimpleNamespace
+
+    from app.video import qa
+
+    def make_store(params: dict):
+        created: list[dict] = []
+        updates: list[dict] = []
+
+        job = SimpleNamespace(
+            id="j1", project_id="p", shot_id="s", provider="minimax", model="MiniMax-H3",
+            prompt="P", params=params, version_id="v", cost_estimate=0.36,
+            status="succeeded", video_url="http://v/0.mp4",
+        )
+        store = SimpleNamespace(
+            get_video_job=lambda job_id: job,
+            update_video_job=lambda job_id, **fields: updates.append(fields),
+            create_video_job=lambda **kw: (created.append(kw), SimpleNamespace(id="j2"))[1],
+        )
+        return store, created, updates
+
+    monkeypatch.setattr(qa, "qa_check", lambda url: {"verdict": "fail", "issues": ["第2帧：手穿模"], "frames": 5})
+    submitted: list[str] = []
+    submit = lambda job: submitted.append(job.id)  # noqa: E731
+
+    # 第 0 次：不合格且有预算 → 重 roll
+    store, created, updates = make_store({"duration_sec": 8})
+    new_id = qa.reroll_if_needed("j1", {"status": "succeeded"}, store=store,
+                                 submit=submit, max_reroll=1)
+    assert new_id == "j2" and submitted == ["j2"]
+    assert created[0]["params"]["qa_attempt"] == 1
+    assert created[0]["prompt"] == "P" and created[0]["shot_id"] == "s"
+
+    # 第 1 次（预算用尽）：不再重 roll，写 error_message 备注
+    store, created, updates = make_store({"duration_sec": 8, "qa_attempt": 1})
+    new_id = qa.reroll_if_needed("j1", {"status": "succeeded"}, store=store,
+                                 submit=submit, max_reroll=1)
+    assert new_id is None and not created
+    assert "QA 未通过" in updates[-1]["error_message"]
+
+    # 合格：什么都不做，但 verdict 已记录
+    monkeypatch.setattr(qa, "qa_check", lambda url: {"verdict": "pass", "issues": [], "frames": 5})
+    store, created, updates = make_store({"duration_sec": 8})
+    assert qa.reroll_if_needed("j1", {"status": "succeeded"}, store=store,
+                               submit=submit, max_reroll=1) is None
+    assert not created and updates[0]["params"]["qa"]["verdict"] == "pass"

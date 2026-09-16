@@ -61,3 +61,64 @@ def resolve_continuity(shots: list[dict[str, Any]]) -> list[dict[str, Any]]:
             s["reference_videos"] = refs
 
     return shots
+
+
+def resolve_submission_references(
+    *,
+    shot_id: str,
+    shot_plan: list[dict[str, Any]],
+    completed_urls: dict[str, str],
+    image_registry: dict[str, str] | None = None,
+    script: Any = None,
+) -> dict[str, list[str]]:
+    """提交单镜生成任务时，解析该镜应携带的多模态一致性输入。
+
+    - reference_videos：resolve_continuity 依据「已完成前镜的成片 URL」
+      解析接力（chain_from）与环境参考（reference_group）；
+    - reference_images：风格指南注册表里的定妆图，按「场景→环境图、
+      人物→角色图」回填（app.media.refs.apply_reference_images）。
+
+    任何一步失败都只降级为空列表，不阻断任务提交。
+
+    返回 {"reference_images": [...], "reference_videos": [...]}。
+    """
+    # ---- 成片接力：把已完成的 video_url 覆盖进镜头计划再解析 ----
+    plan: list[dict[str, Any]] = []
+    for raw in shot_plan or []:
+        if not isinstance(raw, dict):
+            continue
+        sid = str(raw.get("id") or raw.get("shot_id") or "")
+        plan.append({
+            "order": raw.get("order", 0),
+            "id": sid,
+            "reference_group": raw.get("reference_group") or "",
+            "chain_from": raw.get("chain_from"),
+            "video_url": completed_urls.get(sid),
+        })
+
+    videos: list[str] = []
+    if any(p.get("video_url") for p in plan):
+        resolve_continuity(plan)
+        me = next((p for p in plan if p.get("id") == shot_id), None)
+        videos = list((me or {}).get("reference_videos") or [])
+
+    # ---- 定妆图：按场景/人物名称查注册表回填 ----
+    images: list[str] = []
+    registry = image_registry or {}
+    raw_me = next(
+        (r for r in shot_plan or [] if isinstance(r, dict)
+         and str(r.get("id") or r.get("shot_id") or "") == shot_id),
+        None,
+    )
+    if registry and script is not None and raw_me is not None:
+        try:
+            from ..domain import Shot
+            from ..media.refs import apply_reference_images
+
+            shot = Shot.model_validate(dict(raw_me))
+            if apply_reference_images([shot], registry, script):
+                images = list(shot.reference_images or [])
+        except Exception as e:  # noqa: BLE001
+            log.warning("定妆参考图回填失败（忽略，不影响提交）：%s", e)
+
+    return {"reference_images": images, "reference_videos": videos}

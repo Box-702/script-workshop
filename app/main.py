@@ -66,11 +66,54 @@ def _wire_video_job_writeback() -> None:
     video_manager().on_complete(_writeback)
 
 
+def _wire_video_qa() -> None:
+    """成片自动质检 + 有界重 roll：单次生成是抽签，闭环把它变良率。
+
+    任务成功后抽帧给视觉模型判定（致命问题才 FAIL），不合格自动用同参数
+    重新提交，最多 VIDEO_QA_MAX_REROLL 次；重 roll 出来的任务走同一条
+    队列与回调，attempt 计数保证有界。任何失败只打日志，不影响任务状态。
+    """
+    import logging
+
+    from .api.video import _job_params, _resolve_video_provider
+    from .deps import store as get_store
+    from .deps import video_manager
+    from .video.qa import reroll_if_needed
+
+    log = logging.getLogger(__name__)
+
+    def _resubmit(job: Any) -> None:
+        video_manager().submit(
+            job.id,
+            _resolve_video_provider(job.provider),
+            job.prompt,
+            _job_params(dict(job.params or {})),
+        )
+
+    def _on_succeeded(job_id: str, info: dict[str, Any]) -> None:
+        settings = get_settings()
+        if not settings.video_qa_enabled or str(info.get("status")) != "succeeded":
+            return
+        try:
+            reroll_if_needed(
+                job_id,
+                info,
+                store=get_store(),
+                submit=_resubmit,
+                max_reroll=max(0, settings.video_qa_max_reroll),
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("成片质检重 roll 失败（不影响任务状态）：%s", e)
+
+    video_manager().on_complete(_on_succeeded)
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     # 启动时注入 LangSmith 监控环境变量（LANGSMITH_* -> LANGCHAIN_*）。
     apply_langsmith_env(settings)
     _wire_video_job_writeback()
+    _wire_video_qa()
     app = FastAPI(
         title="剧本工坊（Script Workshop）",
         version="0.3.0",

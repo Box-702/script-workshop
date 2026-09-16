@@ -106,6 +106,15 @@ class Settings(BaseSettings):
     enable_review_scoring: bool = Field(default=True, alias="ENABLE_REVIEW_SCORING")
     review_score_threshold: int = Field(default=75, alias="REVIEW_SCORE_THRESHOLD")
 
+    # ---------- 成片质检（视觉模型看抽帧 → 致命问题自动重 roll） ----------
+    # 单次视频生成是抽签：成片后按致命问题（穿模/世界崩坏/严重畸变）质检，
+    # 不合格自动用同参数重 roll，最多 max_reroll 次；判定只对致命问题 FAIL。
+    video_qa_enabled: bool = Field(default=True, alias="VIDEO_QA_ENABLED")
+    video_qa_max_reroll: int = Field(default=1, alias="VIDEO_QA_MAX_REROLL")
+    video_qa_frames: int = Field(default=5, alias="VIDEO_QA_FRAMES")
+    # ffmpeg 可执行文件路径（抽帧/拼接用）；留空则用 PATH 里的 ffmpeg。
+    ffmpeg_path: str = Field(default="", alias="FFMPEG_PATH")
+
     # ---------- 服务 ----------
     # 默认只监听本机：全部 API 无鉴权，且可设置任意工作目录，绝不能默认暴露到局域网。
     api_host: str = Field(default="127.0.0.1", alias="API_HOST")

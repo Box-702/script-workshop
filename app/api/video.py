@@ -307,6 +307,55 @@ def _job_dict(j: Any) -> dict[str, Any]:
     }
 
 
+def _auto_references(project_id: str, shot_id: str | None, version_id: str | None, stored_params: dict[str, Any]) -> None:
+    """提交时自动补齐多模态一致性输入（调用方显式提供的键优先，不覆盖）。
+
+    - reference_videos：连续性接力——按镜头计划（reference_group / chain_from）
+      解析「已完成前镜」的成片 URL，锁跨镜风格/光影/人物；
+    - reference_images：风格指南注册表里的定妆图（场景→环境图、人物→角色图），
+      图像级锚比纯文字锚约束力强一个量级。
+    """
+    if not shot_id:
+        return
+    store = deps.store()
+
+    versions = store.list_video_versions(project_id)
+    version = next((v for v in versions if v.id == version_id), None)
+    if version is None:
+        ordered = sorted(versions, key=lambda v: v.created_at)
+        version = ordered[-1] if ordered else None
+    if version is None or not version.shots:
+        return
+    if not any(s.get("id") == shot_id for s in version.shots if isinstance(s, dict)):
+        return
+
+    completed_urls = {
+        j.shot_id: j.video_url
+        for j in store.list_video_jobs(project_id)
+        if j.status == "succeeded" and j.video_url and j.shot_id
+    }
+    registry = dict((store.get_video_style(project_id) or {}).get("reference_images") or {})
+
+    script = None
+    try:
+        script = store.latest_version(common.get_project(project_id)).script
+    except Exception:  # noqa: BLE001
+        log.warning("自动参考回填：取剧本版本失败，跳过定妆图回填")
+
+    from ..video.continuity import resolve_submission_references
+
+    refs = resolve_submission_references(
+        shot_id=shot_id,
+        shot_plan=[s for s in version.shots if isinstance(s, dict)],
+        completed_urls=completed_urls,
+        image_registry=registry,
+        script=script,
+    )
+    for key in ("reference_images", "reference_videos"):
+        if refs.get(key) and not stored_params.get(key):
+            stored_params[key] = refs[key]
+
+
 @router.post("/projects/{project_id}/video/generate")
 def create_video_job(project_id: str, payload: VideoJobCreate) -> dict[str, Any]:
     """提交视频生成任务：落库后立刻投递到异步队列（提交 → 轮询 → 回调写回状态）。"""
@@ -324,6 +373,9 @@ def create_video_job(project_id: str, payload: VideoJobCreate) -> dict[str, Any]
         value = getattr(payload, key)
         if value:
             stored_params[key] = value
+
+    # 提交时自动补齐一致性锚（定妆图 + 前镜成片接力）；调用方显式给的优先。
+    _auto_references(project_id, payload.shot_id, payload.version_id, stored_params)
 
     job = deps.store().create_video_job(
         project_id=project_id,

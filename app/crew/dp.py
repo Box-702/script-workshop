@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from ..domain import SceneBreakdown, Script, Shot, StyleGuide
@@ -69,6 +70,9 @@ _BODY_RULES_ZH = """**每个镜头的 prompt_body 要写什么**（这是给视�
 8. **只写正向描述，禁止否定句**。"手没有从带子里穿过去""没有碰到头"这类否定式防穿模
    表述，等于把「穿过身体」这个概念喂给模型，它反而会画出来。不想要的东西直接不提；
    必须交代的让位关系，改写成它应该怎样（如「带子从她头顶上方通过」）。
+9. **台词不进提示词**。不要把角色说的话写成引用（「说道：『……』」「报告：『……』」）——
+   视频模型会把台词渲染成含混的假说话，观众完全听不懂。对白段只写说话的**姿态与口型动机**：
+   谁对谁说、语速与情绪、身体朝向与距离、手的动作；声音交给后期配音与对口型。
 
 这一镜只讲一段连贯的动作或一段连贯的对话剧情，不要跨场景跳跃。"""
 
@@ -110,6 +114,10 @@ thing the video model sees — anything you leave out, it will invent):
    tape" feeds the very concept into the model and it will draw it anyway. Leave out
    what you don't want; phrase clearance as what should happen ("the tape passes above
    her head").
+9. **Never put spoken lines into the prompt.** Quoted dialogue gets rendered as mumbled
+   fake speech nobody can understand. For dialogue beats, write the acting instead:
+   who addresses whom, pace and emotion, body orientation and distance, what the hands
+   do. Voice belongs to post-production dubbing and lip-sync.
 
 One shot carries one continuous action or one continuous stretch of dialogue."""
 
@@ -122,6 +130,34 @@ _CAMERA_WORDS = ("镜头", "摄影机", "摄像机", "运镜", "机位", "camera
 def _mentions_camera(text: str) -> bool:
     low = text.lower()
     return any(w in low for w in _CAMERA_WORDS)
+
+
+# 说话动词：紧跟其后的引用几乎一定是台词（招牌/字幕类引用前面的动词是「写着」等）。
+_SPEECH_VERBS = ("说", "问", "答", "喊", "叫", "念", "读", "道", "开口", "报告", "低声", "大声", "嘀咕", "嘟囔")
+_QUOTE_SPAN = re.compile(r"[「『“\"]([^」』”\"]*)[」』”\"]")
+
+
+def _strip_spoken_quotes(text: str) -> str:
+    """把「跟在说话动词后面的引用台词」从提示词里剥掉。
+
+    视频模型会把被引用的台词渲染成含混的假说话（叽里咕噜），语音应交给后期
+    配音；对白信息只保留姿态与口型动机。招牌/字幕类引用（前面是「写着」等）
+    不受影响。模型偶尔仍会把台词写进 body，这是提示词规则之外的机械兜底。
+    """
+    if not text:
+        return text
+    out: list[str] = []
+    last = 0
+    for m in _QUOTE_SPAN.finditer(text):
+        head = text[max(0, m.start() - 6):m.start()]
+        if not any(v in head for v in _SPEECH_VERBS):
+            continue
+        out.append(text[last:m.start()])
+        last = m.end()
+    if not out:
+        return text
+    out.append(text[last:])
+    return "".join(out)
 
 
 _MISSING_HINTS: dict[str, dict[str, str]] = {
@@ -162,7 +198,7 @@ def dp_system(*, language: str, provider_label: str, max_duration: float, has_an
         "**已提供统一的美术风格指南（环境/人物锚已固定）**：\n"
         "- 环境描述与人物造型由美术指导统一下发，本步骤不要改写它们；\n"
         "- 你只需为每个镜头产出 `characters`（本镜出场人物名）与 `prompt_body`"
-        "（本镜画面调度 + 运镜，写法见下面八条）。\n"
+        "（本镜画面调度 + 运镜，写法见下面九条）。\n"
         if has_anchors
         else
         "**未提供美术风格指南**：请额外为每个场景产出 `environment`（固定环境描述）"
@@ -344,10 +380,10 @@ class DPAgent(CrewAgent):
         else:
             parts.append("请按 JSON 输出：每场一份 environment 与 characters，每个镜头一段 prompt_body。")
         parts.append(
-            "写 prompt_body 时按上面八条规则：动作与运镜并重（一种主要运动、不越轴、结尾不改景别）、"
+            "写 prompt_body 时按上面九条规则：动作与运镜并重（一种主要运动、不越轴、结尾不改景别）、"
             "保留呼吸感、光影写方向与相对关系、空间写人物编号与距离、背景人物各有各的事、"
             "只写看得见的东西、接触动作物理过程只给主事件（节拍≤两步、他人不再碰同一道具）、"
-            "全篇正向描述无否定句。"
+            "全篇正向描述无否定句、台词不进提示词（对白只写姿态与口型动机）。"
         )
         return "\n".join(parts)
 
@@ -398,6 +434,8 @@ class DPAgent(CrewAgent):
         for shot in shots:
             meta = shot_meta.get(shot.id) or {}
             body = str(meta.get("prompt_body") or meta.get("video_prompt") or "")
+            # 台词兜底：模型偶尔仍把台词写进 body，机械剥掉（语音交给后期配音）。
+            body = _strip_spoken_quotes(body)
 
             # 环境锚：风格指南（按地点名）优先，其次本步骤 LLM 产出；
             # 短片常全片同一场景，若只有一个环境锚就直接用它兜底。
@@ -482,7 +520,7 @@ class DPAgent(CrewAgent):
             if shot.mood:
                 pieces.append(f"{shot.mood}氛围" if zh else f"{shot.mood} mood")
             pieces.append(style)
-            shot.video_prompt = "。".join(p.strip().rstrip("。") for p in pieces if p) + "。"
+            shot.video_prompt = _strip_spoken_quotes("。".join(p.strip().rstrip("。") for p in pieces if p) + "。")
         return CrewTaskResult(data=shots, summary=f"（无模型回退）为 {len(shots)} 个镜头拼装基础提示词")
 
 
