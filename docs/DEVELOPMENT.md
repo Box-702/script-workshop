@@ -99,6 +99,8 @@ cd frontend && npm install && npm run build   # 构建产物由 FastAPI 托管
 
 后端有两道门：单镜提交前校验当前镜头状态，批量生成只收集 `approved` 镜头。前端按钮状态只是体验层提示，不能替代后端校验。
 
+批量审阅调用 `POST /api/projects/{project_id}/video-versions/{version_id}/prompts/review`，只改变选中镜头的审阅状态并创建新快照。版本列表返回 `prompt_summary`，镜头历史调用 `GET /api/projects/{project_id}/video-versions/{version_id}/shots/{shot_id}/prompt-history`，沿父版本链返回备注、状态和 unified diff。
+
 ---
 
 ## 四、扩展指南

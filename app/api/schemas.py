@@ -139,6 +139,14 @@ class VideoPromptReview(BaseModel):
     note: str = Field(default="", max_length=2000)
 
 
+class VideoPromptBulkReview(BaseModel):
+    """对多个镜头应用同一个人工审阅决定。"""
+
+    shot_ids: list[str] = Field(min_length=1)
+    decision: Literal["approve", "needs_revision"] = "approve"
+    note: str = Field(default="", max_length=2000)
+
+
 class VideoJobCreate(BaseModel):
     """视频生成任务。
 

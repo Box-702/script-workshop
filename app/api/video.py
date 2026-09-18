@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import difflib
 import logging
 from typing import Any
 
@@ -22,6 +23,7 @@ from .schemas import (
     ModelPreferenceSet,
     ProviderCreate,
     ProviderUpdate,
+    VideoPromptBulkReview,
     VideoPromptReview,
     VideoJobCreate,
     VideoVersionCreate,
@@ -30,6 +32,45 @@ from .schemas import (
 log = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _prompt_summary(shots: list[dict[str, Any]]) -> dict[str, Any]:
+    """汇总一个视频版本里的 Prompt 审阅状态。"""
+    prompts = [
+        shot for shot in shots
+        if isinstance(shot, dict) and shot.get("video_prompt")
+    ]
+    statuses = [shot.get("prompt_status") or "needs_review" for shot in prompts]
+    approved = sum(status == "approved" for status in statuses)
+    needs_revision = sum(status == "needs_revision" for status in statuses)
+    pending = len(prompts) - approved
+    if not prompts:
+        review_status = "empty"
+    elif approved == len(prompts):
+        review_status = "approved"
+    elif approved == 0 and needs_revision == len(prompts):
+        review_status = "needs_revision"
+    elif approved == 0 and needs_revision == 0:
+        review_status = "needs_review"
+    else:
+        review_status = "mixed"
+    return {
+        "prompt_count": len(prompts),
+        "approved_count": approved,
+        "pending_count": pending,
+        "needs_revision_count": needs_revision,
+        "review_status": review_status,
+    }
+
+
+def _shot_from_version(version: Any, shot_id: str) -> dict[str, Any] | None:
+    return next(
+        (
+            shot for shot in version.shots
+            if isinstance(shot, dict) and shot.get("id") == shot_id
+        ),
+        None,
+    )
 
 
 # ---------- Provider 管理 ----------
@@ -199,7 +240,7 @@ def create_video_version(project_id: str, payload: VideoVersionCreate) -> dict[s
 @router.get("/projects/{project_id}/video-versions")
 def list_video_versions(project_id: str) -> list[dict[str, Any]]:
     """列出项目的所有视频版本。"""
-    common.get_project(project_id)
+    project = common.get_project(project_id)
     return [
         {
             "id": v.id,
@@ -209,6 +250,8 @@ def list_video_versions(project_id: str) -> list[dict[str, Any]]:
             "notes": v.notes,
             "milestone": v.milestone,
             "shot_count": len(v.shots),
+            "current": v.id == project.current_video_version_id,
+            "prompt_summary": _prompt_summary(v.shots),
             "created_at": v.created_at.isoformat(),
         }
         for v in deps.store().list_video_versions(project_id)
@@ -287,6 +330,117 @@ def review_video_prompt(
         "approved_count": approved,
         "needs_review_count": needs_review,
     }
+
+
+@router.post("/projects/{project_id}/video-versions/{version_id}/prompts/review")
+def bulk_review_video_prompts(
+    project_id: str,
+    version_id: str,
+    payload: VideoPromptBulkReview,
+) -> dict[str, Any]:
+    """批量审阅多个镜头的 Prompt，并生成新的可回滚视频版本。"""
+    common.get_project(project_id)
+    current = deps.store().get_video_version(version_id)
+    if current is None or current.project_id != project_id:
+        raise HTTPException(404, "视频版本不存在")
+
+    requested_ids = list(dict.fromkeys(payload.shot_ids))
+    shots = [dict(shot) for shot in current.shots if isinstance(shot, dict)]
+    targets = [
+        shot for shot in shots
+        if shot.get("id") in requested_ids and shot.get("video_prompt")
+    ]
+    if not targets:
+        raise HTTPException(400, "选中的镜头没有可审阅的 Prompt")
+
+    status = "approved" if payload.decision == "approve" else "needs_revision"
+    for shot in targets:
+        shot["prompt_status"] = status
+        shot["prompt_review_note"] = payload.note.strip()
+
+    labels = {
+        "approve": "批量批准视频 Prompt",
+        "needs_revision": "批量要求修改视频 Prompt",
+    }
+    version = deps.store().create_video_version(
+        project_id=project_id,
+        shots=shots,
+        style_guide=current.style_guide,
+        source_type="manual",
+        label=labels[payload.decision],
+        notes=payload.note.strip() or None,
+        parent_version_id=current.id,
+    )
+    summary = _prompt_summary(shots)
+    return {
+        "version_id": version.id,
+        "reviewed_shot_ids": [shot["id"] for shot in targets],
+        "reviewed_count": len(targets),
+        **summary,
+    }
+
+
+@router.get(
+    "/projects/{project_id}/video-versions/{version_id}/shots/{shot_id}/prompt-history"
+)
+def video_prompt_history(
+    project_id: str,
+    version_id: str,
+    shot_id: str,
+) -> dict[str, Any]:
+    """沿视频版本父链返回一个镜头的 Prompt 审阅历史与逐次差异。"""
+    common.get_project(project_id)
+    current = deps.store().get_video_version(version_id)
+    if current is None or current.project_id != project_id:
+        raise HTTPException(404, "视频版本不存在")
+
+    history: list[dict[str, Any]] = []
+    version = current
+    seen: set[str] = set()
+    while version and version.id not in seen:
+        seen.add(version.id)
+        shot = _shot_from_version(version, shot_id)
+        if shot is not None and shot.get("video_prompt"):
+            parent = (
+                deps.store().get_video_version(version.parent_version_id)
+                if version.parent_version_id
+                else None
+            )
+            previous_shot = _shot_from_version(parent, shot_id) if parent else None
+            previous_prompt = (previous_shot or {}).get("video_prompt", "")
+            diff_lines = list(
+                difflib.unified_diff(
+                    previous_prompt.splitlines(),
+                    str(shot.get("video_prompt") or "").splitlines(),
+                    fromfile="上一版本",
+                    tofile="当前版本",
+                    lineterm="",
+                )
+            )
+            history.append(
+                {
+                    "version_id": version.id,
+                    "parent_version_id": version.parent_version_id,
+                    "label": version.label,
+                    "source_type": version.source_type,
+                    "created_at": version.created_at.isoformat(),
+                    "prompt": shot.get("video_prompt", ""),
+                    "prompt_status": shot.get("prompt_status") or "needs_review",
+                    "prompt_review_note": shot.get("prompt_review_note") or "",
+                    "previous_prompt": previous_prompt,
+                    "prompt_changed": previous_prompt != shot.get("video_prompt", ""),
+                    "diff": diff_lines,
+                }
+            )
+        version = (
+            deps.store().get_video_version(version.parent_version_id)
+            if version.parent_version_id
+            else None
+        )
+
+    if not history:
+        raise HTTPException(404, "镜头不存在或没有 Prompt 审阅历史")
+    return {"shot_id": shot_id, "version_id": version_id, "history": history}
 
 
 @router.post("/video-versions/{version_id}/milestone")

@@ -133,6 +133,83 @@ def test_single_video_generation_requires_approved_prompt(client, sample_text, m
     assert "尚未批准" in blocked.json()["detail"]
 
 
+def test_bulk_prompt_review_exposes_version_summary_and_history(client, sample_text):
+    project = _import_project(client, sample_text)
+    created = client.post(
+        f"/api/projects/{project['id']}/video-versions",
+        json={
+            "shots": [
+                {
+                    "id": "shot_scene_001_000",
+                    "scene_id": "scene_001",
+                    "order": 0,
+                    "video_prompt": "A quiet close-up by the door.",
+                    "prompt_status": "needs_review",
+                },
+                {
+                    "id": "shot_scene_001_001",
+                    "scene_id": "scene_001",
+                    "order": 1,
+                    "video_prompt": "A wide shot of the rainy street.",
+                    "prompt_status": "needs_revision",
+                },
+            ],
+            "label": "Prompt 草稿",
+        },
+    )
+    assert created.status_code == 200, created.text
+    version_id = created.json()["id"]
+
+    reviewed = client.post(
+        f"/api/projects/{project['id']}/video-versions/{version_id}/prompts/review",
+        json={
+            "shot_ids": ["shot_scene_001_000"],
+            "decision": "approve",
+            "note": "批量审阅后保留。",
+        },
+    )
+    assert reviewed.status_code == 200, reviewed.text
+    assert reviewed.json()["reviewed_count"] == 1
+    assert reviewed.json()["approved_count"] == 1
+    assert reviewed.json()["pending_count"] == 1
+
+    versions = client.get(f"/api/projects/{project['id']}/video-versions")
+    assert versions.status_code == 200
+    latest = versions.json()[0]
+    assert latest["current"] is True
+    assert latest["prompt_summary"]["review_status"] == "mixed"
+    assert latest["prompt_summary"]["approved_count"] == 1
+
+    history = client.get(
+        f"/api/projects/{project['id']}/video-versions/{reviewed.json()['version_id']}/"
+        "shots/shot_scene_001_000/prompt-history"
+    )
+    assert history.status_code == 200, history.text
+    assert len(history.json()["history"]) == 2
+    assert history.json()["history"][0]["prompt_status"] == "approved"
+    assert history.json()["history"][0]["prompt_changed"] is False
+    assert history.json()["history"][0]["prompt_review_note"] == "批量审阅后保留。"
+
+    edited = client.put(
+        f"/api/projects/{project['id']}/video-versions/{reviewed.json()['version_id']}/"
+        "shots/shot_scene_001_000/prompt",
+        json={
+            "prompt": "A restrained close-up by the rain-streaked door.",
+            "decision": "save",
+            "note": "补充雨痕细节。",
+        },
+    )
+    assert edited.status_code == 200, edited.text
+    changed_history = client.get(
+        f"/api/projects/{project['id']}/video-versions/{edited.json()['version_id']}/"
+        "shots/shot_scene_001_000/prompt-history"
+    )
+    assert changed_history.status_code == 200
+    latest_entry = changed_history.json()["history"][0]
+    assert latest_entry["prompt_changed"] is True
+    assert any(line.startswith("+A restrained") for line in latest_entry["diff"])
+
+
 def test_tasks_endpoint_degrades_without_db(monkeypatch):
     """后台任务落库不可用时 /api/tasks 不应 500（退化为纯内存列表）。"""
 

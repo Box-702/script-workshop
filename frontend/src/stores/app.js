@@ -80,6 +80,8 @@ export const store = reactive({
   playingVideo: null,     // { url, title, meta }
   // Prompt 编辑
   editingPrompt: null,    // 正在编辑的 shot 对象
+  promptHistory: [],      // 当前镜头沿视频版本父链的审阅历史
+  promptHistoryLoading: false,
 
   // 开始页建议卡片 -> 输入框的填充通道（draftSeq 变化触发 ChatComposer 取稿）
   draft: '',
@@ -746,6 +748,25 @@ export async function loadShots() {
   }
 }
 
+/** 加载当前镜头的 Prompt 审阅历史与版本差异。 */
+export async function loadPromptHistory(shotId) {
+  if (!store.pid || !store.videoVersionId || !shotId) {
+    store.promptHistory = []
+    return
+  }
+  store.promptHistoryLoading = true
+  try {
+    const data = await api(
+      `/projects/${store.pid}/video-versions/${store.videoVersionId}/shots/${encodeURIComponent(shotId)}/prompt-history`,
+    )
+    store.promptHistory = data.history || []
+  } catch {
+    store.promptHistory = []
+  } finally {
+    store.promptHistoryLoading = false
+  }
+}
+
 /** 加载项目的视频生成任务列表。 */
 export async function loadVideoJobs() {
   if (!store.pid) { store.videoJobs = []; return }
@@ -881,11 +902,31 @@ export function closeVideo() {
 /** 打开 Prompt 编辑器。 */
 export function openPromptEditor(shot) {
   store.editingPrompt = shot
+  store.promptHistory = []
 }
 
 /** 关闭 Prompt 编辑器。 */
 export function closePromptEditor() {
   store.editingPrompt = null
+  store.promptHistory = []
+}
+
+/** 批量应用 Prompt 审阅决定，服务端会创建新的可回滚视频版本。 */
+export async function bulkReviewPrompts(shotIds, decision = 'approve', note = '') {
+  if (!store.pid || !store.videoVersionId || !shotIds?.length) return
+  try {
+    const result = await api(
+      `/projects/${store.pid}/video-versions/${store.videoVersionId}/prompts/review`,
+      'POST',
+      { shot_ids: shotIds, decision, note },
+    )
+    await loadShots()
+    notify(`已批量处理 ${result.reviewed_count} 个镜头`, 'ok')
+    return result
+  } catch (e) {
+    notify(`批量审阅失败：${e.message}`, 'error')
+    throw e
+  }
 }
 
 /** 保存并审阅镜头 Prompt，服务端会创建新的可回滚视频版本。 */

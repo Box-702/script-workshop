@@ -4,6 +4,16 @@
       <h4><span class="section-mark">03</span> 镜头列表</h4>
       <div class="shot-actions">
         <button class="btn-small" @click="$emit('refresh')">刷新</button>
+        <button
+          v-if="pendingShots.length"
+          class="btn-small"
+          @click="selectAllPending"
+        >{{ allPendingSelected ? '取消全选' : '全选待审阅' }}</button>
+        <button
+          v-if="selectedIds.length"
+          class="btn-small ok"
+          @click="approveSelected"
+        >批准选中（{{ selectedIds.length }}）</button>
         <button class="btn-small ok" @click="$emit('generate-all')" v-if="shots.length">
           全部生成视频
         </button>
@@ -30,6 +40,15 @@
             @click="$emit('select-shot', shot)"
           >
             <div class="shot-top">
+              <input
+                v-if="shot.video_prompt"
+                type="checkbox"
+                :checked="selectedIds.includes(shot.id)"
+                :disabled="shot.prompt_status === 'approved'"
+                :aria-label="`选择 ${shot.subject || shot.id}`"
+                @click.stop
+                @change="toggleSelected(shot.id, $event.target.checked)"
+              />
               <span class="shot-type-badge">{{ shotTypeLabel(shot.shot_type) }}</span>
               <span class="shot-order">#{{ shot.order + 1 }}</span>
               <span class="shot-duration">{{ shot.duration_sec }}s</span>
@@ -79,7 +98,7 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, watch } from 'vue'
 
 const props = defineProps({
   shots: { type: Array, default: () => [] },
@@ -87,9 +106,10 @@ const props = defineProps({
   selectedShot: { type: String, default: null },
 })
 
-const emit = defineEmits(['select-shot', 'generate-video', 'generate-all', 'play-video', 'edit-prompt', 'refresh'])
+const emit = defineEmits(['select-shot', 'generate-video', 'generate-all', 'play-video', 'edit-prompt', 'bulk-approve', 'refresh'])
 
 const expanded = reactive({})
+const selectedIds = ref([])
 
 const groupedShots = computed(() => {
   const groups = {}
@@ -104,6 +124,18 @@ const groupedShots = computed(() => {
   }
   return groups
 })
+const pendingShots = computed(() => props.shots.filter(
+  shot => shot.video_prompt && shot.prompt_status !== 'approved',
+))
+const allPendingSelected = computed(() => (
+  pendingShots.value.length > 0 &&
+  pendingShots.value.every(shot => selectedIds.value.includes(shot.id))
+))
+
+watch(() => props.shots, (shots) => {
+  const valid = new Set(shots.map(shot => shot.id))
+  selectedIds.value = selectedIds.value.filter(id => valid.has(id))
+}, { deep: true })
 
 // 默认展开所有场景
 const _initExpanded = () => {
@@ -114,6 +146,24 @@ const _initExpanded = () => {
 _initExpanded()
 
 function toggleScene(id) { expanded[id] = !expanded[id] }
+
+function toggleSelected(id, selected) {
+  selectedIds.value = selected
+    ? [...new Set([...selectedIds.value, id])]
+    : selectedIds.value.filter(item => item !== id)
+}
+
+function selectAllPending() {
+  selectedIds.value = allPendingSelected.value
+    ? []
+    : pendingShots.value.map(shot => shot.id)
+}
+
+function approveSelected() {
+  if (!selectedIds.value.length) return
+  emit('bulk-approve', [...selectedIds.value])
+  selectedIds.value = []
+}
 
 function sceneLabel(sceneId) {
   const sc = props.scenes.find(s => s.id === sceneId)
@@ -192,6 +242,7 @@ function truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '...' : s }
 }
 .shot-card:hover { border-color: var(--line-strong); background: color-mix(in oklch, var(--ink) 3%, transparent); }
 .shot-card.selected { border-color: color-mix(in oklch, var(--cyan) 65%, var(--line)); background: color-mix(in oklch, var(--cyan) 5%, transparent); }
+.shot-card.selected-for-review { border-color: color-mix(in oklch, var(--ok) 55%, var(--line)); }
 
 .shot-top { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .shot-type-badge {

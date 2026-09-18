@@ -12,7 +12,8 @@ import VideoPlayer from './VideoPlayer.vue'
 import PromptEditor from './PromptEditor.vue'
 import {
   store, loadShots, loadVideoJobs, submitVideoJob, playVideo, closeVideo, openPromptEditor,
-  closePromptEditor, saveShotPrompt, setVideoMode, setVideoResolution, startVideoBatch,
+  closePromptEditor, loadPromptHistory, saveShotPrompt, bulkReviewPrompts,
+  setVideoMode, setVideoResolution, startVideoBatch,
   pollVideoBatch, batchCommand,
 } from '../../stores/app'
 
@@ -39,6 +40,13 @@ const promptCount = computed(() => {
     pending: prompts.filter((shot) => shot.prompt_status !== 'approved').length,
   }
 })
+const versionStatusLabels = {
+  empty: '无 Prompt',
+  approved: '全部已批准',
+  needs_review: '待审阅',
+  needs_revision: '需修改',
+  mixed: '部分已批准',
+}
 
 // 审批预览：当前镜最新的成功视频
 const currentShot = computed(() => store.shots.find((s) => s.id === batch.value?.current_shot_id) || null)
@@ -73,6 +81,22 @@ onUnmounted(() => clearInterval(timer))
 
 async function onPromptReview(payload) {
   await saveShotPrompt(payload, payload.decision, payload.prompt_review_note)
+}
+
+async function onEditPrompt(shot) {
+  openPromptEditor(shot)
+  await loadPromptHistory(shot.id)
+}
+
+async function onBulkApprove(shotIds) {
+  await bulkReviewPrompts(shotIds, 'approve')
+}
+
+function formatVersionTime(value) {
+  if (!value) return ''
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  }).format(new Date(value))
 }
 </script>
 
@@ -128,9 +152,34 @@ async function onPromptReview(payload) {
       </div>
     </div>
 
+    <div v-if="store.videoVersions.length" class="version-strip">
+      <div class="version-strip-head">
+        <strong>Prompt 版本</strong>
+        <span>{{ store.videoVersions.length }} 个快照</span>
+      </div>
+      <div class="version-list">
+        <div
+          v-for="version in store.videoVersions"
+          :key="version.id"
+          :class="['version-row', { current: version.current }]"
+        >
+          <span class="version-label">{{ version.label || version.id }}</span>
+          <span class="version-status" :class="version.prompt_summary?.review_status">
+            {{ versionStatusLabels[version.prompt_summary?.review_status] || '待审阅' }}
+          </span>
+          <span class="version-count">
+            {{ version.prompt_summary?.approved_count || 0 }}/{{ version.prompt_summary?.prompt_count || 0 }} 已批准
+          </span>
+          <span class="version-time">{{ formatVersionTime(version.created_at) }}</span>
+        </div>
+      </div>
+    </div>
+
     <PromptEditor
       v-if="store.editingPrompt"
       :shot="store.editingPrompt"
+      :history="store.promptHistory"
+      :history-loading="store.promptHistoryLoading"
       @close="closePromptEditor"
       @review="onPromptReview"
     />
@@ -172,7 +221,8 @@ async function onPromptReview(payload) {
       @generate-video="submitVideoJob"
       @generate-all="onStart"
       @play-video="playVideo"
-      @edit-prompt="openPromptEditor"
+      @edit-prompt="onEditPrompt"
+      @bulk-approve="onBulkApprove"
       @refresh="loadShots()"
     />
 
@@ -219,6 +269,28 @@ async function onPromptReview(payload) {
 .prompt-count { display: flex; gap: 10px; flex: none; font-size: 11px; }
 .prompt-count .approved { color: var(--ok); }
 
+.version-strip {
+  border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px;
+  background: color-mix(in oklch, var(--panel2) 70%, transparent);
+}
+.version-strip-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 7px; font-size: 11px; color: var(--dim);
+}
+.version-strip-head strong { color: var(--ink); font-size: 12px; }
+.version-list { display: flex; flex-direction: column; gap: 4px; }
+.version-row {
+  display: grid; grid-template-columns: minmax(120px, 1fr) auto auto auto;
+  gap: 10px; align-items: center; padding: 5px 7px; border-radius: 5px;
+  font-size: 10.5px; color: var(--dim);
+}
+.version-row.current { background: color-mix(in oklch, var(--cyan) 7%, transparent); color: var(--ink); }
+.version-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.version-status.approved { color: var(--ok); }
+.version-status.needs_review, .version-status.mixed { color: var(--warn); }
+.version-status.needs_revision { color: var(--bad); }
+.version-count, .version-time { white-space: nowrap; }
+
 .batch { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--panel2); }
 .batch-awaiting_approval { border-color: color-mix(in oklch, var(--warn) 45%, var(--line)); }
 .batch-head { display: flex; align-items: center; gap: 12px; }
@@ -239,5 +311,7 @@ async function onPromptReview(payload) {
 
 @media (max-width: 620px) {
   .prompt-gate { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .version-row { grid-template-columns: 1fr auto; }
+  .version-count, .version-time { display: none; }
 }
 </style>

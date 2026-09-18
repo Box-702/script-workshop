@@ -40,6 +40,31 @@
       />
     </div>
 
+    <div class="history" v-if="historyLoading || history.length">
+      <div class="history-head">
+        <span>审阅历史</span>
+        <span v-if="historyLoading">加载中…</span>
+        <span v-else>{{ history.length }} 个版本</span>
+      </div>
+      <div v-if="history.length" class="history-list">
+        <details v-for="(item, index) in history" :key="item.version_id" :open="index === 0">
+          <summary>
+            <span>{{ item.label || item.version_id }}</span>
+            <span :class="['history-status', item.prompt_status]">{{ statusLabelFor(item.prompt_status) }}</span>
+            <span>{{ formatTime(item.created_at) }}</span>
+          </summary>
+          <div class="history-body">
+            <p v-if="item.prompt_review_note" class="history-note">{{ item.prompt_review_note }}</p>
+            <div v-if="item.prompt_changed" class="diff">
+              <div class="diff-title">与上一版本的差异</div>
+              <pre>{{ item.diff.join('\n') }}</pre>
+            </div>
+            <div v-else class="history-unchanged">Prompt 与上一版本相同。</div>
+          </div>
+        </details>
+      </div>
+    </div>
+
     <div class="editor-actions">
       <button class="btn-ghost" @click="$emit('close')">取消</button>
       <button class="btn" :disabled="!editedPrompt.trim()" @click="review('needs_revision')">标记需修改</button>
@@ -56,6 +81,8 @@ import { computed, ref, watch } from 'vue'
 
 const props = defineProps({
   shot: { type: Object, default: null },
+  history: { type: Array, default: () => [] },
+  historyLoading: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['close', 'review'])
@@ -83,6 +110,17 @@ function review(decision) {
     prompt_review_note: note.value.trim(),
     decision,
   })
+}
+
+function statusLabelFor(status) {
+  return ({ approved: '已批准', needs_review: '待审阅', needs_revision: '需修改' }[status] || '待审阅')
+}
+
+function formatTime(value) {
+  if (!value) return ''
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  }).format(new Date(value))
 }
 </script>
 
@@ -119,6 +157,25 @@ function review(decision) {
   resize: vertical; box-sizing: border-box; line-height: 1.45;
 }
 .note-textarea:focus { outline: none; border-color: var(--gold); }
+.history { margin: 4px 0 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+.history-head { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-bottom: 5px; }
+.history-head span:last-child { color: var(--dim); }
+.history-list { display: flex; flex-direction: column; gap: 4px; }
+.history-list details { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.history-list summary {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px;
+  align-items: center; padding: 7px 9px; cursor: pointer; color: var(--muted); font-size: 11px;
+}
+.history-list summary span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-status.approved { color: var(--ok); }
+.history-status.needs_review { color: var(--warn); }
+.history-status.needs_revision { color: var(--bad); }
+.history-body { padding: 0 9px 9px; }
+.history-note { margin: 4px 0 8px; color: var(--dim); font-size: 11px; }
+.diff { background: var(--code-bg); border-radius: 5px; padding: 7px; }
+.diff-title { color: var(--dim); font-size: 10px; margin-bottom: 4px; }
+.diff pre { margin: 0; white-space: pre-wrap; word-break: break-word; color: var(--muted); font: 11px/1.45 var(--mono); }
+.history-unchanged { color: var(--dim); font-size: 10.5px; }
 .field-foot { display: flex; justify-content: space-between; gap: 12px; margin-top: 5px; color: var(--dim); font-size: 10.5px; line-height: 1.4; }
 .char-count { flex: none; font-variant-numeric: tabular-nums; }
 .editor-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }

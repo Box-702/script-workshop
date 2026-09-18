@@ -206,6 +206,7 @@ ProviderSpec(
   摄影指导提出 Shot.video_prompt 草稿：环境锚 + 出场人物锚 + 本镜画面调度 + 风格
   （锚逐字复用）。用户可以逐镜编辑、保存草稿、标记需修改或批准。
   每次人工操作创建新的 VideoVersion 快照；只有 prompt_status=approved 的镜头可提交。
+  工作台支持多选镜头批量审批，版本列表展示 Prompt 审阅汇总，单镜可沿 parent_version_id 查看历史与差异。
   七条写作铁律见 dp.py::_BODY_RULES_ZH：动作与运镜并重 / 呼吸感 / 光的方向 / 人物编号与距离 /
   背景人物各有各的事 / 只写看得见的东西 / 接触动作写物理过程
   （LLM 整段漏写运镜时用 camera.path 兜底补一次）
