@@ -333,17 +333,6 @@ class Script(BaseModel):
         return v
 
 
-class ScriptDocument(BaseModel):
-    """根文档：包一层 ``script`` 字段，与现有项目 / 旧数据兼容。"""
-
-    script: Script
-
-
-def script_from_dict(data: dict[str, Any]) -> Script:
-    """从字典构建 Script，容错处理缺失字段。"""
-    return Script.model_validate(data)
-
-
 # =====================================================================
 # 视频制作领域模型（v3.0 新增）
 #
@@ -439,30 +428,6 @@ class Shot(BaseModel):
         if v is None or str(v).strip() == "":
             return None
         return normalize_id(v, "beat", fallback=v)
-
-
-class StoryboardFrame(BaseModel):
-    """分镜帧：一个镜头的视觉参考帧。
-
-    可由 AI 图片生成，也可由用户手动上传。
-    """
-
-    id: str = Field(pattern=r"^frame_[a-z0-9_]+_\d{3,}$")
-    shot_id: str = Field(pattern=r"^shot_[a-z0-9_]+_\d{3,}$")
-    image_url: str | None = None
-    image_prompt: str = ""
-    description: str = ""
-    dialogue: str | None = None
-    duration_sec: float = 5.0
-    transition: TransitionType = "cut"
-
-    @field_validator("id", mode="before")
-    @classmethod
-    def _coerce_id(cls, v: object) -> object:
-        s = str(v).strip() if v is not None else ""
-        if s.startswith("frame_"):
-            return s
-        return f"frame_{_slug_token(s) or hashlib.md5(str(v).encode()).hexdigest()[:8]}"
 
 
 class StyleGuide(BaseModel):

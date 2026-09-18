@@ -37,10 +37,6 @@ class PluginRegistry:
             self._plugins[plugin.name] = plugin
             log.debug("注册插件：%s (enabled=%s)", plugin.name, plugin.enabled)
 
-    def get(self, name: str) -> Plugin | None:
-        with self._lock:
-            return self._plugins.get(name)
-
     def list_plugins(self) -> list[dict[str, Any]]:
         """列出所有插件的摘要信息。"""
         with self._lock:
@@ -111,10 +107,6 @@ class PluginRegistry:
             log.warning("重新加载插件 %s 失败：%s", name, e)
             return False
 
-    def clear(self) -> None:
-        with self._lock:
-            self._plugins.clear()
-
 
 # ---- 全局单例 ----
 
@@ -136,10 +128,3 @@ def get_plugin_registry(project_dir: str | None = None) -> PluginRegistry:
             _registry.register(plugin)
         log.info("插件系统初始化完成，共加载 %d 个插件", len(_registry.list_plugins()))
     return _registry
-
-
-def reset_plugin_registry() -> None:
-    """重置全局注册表（用于测试）。"""
-    global _registry
-    with _registry_lock:
-        _registry = None

@@ -6,7 +6,7 @@
 # =====================================================================
 
 from .base import VideoJobParams, VideoJobResponse, VideoJobStatus, VideoProvider
-from .registry import ProviderRegistry, get_provider, get_registry, list_providers
+from .registry import ProviderRegistry, get_registry
 
 __all__ = [
     "VideoProvider",
@@ -14,7 +14,5 @@ __all__ = [
     "VideoJobResponse",
     "VideoJobStatus",
     "ProviderRegistry",
-    "get_provider",
     "get_registry",
-    "list_providers",
 ]

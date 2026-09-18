@@ -37,13 +37,6 @@ class ProviderRegistry:
         self._classes[name] = cls
         log.debug("注册视频 Provider 类：%s (%s)", name, cls.__name__)
 
-    # ---- 实例注册 ----
-
-    def register_instance(self, provider: VideoProvider) -> None:
-        """注册一个已实例化的 Provider。"""
-        self._instances[provider.name] = provider
-        log.debug("注册视频 Provider 实例：%s", provider.name)
-
     # ---- 查找 ----
 
     def get_provider(self, name: str, **kwargs: Any) -> VideoProvider | None:
@@ -113,13 +106,6 @@ class ProviderRegistry:
             "chinese_prompt_support": provider.chinese_prompt_support,
         }
 
-    def has(self, name: str) -> bool:
-        return name in self._instances or name in self._classes
-
-    def clear(self) -> None:
-        self._classes.clear()
-        self._instances.clear()
-
 
 # ---- 全局单例 ----
 
@@ -133,16 +119,6 @@ def get_registry() -> ProviderRegistry:
         _registry = ProviderRegistry()
         _register_builtins(_registry)
     return _registry
-
-
-def get_provider(name: str, **kwargs: Any) -> VideoProvider | None:
-    """快捷方式：从全局注册表获取 Provider。"""
-    return get_registry().get_provider(name, **kwargs)
-
-
-def list_providers() -> list[dict[str, Any]]:
-    """快捷方式：列出所有 Provider。"""
-    return get_registry().list_available()
 
 
 def _register_builtins(registry: ProviderRegistry) -> None:

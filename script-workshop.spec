@@ -14,6 +14,8 @@ a = Analysis(
     datas=[
         # 前端构建产物
         (str(ROOT / 'frontend' / 'dist'), 'frontend/dist'),
+        # 内置插件（loader 按路径扫描 app/plugins/builtin，漏打包则插件系统为空）
+        (str(ROOT / 'app' / 'plugins'), 'app/plugins'),
     ],
     hiddenimports=[
         'uvicorn',

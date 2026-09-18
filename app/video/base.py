@@ -128,39 +128,11 @@ class VideoProvider(ABC):
         """取消正在运行的任务。返回是否成功。"""
         ...
 
-    async def download_video(self, video_url: str) -> bytes:
-        """下载生成的视频文件。
-
-        默认用 httpx GET；子类可覆盖处理签名 URL 等特殊情况。
-        """
-        import httpx
-
-        async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.get(video_url)
-            resp.raise_for_status()
-            return resp.content
-
     def estimate_cost(self, duration_sec: float) -> float | None:
         """估算生成费用。返回 None 表示无法估算。"""
         if self.pricing_per_sec <= 0:
             return None
         return round(self.pricing_per_sec * duration_sec, 4)
-
-    def validate_params(self, params: VideoJobParams) -> list[str]:
-        """校验参数是否在 provider 支持范围内。返回问题列表（空=通过）。"""
-        issues: list[str] = []
-        if params.duration_sec > self.max_duration_sec:
-            issues.append(
-                f"时长 {params.duration_sec}s 超过 {self.label} 上限 {self.max_duration_sec}s"
-            )
-        if params.resolution not in self.supported_resolutions:
-            issues.append(
-                f"分辨率 {params.resolution} 不在 {self.label} 支持列表中："
-                f"{', '.join(self.supported_resolutions)}"
-            )
-        if params.image_url and not self.supports_image_to_video:
-            issues.append(f"{self.label} 不支持图生视频")
-        return issues
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} name={self.name!r} label={self.label!r}>"

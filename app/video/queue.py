@@ -160,18 +160,6 @@ class VideoJobManager:
             except Exception as e:  # noqa: BLE001
                 log.warning("视频任务回调失败：%s", e)
 
-    def get(self, job_id: str) -> dict[str, Any] | None:
-        with self._lock:
-            return self._jobs.get(job_id)
-
-    def list_jobs(self, *, status: str | None = None) -> list[dict[str, Any]]:
-        with self._lock:
-            jobs = list(self._jobs.values())
-        if status:
-            jobs = [j for j in jobs if j.get("status") == status]
-        jobs.sort(key=lambda j: j.get("submitted_at", ""), reverse=True)
-        return jobs
-
     def cancel(self, job_id: str, provider: VideoProvider) -> bool:
         """取消正在运行的任务。"""
         with self._lock:
@@ -194,9 +182,6 @@ class VideoJobManager:
         except Exception as e:  # noqa: BLE001
             log.warning("取消视频任务 %s 失败：%s", job_id, e)
             return False
-
-    def shutdown(self, wait: bool = True) -> None:
-        self._executor.shutdown(wait=wait)
 
 
 # ---- 全局单例 ----
