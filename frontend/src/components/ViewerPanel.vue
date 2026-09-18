@@ -13,11 +13,13 @@ import ScreenplayView from './ScreenplayView.vue'
 import ScreenplayEditor from './ScreenplayEditor.vue'
 import AgentPanel from './AgentPanel.vue'
 import FolderTree from './FolderTree.vue'
+import VideoWorkbench from './video/VideoWorkbench.vue'
 import { store, showView, focusScene, exportVersion, syncProjectToWorkspace, setVersionMilestone, notify, loadViewer, saveNotes } from '../stores/app'
 
 const TABS = [
   { key: 'editor', label: '剧本编辑', icon: '📄' },
   { key: 'scene', label: '场景聚焦', icon: '🎯' },
+  { key: 'video', label: '视频工作台', icon: '🎬' },
   { key: 'agents', label: 'Agent 任务', icon: '🤖', badge: true },
 ]
 
@@ -245,6 +247,11 @@ async function onSaveNotes() {
       <div v-else class="v-empty">
         点击左侧场景列表中的某个场景，这里会显示该场景的详细内容。
       </div>
+    </div>
+
+    <!-- 视频工作台：模式切换 / 批量生成 / 审批预览 / 镜头列表 -->
+    <div v-else-if="store.view === 'video'" class="v-body v-body-video">
+      <VideoWorkbench />
     </div>
 
     <!-- Agent 任务面板 -->

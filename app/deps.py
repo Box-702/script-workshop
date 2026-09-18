@@ -18,6 +18,7 @@ from .store import Store
 from .video import ProviderRegistry
 from .video import get_registry as get_video_registry
 from .video.queue import VideoJobManager
+from .video.batch import get_batch_manager
 from .video.queue import get_manager as get_video_manager
 
 log = logging.getLogger(__name__)
@@ -60,6 +61,11 @@ def video_registry() -> ProviderRegistry:
 @lru_cache
 def video_manager() -> VideoJobManager:
     return get_video_manager()
+
+
+@lru_cache
+def batch_manager():
+    return get_batch_manager()
 
 
 @lru_cache

@@ -108,12 +108,39 @@ def _wire_video_qa() -> None:
     video_manager().on_complete(_on_succeeded)
 
 
+def _wire_video_batch() -> None:
+    """批量生成批次推进：任务终态（成功/失败）驱动批次前进或进入审批暂停。"""
+    import logging
+
+    from .deps import batch_manager, store as get_store, video_manager
+
+    log = logging.getLogger(__name__)
+
+    def _on_finished(job_id: str, info: dict[str, Any]) -> None:
+        status = str(info.get("status"))
+        if status not in ("succeeded", "failed", "timeout", "cancelled"):
+            return
+        try:
+            j = get_store().get_video_job(job_id)
+            if j is None or not j.project_id:
+                return
+            batch = batch_manager().on_job_finished(j.project_id, j.shot_id, j)
+            if batch is not None and batch.status == "awaiting_approval":
+                log.info("批次 %s 已暂停等待审批（镜 %d/%d）",
+                         batch.id, batch.current_index + 1, len(batch.shot_ids))
+        except Exception as e:  # noqa: BLE001
+            log.warning("批次推进失败（不影响任务状态）：%s", e)
+
+    video_manager().on_complete(_on_finished)
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     # 启动时注入 LangSmith 监控环境变量（LANGSMITH_* -> LANGCHAIN_*）。
     apply_langsmith_env(settings)
     _wire_video_job_writeback()
     _wire_video_qa()
+    _wire_video_batch()
     app = FastAPI(
         title="剧本工坊（Script Workshop）",
         version="0.3.0",

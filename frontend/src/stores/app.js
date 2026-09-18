@@ -81,6 +81,9 @@ export const store = reactive({
   shots: [],              // 当前项目的镜头列表
   videoVersions: [],      // 视频版本列表
   videoJobs: [],          // 视频生成任务列表
+  videoBatch: null,       // 批量生成批次状态（null/对象）
+  videoMode: localStorage.getItem('sw_video_mode') || 'auto',   // 生成模式：auto | approval
+  videoResolution: localStorage.getItem('sw_video_resolution') || '',  // 空=全局默认(768P)
   // 剧组面板
   showCrew: false,        // 剧组工位面板开关
   showSettings: false,    // 设置弹窗开关
@@ -793,6 +796,57 @@ export async function cancelVideoJob(jobId) {
     await loadVideoJobs()
   } catch (e) {
     notify(`取消失败：${e.message}`, 'error')
+  }
+}
+
+/** 设置生成模式（持久化到本地，下次进入记住选择）。 */
+export function setVideoMode(mode) {
+  store.videoMode = mode
+  localStorage.setItem('sw_video_mode', mode)
+}
+
+/** 设置分辨率覆盖（空串 = 跟随全局默认 768P）。 */
+export function setVideoResolution(res) {
+  store.videoResolution = res
+  localStorage.setItem('sw_video_resolution', res)
+}
+
+/** 启动批量生成（自动/审批模式由 store.videoMode 决定）。 */
+export async function startVideoBatch() {
+  if (!store.pid) return
+  try {
+    store.videoBatch = await api(`/projects/${store.pid}/video/generate-batch`, 'POST', {
+      mode: store.videoMode,
+      resolution: store.videoResolution || null,
+    })
+    notify(`批量生成已启动（${store.videoMode === 'auto' ? '自动' : '审批'}模式）`, 'ok')
+    await loadVideoJobs()
+  } catch (e) {
+    notify(`批量生成启动失败：${e.message}`, 'error')
+  }
+}
+
+/** 查询最新批次进度。 */
+export async function pollVideoBatch() {
+  if (!store.pid) return
+  try {
+    const b = await api(`/projects/${store.pid}/video/batch`)
+    store.videoBatch = b.id ? b : null
+    if (b.id && (b.status === 'running' || b.status === 'awaiting_approval')) await loadVideoJobs()
+  } catch { /* 忽略轮询错误 */ }
+}
+
+/** 向批次下达命令：approve / reroll / abort。 */
+export async function batchCommand(command) {
+  const b = store.videoBatch
+  if (!b?.id) return
+  try {
+    store.videoBatch = await api(`/video/batches/${b.id}/command`, 'POST', { command })
+    const zh = { approve: '已放行下一镜', reroll: '正在重跑当前镜', abort: '批次已终止' }
+    notify(zh[command] || '命令已执行', 'ok')
+    await loadVideoJobs()
+  } catch (e) {
+    notify(`命令失败：${e.message}`, 'error')
   }
 }
 

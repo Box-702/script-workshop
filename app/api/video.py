@@ -13,6 +13,9 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+
+from ..video.base import default_resolution
 
 from . import common, deps
 from .schemas import (
@@ -291,6 +294,43 @@ def _submit_video_job(job: Any) -> None:
     deps.video_manager().submit(job.id, provider, job.prompt, _job_params(dict(job.params or {})))
 
 
+def _create_and_submit_job(project_id: str, payload: VideoJobCreate) -> Any:
+    """创建视频任务并投递（单镜提交与批量批次共用的入口）。
+
+    含提交时自动锚回填（定妆图 + 前镜成片接力）与默认分辨率策略：
+    payload.params 未显式带 resolution 时落全局默认（VIDEO_DEFAULT_RESOLUTION）。
+    """
+    from ..video import get_registry
+
+    provider = get_registry().get_provider(payload.provider)
+    duration = int(payload.params.get("duration_sec") or 6)
+    cost = provider.estimate_cost(float(duration)) if provider else None
+
+    stored_params = dict(payload.params)
+    stored_params.setdefault("resolution", default_resolution())
+    for key in ("first_frame_image", "last_frame_image", "reference_images",
+                "reference_videos", "reference_audios", "content"):
+        value = getattr(payload, key)
+        if value:
+            stored_params[key] = value
+
+    # 提交时自动补齐一致性锚（定妆图 + 前镜成片接力）；调用方显式给的优先。
+    _auto_references(project_id, payload.shot_id, payload.version_id, stored_params)
+
+    job = deps.store().create_video_job(
+        project_id=project_id,
+        shot_id=payload.shot_id,
+        provider=payload.provider,
+        model=payload.model,
+        prompt=payload.prompt,
+        params=stored_params,
+        version_id=payload.version_id,
+        cost_estimate=cost,
+    )
+    _submit_video_job(job)
+    return job
+
+
 def _job_dict(j: Any) -> dict[str, Any]:
     return {
         "id": j.id,
@@ -359,36 +399,8 @@ def _auto_references(project_id: str, shot_id: str | None, version_id: str | Non
 @router.post("/projects/{project_id}/video/generate")
 def create_video_job(project_id: str, payload: VideoJobCreate) -> dict[str, Any]:
     """提交视频生成任务：落库后立刻投递到异步队列（提交 → 轮询 → 回调写回状态）。"""
-    from ..video import get_registry
-
     common.get_project(project_id)
-    provider = get_registry().get_provider(payload.provider)
-    duration = int(payload.params.get("duration_sec") or 6)
-    cost = provider.estimate_cost(float(duration)) if provider else None
-
-    # 多模态入口（首尾帧 / 参考素材 / content 直通）并入 params 一并落库，重试时可复用。
-    stored_params = dict(payload.params)
-    for key in ("first_frame_image", "last_frame_image", "reference_images",
-                "reference_videos", "reference_audios", "content"):
-        value = getattr(payload, key)
-        if value:
-            stored_params[key] = value
-
-    # 提交时自动补齐一致性锚（定妆图 + 前镜成片接力）；调用方显式给的优先。
-    _auto_references(project_id, payload.shot_id, payload.version_id, stored_params)
-
-    job = deps.store().create_video_job(
-        project_id=project_id,
-        shot_id=payload.shot_id,
-        provider=payload.provider,
-        model=payload.model,
-        prompt=payload.prompt,
-        params=stored_params,
-        version_id=payload.version_id,
-        cost_estimate=cost,
-    )
-    _submit_video_job(job)
-
+    job = _create_and_submit_job(project_id, payload)
     return {
         "id": job.id,
         "status": "submitted",
@@ -443,3 +455,142 @@ def retry_video_job(job_id: str) -> dict[str, Any]:
     )
     _submit_video_job(deps.store().get_video_job(job_id))
     return {"id": job_id, "status": "pending"}
+
+
+# ---------- 批量生成（自动 / 审批模式） ----------
+
+
+def _pick_video_provider() -> tuple[str, str]:
+    """选第一个已配置且启用的视频 provider（与前端 submitVideoJob 的兜底一致）。"""
+    for row in deps.store().list_api_providers(kind="video"):
+        if getattr(row, "enabled", True):
+            return row.name, "default"
+    return "minimax", "default"
+
+
+def _batch_submit(
+    project_id: str,
+    provider: str,
+    model: str,
+    version_id: str | None,
+    resolution: str | None = None,
+) -> Any:
+    """构造批次用的 submit 回调：为指定镜头创建并投递任务，返回 job_id。"""
+    store = deps.store()
+
+    def _submit(shot_id: str) -> str | None:
+        shots = []
+        if version_id:
+            version = store.get_video_version(version_id)
+            shots = version.shots if version else []
+        else:
+            versions = sorted(store.list_video_versions(project_id), key=lambda v: v.created_at)
+            shots = versions[-1].shots if versions else []
+        shot = next((s for s in shots if isinstance(s, dict) and s.get("id") == shot_id), None)
+        if shot is None or not shot.get("video_prompt"):
+            return None
+        try:
+            job = _create_and_submit_job(project_id, VideoJobCreate(
+                shot_id=shot_id, provider=provider, model=model,
+                prompt=shot.get("video_prompt") or "", version_id=version_id,
+                params=({"resolution": resolution} if resolution else {}),
+            ))
+            return job.id
+        except Exception as e:  # noqa: BLE001
+            log.warning("批次提交镜头 %s 失败：%s", shot_id, e)
+            return None
+
+    return _submit
+
+
+class BatchCreateRequest(BaseModel):
+    """批量生成请求。mode=auto 一次跑完；mode=approval 每镜等用户预览放行。
+
+    resolution 不传时用全局默认（VIDEO_DEFAULT_RESOLUTION）；显式传入则覆盖。
+    """
+
+    mode: str = Field(default="auto", pattern=r"^(auto|approval)$")
+    provider: str | None = None
+    model: str | None = None
+    version_id: str | None = None
+    resolution: str | None = Field(default=None, max_length=20)
+
+
+@router.post("/projects/{project_id}/video/generate-batch")
+def generate_batch(project_id: str, payload: BatchCreateRequest) -> dict[str, Any]:
+    """按最新视频版本的镜头计划批量生成。串行推进，前镜成片自动作为后镜接力参考。"""
+    common.get_project(project_id)
+    store = deps.store()
+    if payload.version_id:
+        version = store.get_video_version(payload.version_id)
+        if version is None:
+            raise HTTPException(404, "视频版本不存在")
+    else:
+        versions = sorted(store.list_video_versions(project_id), key=lambda v: v.created_at)
+        version = versions[-1] if versions else None
+    if version is None or not version.shots:
+        raise HTTPException(400, "还没有镜头方案：请先完成导演与摄影指导阶段")
+
+    shot_ids = [
+        s["id"] for s in version.shots
+        if isinstance(s, dict) and s.get("id") and s.get("video_prompt")
+    ]
+    if not shot_ids:
+        raise HTTPException(400, "镜头方案里没有任何带视频提示词的镜头")
+
+    provider = payload.provider or _pick_video_provider()[0]
+    model = payload.model or "default"
+    batch = deps.batch_manager().start(
+        project_id, shot_ids, payload.mode,
+        _batch_submit(project_id, provider, model, version.id, payload.resolution),
+    )
+    if batch.status == "failed":
+        raise HTTPException(500, batch.error or "批次启动失败")
+    return batch.to_dict()
+
+
+@router.get("/projects/{project_id}/video/batch")
+def get_latest_batch(project_id: str) -> dict[str, Any]:
+    """查询项目最新批次的进度（前端轮询用）。"""
+    common.get_project(project_id)
+    batch = deps.batch_manager().latest_for_project(project_id)
+    if batch is None:
+        return {"id": None, "status": "none"}
+    return batch.to_dict()
+
+
+class BatchCommandRequest(BaseModel):
+    command: str = Field(pattern=r"^(approve|reroll|abort)$")
+
+
+@router.post("/video/batches/{batch_id}/command")
+def batch_command(batch_id: str, payload: BatchCommandRequest) -> dict[str, Any]:
+    """向批次下达命令：approve 放行下一镜 / reroll 重跑当前镜 / abort 终止。"""
+    mgr = deps.batch_manager()
+    batch = mgr.get(batch_id)
+    if batch is None:
+        raise HTTPException(404, "批次不存在")
+
+    # 在状态变更前捕获当前任务与最新版本：approve/reroll 沿用原 provider/model。
+    prev = deps.store().get_video_job(batch.job_id) if batch.job_id else None
+    provider = prev.provider if prev else "minimax"
+    model = prev.model if prev else "default"
+    prev_resolution = ((prev.params or {}).get("resolution") if prev else None) or None
+    versions = sorted(deps.store().list_video_versions(batch.project_id), key=lambda v: v.created_at)
+    version_id = versions[-1].id if versions else None
+
+    def _resubmit(shot_id: str) -> str | None:
+        return _batch_submit(batch.project_id, provider, model, version_id, prev_resolution)(shot_id)
+
+    try:
+        if payload.command == "approve":
+            batch = mgr.approve(batch_id, _resubmit)
+        elif payload.command == "reroll":
+            batch = mgr.reroll(batch_id, _resubmit)
+        else:
+            batch = mgr.abort(batch_id)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return batch.to_dict()

@@ -21,6 +21,17 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 
+def default_resolution() -> str:
+    """全局默认生成分辨率（VIDEO_DEFAULT_RESOLUTION，默认 768P 低挡位）。
+
+    只是缺省值，不写死：调用方在 params 里显式指定的 resolution 优先；
+    换 provider 时按其方言设置该配置项。
+    """
+    from ..config import get_settings
+
+    return (get_settings().video_default_resolution or "").strip() or "768P"
+
+
 # ---- 请求 / 响应数据结构 ----
 
 

@@ -86,11 +86,14 @@ class MiniMaxProvider(VideoProvider):
         content = self._build_content(prompt, params)
 
         extra = dict(params.extra)
-        # 分辨率/画幅用本 provider 的方言（480P/768P/2K）；不在方言内时回退 extra / 默认值。
+        # 分辨率/画幅用本 provider 的方言（480P/768P/2K）。优先级：调用方显式
+        # 指定 > extra > 全局默认配置（VIDEO_DEFAULT_RESOLUTION，默认 768P 低挡位）。
+        from ..base import default_resolution
         resolution = (
             params.resolution
             if params.resolution in self.supported_resolutions
-            else extra.pop("resolution", "768P")
+            else extra.pop("resolution", None)
+            or (default_resolution() if default_resolution() in self.supported_resolutions else "768P")
         )
         body: dict[str, Any] = {
             "model": self._model,

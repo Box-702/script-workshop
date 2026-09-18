@@ -97,6 +97,12 @@ class Settings(BaseSettings):
     # ffmpeg 可执行文件路径（抽帧/拼接用）；留空则用 PATH 里的 ffmpeg。
     ffmpeg_path: str = Field(default="", alias="FFMPEG_PATH")
 
+    # ---------- 视频生成全局策略 ----------
+    # 默认生成分辨率：首次生成用低挡位（768P）快速廉价出片，满意后再指定
+    # 高清晰度重生成。用户在请求参数里显式指定 resolution 时以用户为准；
+    # 该值只是默认值，不写死——换 provider 时请按其方言设置（如 1280x720）。
+    video_default_resolution: str = Field(default="768P", alias="VIDEO_DEFAULT_RESOLUTION")
+
     # ---------- 配音（TTS） ----------
     # 视频模型没有「文字→语音」通路，台词语音由 TTS 合成后按时间轴混入成片。
     # key 留空时回落 MINIMAX_API_KEY（TTS 与视频同厂商，零配置可用）。
