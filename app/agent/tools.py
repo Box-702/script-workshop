@@ -1,13 +1,8 @@
 # =====================================================================
-# tools.py —— ReAct 工具集合（无 RAG 版）
+# tools.py —— ReAct 工具集合
 #
 # Agent 在「计划」阶段通过工具主动读取上下文。
 # 工具通过闭包捕获本次运行的目标剧本 / 项目 / 存储。
-#
-# 与旧版的区别：
-#   - retrieve_source 改为 DB 全文搜索（不再依赖向量库）
-#   - 新增记忆工具（remember / recall）
-#   - 新增题材知识工具（get_genre_conventions）
 # =====================================================================
 
 from __future__ import annotations
@@ -18,11 +13,7 @@ from typing import Annotated
 from langchain_core.tools import BaseTool, tool
 
 from ..domain import Script
-from ..pipeline.knowledge import (
-    detect_genres,
-    format_author_style,
-    format_genre_knowledge,
-)
+from ..pipeline.knowledge import format_author_style
 from ..pipeline.patch import validate_script
 from ..store import Project, Store
 
@@ -131,12 +122,6 @@ def build_tools(
         return "\n---\n".join(f"[{i + 1}] {_text_excerpt(h, 800)}" for i, h in enumerate(hits))
 
     @tool
-    def get_genre_knowledge(genre: str = "") -> str:
-        """查看当前题材的改编知识（可能走向 + 写作手法）。不传题材则自动检测。"""
-        genres = [genre] if genre else detect_genres(raw_text, top=2)
-        return format_genre_knowledge(genres)
-
-    @tool
     def get_author_style() -> str:
         """查看从原文提取的作者语言风格画像。"""
         return format_author_style(raw_text)
@@ -161,56 +146,12 @@ def build_tools(
             return "校验通过，没有发现问题。"
         return "\n".join(f"{s.severity}: {s.path} {s.message}" for s in issues)
 
-    @tool
-    def remember_preference(content: Annotated[str, "用户偏好或创作原则"]) -> str:
-        """记住用户表达的写作风格偏好或创作原则，后续改编会参考。"""
-        from ..pipeline.memory import save_memory
-        save_memory(store, kind="preference", content=content, scope="project", project_id=project.id)
-        return f"已记住偏好：{content}"
-
-    @tool
-    def recall_preferences() -> str:
-        """回忆当前项目相关的用户偏好和决策。"""
-        from ..pipeline.memory import format_memories, recall_memories
-        memories = recall_memories(store, project_id=project.id, limit=10)
-        if not memories:
-            return "（暂无已记录的偏好）"
-        return format_memories(memories)
-
-    @tool
-    def web_search(query: Annotated[str, "搜索关键词"]) -> str:
-        """联网搜索：查找剧本创作参考、同类作品分析、写作技法、行业资讯等。需要配置 TAVILY_API_KEY。"""
-        from ..config import get_settings
-        from ..pipeline.search import format_search_results, search_sync
-        api_key = get_settings().tavily_api_key
-        if not api_key:
-            return "（未配置 TAVILY_API_KEY，无法联网搜索。请在 .env 中设置 TAVILY_API_KEY。）"
-        try:
-            data = search_sync(query, api_key=api_key, max_results=5)
-            return format_search_results(data)
-        except Exception as e:
-            return f"（搜索失败：{e}）"
-
-    tools: list[BaseTool] = [
+    return [
         get_script_overview,
         get_scene_detail,
         get_source_text,
         search_source,
-        get_genre_knowledge,
         get_author_style,
         list_versions,
         validate_tool,
-        remember_preference,
-        recall_preferences,
-        web_search,
     ]
-
-    # 追加插件工具（内置 / 用户级 / 项目级插件都通过注册表汇总）。
-    try:
-        from ..deps import plugin_registry
-
-        tools.extend(plugin_registry().get_all_tools())
-    except Exception as e:  # noqa: BLE001
-        log.warning("加载插件工具失败，仅使用内置工具：%s", e)
-
-    return tools

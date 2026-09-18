@@ -8,8 +8,7 @@
 from __future__ import annotations
 
 import re
-from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 # 中文章节标题模式。
 _CHAPTER_RE = re.compile(
@@ -20,13 +19,6 @@ _CHAPTER_RE = re.compile(
 # 句子边界。
 _SENT_RE = re.compile(r"[^。！？!?；;…]+[。！？!?；;…]*")
 
-# 常见虚字 / 停用字。
-_STOP_CHARS = set(
-    "的了是在我你他她它们这那和与就都不很把被对为从向到着过之其而或且但若如因所及"
-    "吗呢啊吧呀么什怎怎什么要会能可有个没很"
-    "一二三四五六七八九十百千万"
-)
-
 
 @dataclass
 class Chunk:
@@ -36,19 +28,6 @@ class Chunk:
     chapter: str = ""
     chapter_index: int = 0
     start: int = 0
-    keywords: list[str] = field(default_factory=list)
-
-
-def _extract_keywords(text: str, top: int = 12) -> list[str]:
-    """按频率提取字符 2-gram 关键词。"""
-    t = re.sub(r"[^\u4e00-\u9fa5A-Za-z0-9]", "", str(text or ""))
-    counts: Counter[str] = Counter()
-    for i in range(len(t) - 1):
-        g = t[i : i + 2]
-        if all(c in _STOP_CHARS for c in g):
-            continue
-        counts[g] += 1
-    return [g for g, _ in counts.most_common(top)]
 
 
 def _split_sentences(line: str) -> list[str]:
@@ -58,7 +37,7 @@ def _split_sentences(line: str) -> list[str]:
 
 def _make_chunk(sents: list[str], chapter: str, chapter_index: int, start: int) -> Chunk:
     text = "".join(sents).strip()
-    return Chunk(text=text, chapter=chapter, chapter_index=chapter_index, start=start, keywords=_extract_keywords(text))
+    return Chunk(text=text, chapter=chapter, chapter_index=chapter_index, start=start)
 
 
 def split_chunks(

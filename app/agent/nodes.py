@@ -73,13 +73,12 @@ def _build_context(
     *,
     scene_ids: list[str],
     instruction: str = "",
-    store: Store | None = None,
 ) -> dict[str, Any]:
     """把本次改编所需的上下文组织成一个字典，供提示词与工具使用。
 
-    无 RAG 版：知识直接从内存字典读取，原文搜索由 Agent 工具按需调用。
+    原文搜索由 Agent 工具按需调用，不在上下文里预塞。
     """
-    from ..pipeline.knowledge import detect_genres, format_author_style, format_genre_knowledge
+    from ..pipeline.knowledge import format_author_style
 
     profile = profile_for(project.adaptation_type)
     scenes = _selected_scenes(script, scene_ids)
@@ -97,22 +96,8 @@ def _build_context(
         for s in scenes
     ]
 
-    # 题材知识（直接从内存字典）
-    genres = detect_genres(raw_text, top=2)
-    genre_knowledge = format_genre_knowledge(genres)
-
     # 作者风格（规则提取）
     author_style = format_author_style(raw_text)
-
-    # 用户记忆（从 DB）
-    user_memories = ""
-    if store:
-        try:
-            from ..pipeline.memory import format_memories, recall_memories
-            memories = recall_memories(store, project_id=project.id, limit=5)
-            user_memories = format_memories(memories)
-        except Exception:
-            pass
 
     return {
         "script": {
@@ -125,9 +110,7 @@ def _build_context(
         "characters": {c.id: {"name": c.name, "role": c.role, "goal": c.goal} for c in script.characters},
         "locations": {loc.id: {"name": loc.name, "description": loc.description} for loc in script.locations},
         "selected_scenes": scene_list,
-        "genre_knowledge": genre_knowledge,
         "author_style": author_style,
-        "user_memories": user_memories,
         "raw_text_excerpt": " ".join((raw_text or "").split())[:2000],
     }
 
@@ -139,9 +122,9 @@ def _system_prompt(settings: Settings, script: Script) -> str:
         "你是剧本改编助手。你只读取上下文并修改「选中的场景」，不要新增场景、人物或地点。\n"
         "已有节拍必须保留原 id；新增节拍可以省略 id 或使用未占用的 beat_数字。\n"
         "对白说话人必须是该场景已有的人物 id。\n"
-        "上下文中的 genre_knowledge 带有同类剧本走向与写作手法，author_style 带有作者语言风格，"
-        "user_memories 带有用户偏好，改写时请自然借鉴，保持原味，但不要照抄。\n"
-        "你可以通过 search_source 工具搜索原文，通过 get_genre_knowledge 查看题材知识。\n"
+        "上下文中的 author_style 带有作者语言风格，"
+        "改写时请自然借鉴，保持原味，但不要照抄。\n"
+        "你可以通过 search_source 工具搜索原文。\n"
         "请严格按以下 JSON 结构输出，字段名不要改动：\n"
         '{\n'
         '  "plan": ["计划步骤一", "计划步骤二"],\n'
@@ -184,7 +167,6 @@ def build_nodes(
             raw_text,
             scene_ids=state.get("scene_ids", []),
             instruction=state.get("instruction", ""),
-            store=store,
         )
         system = SystemMessage(content=_system_prompt(settings, script))
         human = HumanMessage(content=f"用户改编需求：{state.get('instruction','')}")

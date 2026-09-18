@@ -1,5 +1,5 @@
 # =====================================================================
-# system.py —— 运行状态、子代理任务、工作目录
+# system.py —— 运行状态、后台任务、工作目录
 #
 # 这些接口不属于某个业务域，而是「运行环境」的读写。
 # =====================================================================
@@ -35,10 +35,6 @@ def status() -> dict[str, Any]:
             "source": info["source"],
         },
         "vision": info["vision"],
-        "memory": {
-            "backend": "database",
-            "enabled": True,
-        },
         "storage": {
             "database": cfg.database_url.split("://")[0],
             "checkpointer": cfg.checkpointer,
@@ -52,7 +48,7 @@ def status() -> dict[str, Any]:
     }
 
 
-# ---------- 子代理任务 ----------
+# ---------- 后台任务 ----------
 
 
 def _all_tasks(limit: int = 50) -> list[dict[str, Any]]:
@@ -71,7 +67,7 @@ def _all_tasks(limit: int = 50) -> list[dict[str, Any]]:
 
 @router.get("/tasks")
 def list_tasks(active_only: bool = False) -> list[dict[str, Any]]:
-    """列出子代理任务（默认全部，active_only=true 只返回运行中的）。"""
+    """列出后台任务（默认全部，active_only=true 只返回运行中的）。"""
     items = _all_tasks()
     if active_only:
         items = [t for t in items if t.get("status") in ("pending", "running")]
@@ -80,7 +76,7 @@ def list_tasks(active_only: bool = False) -> list[dict[str, Any]]:
 
 @router.get("/tasks/{task_id}")
 def get_task(task_id: str) -> dict[str, Any]:
-    """查询单个子代理任务详情（内存优先，其次查历史快照）。"""
+    """查询单个后台任务详情（内存优先，其次查历史快照）。"""
     task = deps.subagent_runner().get(task_id)
     if task:
         return task.to_dict()

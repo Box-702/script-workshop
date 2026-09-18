@@ -13,7 +13,6 @@ from functools import lru_cache
 from .agent.skills import SubAgentRunner, get_runner
 from .config import Settings, get_settings
 from .llm import LLM, build_llm
-from .plugin import PluginRegistry, get_plugin_registry
 from .store import Store
 from .video import ProviderRegistry
 from .video import get_registry as get_video_registry
@@ -49,7 +48,7 @@ def subagent_runner() -> SubAgentRunner:
     try:
         runner.attach_storage(store())
     except Exception as e:  # noqa: BLE001
-        log.warning("子代理任务落库不可用（%s），任务历史将仅保留在内存", e)
+        log.warning("后台任务落库不可用（%s），任务历史将仅保留在内存", e)
     return runner
 
 
@@ -66,8 +65,3 @@ def video_manager() -> VideoJobManager:
 @lru_cache
 def batch_manager():
     return get_batch_manager()
-
-
-@lru_cache
-def plugin_registry() -> PluginRegistry:
-    return get_plugin_registry()

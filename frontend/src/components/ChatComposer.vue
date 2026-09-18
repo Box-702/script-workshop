@@ -67,14 +67,16 @@ watch(() => store.draftSeq, () => {
       <div class="toolbar">
         <div class="toolbar-left">
           <button class="plus" title="新建剧本" aria-label="新建剧本" @click.stop="store.showNewProject = true">＋</button>
-          <span v-if="store.hint" class="hint">{{ store.hint }}</span>
+          <span class="composer-context">
+            <span class="context-dot" :class="{ active: store.pid }"></span>
+            <span v-if="store.hint" class="hint">{{ store.hint }}</span>
+            <span v-else>{{ store.pid ? '准备好继续创作' : '导入原著或直接描述你的想法' }}</span>
+          </span>
         </div>
         <div class="toolbar-right">
-          <span v-if="store.streaming" class="streaming"><span class="pulse"></span>生成中</span>
+          <span v-if="store.streaming" class="streaming"><span class="pulse"></span>Agent 处理中</span>
           <button class="send" :class="{ ready: canSend }" :disabled="!canSend" aria-label="发送消息" @click.stop="send">
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M10 3L5 8l5 5" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
+            <span aria-hidden="true">↑</span>
           </button>
         </div>
       </div>
@@ -83,18 +85,19 @@ watch(() => store.draftSeq, () => {
 </template>
 
 <style scoped>
-.composer { padding: 10px 24px 18px; background: transparent; }
+.composer { padding: 12px clamp(16px, 3vw, 32px) 18px; background: transparent; }
 
 /* 圆角容器：文本域 + 工具行（金色光晕聚焦） */
 .input-box {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
-  padding: 8px 10px 6px; cursor: text;
-  max-width: 820px; margin: 0 auto;
+  background: var(--panel);
+  border: 1px solid var(--line); border-radius: 13px;
+  padding: 9px 11px 7px; cursor: text;
+  max-width: 900px; margin: 0 auto;
   transition: all var(--dur) var(--ease);
 }
 .input-box:focus-within {
   border-color: color-mix(in oklch, var(--gold) 40%, var(--line));
-  box-shadow: 0 0 0 3px var(--gold-soft), 0 0 30px color-mix(in oklch, var(--gold) 5%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--gold) 14%, transparent);
 }
 textarea {
   display: block; width: 100%; min-height: 20px; max-height: 160px; line-height: 1.5;
@@ -117,9 +120,12 @@ textarea:focus-visible { outline: none; }
 }
 .plus:hover { color: var(--ink); border-color: var(--line-strong); background: color-mix(in oklch, var(--ink) 6%, transparent); }
 .hint { color: var(--dim); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.composer-context { min-width: 0; display: inline-flex; align-items: center; gap: 7px; color: var(--dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.context-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--dim); }
+.context-dot.active { background: var(--cyan); box-shadow: 0 0 10px color-mix(in oklch, var(--cyan) 60%, transparent); }
 .toolbar-right { display: flex; align-items: center; gap: 8px; flex: none; }
 .streaming { display: inline-flex; align-items: center; gap: 5px; color: var(--gold); font-size: 11.5px; }
-.pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); animation: pulse 1.1s ease-in-out infinite; box-shadow: 0 0 8px var(--gold-soft); }
+.pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); animation: pulse 1.4s ease-in-out infinite; }
 @keyframes pulse { 0%, 100% { opacity: 0.3; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.1); } }
 
 /* 发送按钮 */
@@ -130,12 +136,12 @@ textarea:focus-visible { outline: none; }
   transition: all 200ms var(--ease);
 }
 .send svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.send > span { font-size: 18px; line-height: 1; transform: translateY(-1px); }
 .send.ready {
-  background: linear-gradient(135deg, var(--gold), color-mix(in oklch, var(--gold) 80%, var(--amber)));
+  background: var(--gold);
   color: var(--on-accent);
-  box-shadow: 0 2px 12px color-mix(in oklch, var(--gold) 25%, transparent);
 }
-.send.ready:hover:not(:disabled) { transform: scale(1.08); box-shadow: 0 4px 20px color-mix(in oklch, var(--gold) 35%, transparent); }
-.send.ready:active:not(:disabled) { transform: scale(0.95); }
+.send.ready:hover:not(:disabled) { background: var(--accent-hover); }
+.send.ready:active:not(:disabled) { background: color-mix(in oklch, var(--gold) 86%, black); }
 .send:disabled { opacity: 0.45; cursor: default; }
 </style>

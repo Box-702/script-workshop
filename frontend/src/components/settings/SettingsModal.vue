@@ -37,7 +37,7 @@
                   class="input"
                   placeholder="sk-..."
                 />
-                <button class="btn-small" @click="showKey = !showKey">{{ showKey ? '🙈' : '👁' }}</button>
+                <button class="btn-small" @click="showKey = !showKey">{{ showKey ? '隐藏' : '显示' }}</button>
                 <button class="btn-small ok" @click="testLlm" :disabled="testing">
                   {{ testing ? '测试中...' : '测试连接' }}
                 </button>
@@ -106,7 +106,7 @@
                   class="input"
                   placeholder="输入 API Key"
                 />
-                <button class="btn-small" @click="showVideoKey = !showVideoKey">{{ showVideoKey ? '🙈' : '👁' }}</button>
+                <button class="btn-small" @click="showVideoKey = !showVideoKey">{{ showVideoKey ? '隐藏' : '显示' }}</button>
               </div>
               <div class="form-row">
                 <label>Base URL（可选）</label>
@@ -165,10 +165,10 @@ const providerForm = reactive({ name: 'kling', apiKey: '', baseUrl: '' })
 // ---- 模型偏好 ----
 const preferences = ref([])
 
-const providerIcons = { runway: '🎬', kling: '🎯', cogvideo: '🧠', sora: '🌊', minimax: '🐚' }
+const providerIcons = { runway: 'RW', kling: 'KL', cogvideo: 'CG', sora: 'SO', minimax: 'MX' }
 const providerPrices = { runway: '$0.05-0.12/s', kling: '$0.10-0.20/s', cogvideo: '按量', sora: '$0.10-0.50/s', minimax: '$0.045/s' }
 const providerChinese = (n) => ['kling', 'cogvideo', 'minimax'].includes(n)
-const providerIcon = (n) => providerIcons[n] || '🎥'
+const providerIcon = (n) => providerIcons[n] || 'AI'
 const providerPrice = (n) => providerPrices[n] || ''
 const providerDuration = (n) => ({ runway: '10s', kling: '10s', cogvideo: '6s', sora: '20s', minimax: '10s' }[n] || '')
 const taskLabels = { screenplay: '剧本生成', shot_design: '镜头设计', video_gen: '视频生成', image_gen: '图片生成', tts: '语音合成' }
@@ -325,7 +325,7 @@ onMounted(() => {
   border-style: dashed; cursor: pointer; text-align: center; color: var(--text2, #999);
   padding: 20px;
 }
-.provider-card.add:hover { border-color: var(--gold, #e94560); color: var(--gold, #e94560); }
+.provider-card.add:hover { border-color: var(--gold); color: var(--gold); }
 .provider-header { display: flex; align-items: center; gap: 8px; }
 .provider-icon { font-size: 18px; }
 .provider-name { font-weight: 600; font-size: 14px; flex: 1; }
@@ -335,7 +335,7 @@ onMounted(() => {
   font-size: 10px; padding: 2px 6px; background: rgba(255,255,255,.05);
   border-radius: 4px; color: var(--text2, #999);
 }
-.badge-cn { font-size: 10px; padding: 2px 6px; background: rgba(233,69,96,.15); border-radius: 4px; color: var(--gold, #e94560); }
+.badge-cn { font-size: 10px; padding: 2px 6px; background: color-mix(in oklch, var(--gold) 10%, transparent); border-radius: 4px; color: var(--gold); }
 .provider-actions { display: flex; gap: 6px; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; }
 .status-dot.on { background: var(--green, #4ade80); }

@@ -22,6 +22,7 @@ from .schemas import (
     ModelPreferenceSet,
     ProviderCreate,
     ProviderUpdate,
+    VideoPromptReview,
     VideoJobCreate,
     VideoVersionCreate,
 )
@@ -234,6 +235,60 @@ def get_video_version(version_id: str) -> dict[str, Any]:
     }
 
 
+@router.put("/projects/{project_id}/video-versions/{version_id}/shots/{shot_id}/prompt")
+def review_video_prompt(
+    project_id: str,
+    version_id: str,
+    shot_id: str,
+    payload: VideoPromptReview,
+) -> dict[str, Any]:
+    """保存并审阅一个镜头的 Prompt，生成新的可回滚视频版本。"""
+    common.get_project(project_id)
+    current = deps.store().get_video_version(version_id)
+    if current is None or current.project_id != project_id:
+        raise HTTPException(404, "视频版本不存在")
+
+    shots = [dict(shot) for shot in current.shots if isinstance(shot, dict)]
+    target = next((shot for shot in shots if shot.get("id") == shot_id), None)
+    if target is None:
+        raise HTTPException(404, "镜头不存在")
+
+    target["video_prompt"] = payload.prompt.strip()
+    target["prompt_status"] = (
+        "approved" if payload.decision == "approve" else
+        "needs_revision" if payload.decision == "needs_revision" else
+        "needs_review"
+    )
+    target["prompt_review_note"] = payload.note.strip()
+
+    labels = {
+        "approve": "批准视频 Prompt",
+        "needs_revision": "要求修改视频 Prompt",
+        "save": "保存视频 Prompt 草稿",
+    }
+    version = deps.store().create_video_version(
+        project_id=project_id,
+        shots=shots,
+        style_guide=current.style_guide,
+        source_type="manual",
+        label=labels[payload.decision],
+        notes=payload.note.strip() or None,
+        parent_version_id=current.id,
+    )
+    approved = sum(1 for shot in shots if shot.get("prompt_status") == "approved")
+    needs_review = sum(
+        1 for shot in shots
+        if shot.get("video_prompt") and shot.get("prompt_status") != "approved"
+    )
+    return {
+        "version_id": version.id,
+        "shot_id": shot_id,
+        "prompt_status": target["prompt_status"],
+        "approved_count": approved,
+        "needs_review_count": needs_review,
+    }
+
+
 @router.post("/video-versions/{version_id}/milestone")
 def set_video_milestone(version_id: str, milestone: str | None = None) -> dict[str, Any]:
     """设置视频版本里程碑。"""
@@ -317,6 +372,15 @@ def _create_and_submit_job(project_id: str, payload: VideoJobCreate) -> Any:
     # 提交时自动补齐一致性锚（定妆图 + 前镜成片接力）；调用方显式给的优先。
     _auto_references(project_id, payload.shot_id, payload.version_id, stored_params)
 
+    version = _resolve_video_version(project_id, payload.version_id)
+    shot = next(
+        (s for s in (version.shots if version else [])
+         if isinstance(s, dict) and s.get("id") == payload.shot_id),
+        None,
+    )
+    if shot and shot.get("video_prompt") and shot.get("prompt_status") != "approved":
+        raise HTTPException(409, "该镜头的 Prompt 尚未批准，请先完成人工审阅")
+
     job = deps.store().create_video_job(
         project_id=project_id,
         shot_id=payload.shot_id,
@@ -329,6 +393,18 @@ def _create_and_submit_job(project_id: str, payload: VideoJobCreate) -> Any:
     )
     _submit_video_job(job)
     return job
+
+
+def _resolve_video_version(project_id: str, version_id: str | None) -> Any:
+    """取指定或最新视频版本，供出片前的 Prompt 门槛复用。"""
+    store = deps.store()
+    if version_id:
+        version = store.get_video_version(version_id)
+        if version and version.project_id == project_id:
+            return version
+        return None
+    versions = sorted(store.list_video_versions(project_id), key=lambda v: v.created_at)
+    return versions[-1] if versions else None
 
 
 def _job_dict(j: Any) -> dict[str, Any]:
@@ -475,7 +551,7 @@ def _batch_submit(
     version_id: str | None,
     resolution: str | None = None,
 ) -> Any:
-    """构造批次用的 submit 回调：为指定镜头创建并投递任务，返回 job_id。"""
+    """构造批次提交回调，只为已批准 Prompt 的镜头创建任务。"""
     store = deps.store()
 
     def _submit(shot_id: str) -> str | None:
@@ -487,7 +563,7 @@ def _batch_submit(
             versions = sorted(store.list_video_versions(project_id), key=lambda v: v.created_at)
             shots = versions[-1].shots if versions else []
         shot = next((s for s in shots if isinstance(s, dict) and s.get("id") == shot_id), None)
-        if shot is None or not shot.get("video_prompt"):
+        if shot is None or not shot.get("video_prompt") or shot.get("prompt_status") != "approved":
             return None
         try:
             job = _create_and_submit_job(project_id, VideoJobCreate(
@@ -533,10 +609,13 @@ def generate_batch(project_id: str, payload: BatchCreateRequest) -> dict[str, An
 
     shot_ids = [
         s["id"] for s in version.shots
-        if isinstance(s, dict) and s.get("id") and s.get("video_prompt")
+        if isinstance(s, dict)
+        and s.get("id")
+        and s.get("video_prompt")
+        and s.get("prompt_status") == "approved"
     ]
     if not shot_ids:
-        raise HTTPException(400, "镜头方案里没有任何带视频提示词的镜头")
+        raise HTTPException(400, "还没有批准任何视频 Prompt，请先逐镜编辑并批准")
 
     provider = payload.provider or _pick_video_provider()[0]
     model = payload.model or "default"

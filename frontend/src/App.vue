@@ -17,7 +17,6 @@ import ChatComposer from './components/ChatComposer.vue'
 import ViewerPanel from './components/ViewerPanel.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import SearchOverlay from './components/SearchOverlay.vue'
-import KnowledgeModal from './components/KnowledgeModal.vue'
 import NewProjectModal from './components/NewProjectModal.vue'
 import WorkspaceModal from './components/WorkspaceModal.vue'
 import PatchDrawer from './components/PatchDrawer.vue'
@@ -27,7 +26,6 @@ import { importProject } from './api'
 
 // ---- 命令面板 ----
 const paletteRef = ref(null)
-const knowledgeRef = ref(null)
 
 // ---- 拖拽导入 ----
 const dragging = ref(false)
@@ -82,15 +80,18 @@ let drag = null
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi)
 function clampAll() {
   if (!layoutEl.value) return
-  const w = layoutEl.value.getBoundingClientRect().width - SPLITS
+  const w = Math.max(0, layoutEl.value.getBoundingClientRect().width - SPLITS)
   const rightSpace = store.rightOpen ? MIN.right : 0
-  leftW.value = clamp(leftW.value, MIN.left, w - MIN.mid - rightSpace)
+  const leftMax = Math.max(MIN.left, w - MIN.mid - rightSpace)
+  leftW.value = clamp(leftW.value, MIN.left, leftMax)
   if (store.rightOpen) {
-    rightW.value = clamp(rightW.value, MIN.right, w - MIN.mid - leftW.value)
+    const rightMax = Math.max(MIN.right, w - MIN.mid - leftW.value)
+    rightW.value = clamp(rightW.value, MIN.right, rightMax)
   }
 }
 
 function startDrag(side, e) {
+  if (!layoutEl.value || window.innerWidth < 760) return
   const rect = layoutEl.value.getBoundingClientRect()
   drag = { side, avail: rect.width - SPLITS, x: e.clientX, lw: leftW.value, rw: rightW.value }
   document.body.classList.add('layout-resizing')
@@ -100,11 +101,20 @@ function startDrag(side, e) {
 }
 function onDrag(e) {
   if (!drag) return
+  if (e.buttons === 0) { endDrag(); return }
   const dx = e.clientX - drag.x
   if (drag.side === 'left') {
-    leftW.value = clamp(drag.lw + dx, MIN.left, drag.avail - MIN.mid - (store.rightOpen ? rightW.value : 0))
+    leftW.value = clamp(
+      drag.lw + dx,
+      MIN.left,
+      Math.max(MIN.left, drag.avail - MIN.mid - (store.rightOpen ? rightW.value : 0)),
+    )
   } else {
-    rightW.value = clamp(drag.rw - dx, MIN.right, drag.avail - MIN.mid - leftW.value)
+    rightW.value = clamp(
+      drag.rw - dx,
+      MIN.right,
+      Math.max(MIN.right, drag.avail - MIN.mid - leftW.value),
+    )
   }
 }
 function endDrag() {
@@ -142,18 +152,19 @@ onMounted(async () => {
   await loadWorkspaceTree()
 })
 onUnmounted(() => {
+  endDrag()
   window.removeEventListener('resize', clampAll)
   window.removeEventListener('keydown', globalKey)
 })
 </script>
 
 <template>
-  <HeaderBar @open-palette="paletteRef?.openPalette()" @open-knowledge="knowledgeRef?.showModal()" />
+  <HeaderBar @open-palette="paletteRef?.openPalette()" />
   <!-- 拖拽导入覆盖层 -->
   <Transition name="fade">
     <div v-if="dragging" class="drop-overlay" @dragleave="onDragLeave" @drop="onDrop">
       <div class="drop-zone">
-        <div class="drop-icon">📄</div>
+        <div class="drop-icon">DROP</div>
         <div class="drop-text">松开以导入剧本文件</div>
         <div class="drop-hint">.txt / .md / .docx</div>
       </div>
@@ -189,7 +200,6 @@ onUnmounted(() => {
   </div>
   <CommandPalette ref="paletteRef" />
   <SearchOverlay />
-  <KnowledgeModal ref="knowledgeRef" />
   <NewProjectModal />
   <WorkspaceModal />
   <PatchDrawer />
@@ -199,13 +209,15 @@ onUnmounted(() => {
 <style scoped>
 .layout {
   display: flex;
-  height: calc(100vh - 44px);
+  height: calc(100dvh - 52px);
   min-width: 0;
+  position: relative;
 }
 .pane { min-width: 0; flex: none; }
 .pane-left {
   display: flex; flex-direction: column; overflow: hidden;
-  background: var(--panel, #1a1a2e); border-right: 1px solid var(--border, #222);
+  background: var(--panel);
+  border-right: 1px solid var(--line);
 }
 .left-top { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .left-divider {
@@ -222,7 +234,7 @@ onUnmounted(() => {
   transition: background var(--dur) var(--ease), width var(--dur) var(--ease);
 }
 .split:hover::before, body.layout-resizing .split::before {
-  background: var(--line-strong); width: 3px; left: 2.5px;
+  background: var(--gold); width: 2px; left: 3px;
 }
 
 /* 面板容器：始终渲染，用 width + opacity 过渡实现开合 */
@@ -251,13 +263,51 @@ onUnmounted(() => {
 }
 .drop-zone {
   display: flex; flex-direction: column; align-items: center; gap: 12px;
-  padding: 48px 64px; border-radius: 20px;
-  border: 2px dashed var(--gold); background: color-mix(in oklch, var(--gold) 5%, var(--panel));
-  animation: float 3s ease-in-out infinite;
+  padding: 46px 64px; border-radius: 18px;
+  border: 1px dashed var(--gold);
+  background: var(--panel);
+  box-shadow: 0 20px 52px oklch(0.03 0.02 278 / 0.34);
 }
-.drop-icon { font-size: 48px; }
+.drop-icon {
+  display: grid; place-items: center; width: 72px; height: 72px; border-radius: 22px;
+  border: 1px solid color-mix(in oklch, var(--gold) 55%, var(--line));
+  color: var(--gold); font: 700 12px/1 var(--mono); letter-spacing: 0.12em;
+  background: color-mix(in oklch, var(--gold) 8%, transparent);
+}
 .drop-text { font-size: 18px; font-weight: 600; color: var(--ink); }
 .drop-hint { font-size: 13px; color: var(--muted); }
 .fade-enter-active, .fade-leave-active { transition: opacity 200ms var(--ease); }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+@media (max-width: 980px) {
+  .panel-right-wrap {
+    position: absolute; inset: 0 0 0 auto; z-index: 25;
+    width: min(var(--pw), calc(100vw - 28px));
+    background: var(--panel);
+    box-shadow: -20px 0 40px oklch(0.03 0.02 278 / 0.28);
+  }
+  .panel-right-wrap.closed { width: 0; }
+  .panel-right-wrap .pane-right { width: min(var(--pw), calc(100vw - 28px)) !important; height: 100%; }
+  .panel-right-wrap .split { display: none; }
+  .left-bottom { flex-basis: 170px; }
+}
+
+@media (max-width: 760px) {
+  .layout { height: calc(100dvh - 48px); }
+  .panel-wrap:not(.panel-right-wrap) {
+    position: absolute; inset: 0 auto 0 0; z-index: 30;
+    width: min(var(--pw), calc(100vw - 28px)) !important;
+    box-shadow: 20px 0 40px oklch(0.03 0.02 278 / 0.28);
+    transition: transform 240ms var(--ease), opacity 180ms var(--ease);
+  }
+  .panel-wrap:not(.panel-right-wrap).closed {
+    width: min(var(--pw), calc(100vw - 28px)) !important;
+    opacity: 0; pointer-events: none; transform: translateX(-100%);
+  }
+  .panel-wrap:not(.panel-right-wrap) .pane-left { width: min(var(--pw), calc(100vw - 28px)) !important; }
+  .panel-wrap:not(.panel-right-wrap) .split { display: none; }
+  .pane-mid { width: 100%; }
+  .drop-zone { width: min(86vw, 360px); padding: 36px 22px; text-align: center; }
+  .drop-text { font-size: 16px; }
+}
 </style>

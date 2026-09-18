@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.api as api_mod
+import app.api.video as video_api
 from app.agent.skills import SubAgentRunner
 from app.main import create_app
 
@@ -20,7 +21,7 @@ def client(store, llm, settings, monkeypatch):
     monkeypatch.setattr(api_mod.deps, "store", lambda: store)
     monkeypatch.setattr(api_mod.deps, "llm", lambda: llm)
     monkeypatch.setattr(api_mod.deps, "settings", lambda: settings)
-    # 子代理 runner 也要绑到测试库，否则会去连 .env 里的开发库。
+    # 后台任务 runner 也要绑到测试库，否则会去连 .env 里的开发库。
     monkeypatch.setattr(
         api_mod.deps, "subagent_runner", lambda: SubAgentRunner(storage=store)
     )
@@ -44,14 +45,96 @@ def test_import_project_and_list(client, sample_text):
     assert projects[0]["title"] == "雨夜"
 
 
-def test_status_reports_memory_enabled(client):
-    payload = client.get("/api/status").json()
-    assert payload["memory"]["enabled"] is True
-    assert payload["memory"]["backend"] == "database"
+def test_video_prompt_review_creates_version_and_gates_batch(client, sample_text):
+    project = _import_project(client, sample_text)
+    shots = [
+        {
+            "id": "shot_scene_001_000",
+            "scene_id": "scene_001",
+            "order": 0,
+            "subject": "齐夏",
+            "video_prompt": "A close-up shot of Qi Xia looking toward the door.",
+            "prompt_status": "needs_review",
+        },
+    ]
+    created = client.post(
+        f"/api/projects/{project['id']}/video-versions",
+        json={"shots": shots, "label": "Prompt 草稿"},
+    )
+    assert created.status_code == 200, created.text
+    version_id = created.json()["id"]
+
+    reviewed = client.put(
+        f"/api/projects/{project['id']}/video-versions/{version_id}/shots/"
+        "shot_scene_001_000/prompt",
+        json={
+            "prompt": "A restrained close-up of Qi Xia turning toward the door.",
+            "decision": "approve",
+            "note": "保留克制的转身动作，避免多余表演。",
+        },
+    )
+    assert reviewed.status_code == 200, reviewed.text
+    assert reviewed.json()["prompt_status"] == "approved"
+    assert reviewed.json()["approved_count"] == 1
+
+    latest = client.get(f"/api/video-versions/{reviewed.json()['version_id']}")
+    assert latest.status_code == 200
+    assert latest.json()["shots"][0]["prompt_status"] == "approved"
+    assert latest.json()["shots"][0]["prompt_review_note"].startswith("保留")
+
+    unapproved = client.post(
+        f"/api/projects/{project['id']}/video-versions",
+        json={
+            "shots": [{**shots[0], "prompt_status": "needs_review"}],
+            "parent_version_id": reviewed.json()["version_id"],
+            "label": "重新待审阅",
+        },
+    )
+    assert unapproved.status_code == 200
+    blocked = client.post(
+        f"/api/projects/{project['id']}/video/generate-batch",
+        json={"version_id": unapproved.json()["id"]},
+    )
+    assert blocked.status_code == 400
+    assert "批准" in blocked.json()["detail"]
+
+
+def test_single_video_generation_requires_approved_prompt(client, sample_text, monkeypatch):
+    project = _import_project(client, sample_text)
+    created = client.post(
+        f"/api/projects/{project['id']}/video-versions",
+        json={
+            "shots": [
+                {
+                    "id": "shot_scene_001_000",
+                    "scene_id": "scene_001",
+                    "order": 0,
+                    "video_prompt": "A close-up shot of Qi Xia looking toward the door.",
+                    "prompt_status": "needs_review",
+                },
+            ],
+            "label": "Prompt 草稿",
+        },
+    )
+    assert created.status_code == 200, created.text
+
+    monkeypatch.setattr(video_api, "_submit_video_job", lambda job: None)
+    blocked = client.post(
+        f"/api/projects/{project['id']}/video/generate",
+        json={
+            "shot_id": "shot_scene_001_000",
+            "provider": "minimax",
+            "model": "default",
+            "prompt": "A close-up shot of Qi Xia looking toward the door.",
+            "version_id": created.json()["id"],
+        },
+    )
+    assert blocked.status_code == 409
+    assert "尚未批准" in blocked.json()["detail"]
 
 
 def test_tasks_endpoint_degrades_without_db(monkeypatch):
-    """子代理任务落库不可用时 /api/tasks 不应 500（退化为纯内存列表）。"""
+    """后台任务落库不可用时 /api/tasks 不应 500（退化为纯内存列表）。"""
 
     def _boom():
         raise RuntimeError("db down")

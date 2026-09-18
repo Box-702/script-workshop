@@ -1,7 +1,7 @@
 # =====================================================================
 # test_persistence.py —— 本轮重构新增的持久化能力
 #
-# 覆盖：视觉风格指南读写 / 分镜方案读写 / 子代理任务历史落库。
+# 覆盖：视觉风格指南读写 / 分镜方案读写 / 后台任务历史落库。
 # =====================================================================
 
 from __future__ import annotations
@@ -66,12 +66,12 @@ def test_version_breakdown_roundtrip(store):
     assert store.set_version_breakdown("ver_missing", shots) is False
 
 
-# ---------- 子代理任务历史 ----------
+# ---------- 后台任务历史 ----------
 
 
 def test_subagent_task_store_roundtrip(store):
     store.save_subagent_task({
-        "id": "task_0001", "name": "场景分析", "status": "done",
+        "id": "task_0001", "name": "导演拆解", "status": "done",
         "steps": [{"label": "提取场景数据", "status": "done", "detail": "3 个场景"}],
         "result": "报告正文", "created_at": None, "finished_at": None,
     })
@@ -82,7 +82,7 @@ def test_subagent_task_store_roundtrip(store):
 
     # upsert：同一 id 再写一次应更新而不是插入
     store.save_subagent_task({
-        "id": "task_0001", "name": "场景分析", "status": "failed",
+        "id": "task_0001", "name": "导演拆解", "status": "failed",
         "steps": [], "result": "失败原因", "created_at": None, "finished_at": None,
     })
     assert store.get_subagent_task("task_0001")["status"] == "failed"
@@ -92,7 +92,7 @@ def test_subagent_task_store_roundtrip(store):
 
 
 def test_runner_persists_lifecycle(store):
-    """子代理任务应在启动与结束时各落库一次，重启后历史仍可查。"""
+    """后台任务应在启动与结束时各落库一次，重启后历史仍可查。"""
     runner = SubAgentRunner(storage=store)
 
     def _job(task: SubAgentTask) -> str:
@@ -133,4 +133,3 @@ def test_attach_storage_after_construction(store):
             break
         time.sleep(0.01)
     assert store.get_subagent_task(task_id)["name"] == "后置挂载"
-

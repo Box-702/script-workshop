@@ -1,8 +1,11 @@
 <template>
   <div class="workspace-tree">
     <div class="ws-header">
-      <span class="ws-title">📂 工作区</span>
-      <button class="btn-tiny" @click="onRefresh" title="刷新">🔄</button>
+      <div>
+        <span class="ws-eyebrow">FILES</span>
+        <span class="ws-title">工作区</span>
+      </div>
+      <button class="btn-tiny" @click="onRefresh" title="刷新" aria-label="刷新">↻</button>
     </div>
 
     <div v-if="!tree" class="ws-empty">
@@ -15,7 +18,7 @@
       <div v-for="folder in tree.folders" :key="folder.name" class="ws-folder">
         <div class="folder-header" @click="toggle(folder.name)">
           <span class="expand-icon">{{ isOpen(folder.name) ? '▼' : '▶' }}</span>
-          <span class="folder-icon">📁</span>
+          <span class="folder-icon">/</span>
           <span class="folder-name">{{ folder.name }}</span>
         </div>
         <div v-if="isOpen(folder.name)" class="folder-children">
@@ -24,7 +27,7 @@
             :key="sub.name"
             class="folder-item"
           >
-            <span class="item-icon">{{ sub.type === 'dir' ? '📁' : '📄' }}</span>
+            <span class="item-icon">{{ sub.type === 'dir' ? '/' : '·' }}</span>
             <span class="item-name">{{ sub.name }}</span>
           </div>
         </div>
@@ -55,12 +58,15 @@ function onRefresh() {
 .workspace-tree { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 .ws-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 10px 12px; border-bottom: 1px solid var(--border, #222);
+  padding: 12px 14px; border-bottom: 1px solid var(--line);
 }
-.ws-title { font-size: 13px; font-weight: 600; }
+.ws-header > div { display: flex; flex-direction: column; gap: 4px; }
+.ws-eyebrow { color: var(--cyan); font: 700 9px/1 var(--mono); letter-spacing: .14em; }
+.ws-title { font-size: 13px; font-weight: 650; color: var(--ink); }
 .btn-tiny {
-  background: none; border: none; cursor: pointer; font-size: 12px; padding: 2px;
-  opacity: .6;
+  background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: 6px;
+  cursor: pointer; font-size: 15px; padding: 0; width: 25px; height: 25px;
+  opacity: .8; display: grid; place-items: center;
 }
 .btn-tiny:hover { opacity: 1; }
 
@@ -69,7 +75,7 @@ function onRefresh() {
   margin-top: 8px; padding: 5px 12px; border: 1px solid var(--border, #333);
   border-radius: 5px; background: none; color: var(--text, #eee); cursor: pointer; font-size: 11px;
 }
-.btn-small:hover { border-color: var(--gold, #e94560); }
+.btn-small:hover { border-color: var(--gold); color: var(--ink); background: color-mix(in oklch, var(--gold) 6%, transparent); }
 
 .ws-content { flex: 1; overflow-y: auto; padding: 4px 0; }
 .ws-root { padding: 4px 12px; font-size: 10px; color: var(--text2, #555); word-break: break-all; }
@@ -77,16 +83,16 @@ function onRefresh() {
 .ws-folder { }
 .folder-header {
   display: flex; align-items: center; gap: 5px; padding: 5px 12px;
-  cursor: pointer; font-size: 12px;
+  cursor: pointer; font-size: 12px; color: var(--muted);
 }
 .folder-header:hover { background: rgba(255,255,255,.03); }
-.expand-icon { font-size: 9px; color: var(--text2, #666); }
-.folder-icon { font-size: 12px; }
+.expand-icon { font-size: 9px; color: var(--cyan); }
+.folder-icon { font: 700 12px/1 var(--mono); color: var(--cyan); }
 .folder-name { flex: 1; }
 .folder-children { padding-left: 12px; }
 .folder-item {
   display: flex; align-items: center; gap: 5px; padding: 3px 12px;
-  font-size: 11px; color: var(--text2, #888);
+  font-size: 11px; color: var(--dim);
 }
-.item-icon { font-size: 10px; }
+.item-icon { width: 12px; color: var(--dim); font: 700 11px/1 var(--mono); }
 </style>

@@ -9,14 +9,6 @@ import { reactive } from 'vue'
 import { api, importProject, streamChat } from '../api'
 import { keyedDiff } from '../utils/diff'
 
-/** 知识库类型 -> 中文名。 */
-export const KIND_NAME = {
-  source: '原著原文',
-  plot_direction: '同类剧本的可能走向',
-  technique: '同类剧本的写作手法',
-  author_style: '作者的语言风格',
-}
-
 // ---------------------------------------------------------------------
 // 全局响应式状态
 // ---------------------------------------------------------------------
@@ -50,14 +42,13 @@ export const store = reactive({
   rightOpen: false,
 
   // 右侧查看面板
-  view: 'text',        // text | notes | knowledge | files | diff
+  view: 'text',        // text | notes | files | diff
   viewerText: '',      // 最新版本剧本全文（纯文本，供复制）
   viewerScript: null,  // 最新版本结构化剧本（供剧本排版渲染）
   viewerNotes: '',     // 编剧圣经 / 设定备忘（自由文本）
   notesDirty: false,   // 设定有未保存改动：切换项目时不被服务端内容覆盖
   projectFiles: null,  // 项目本地文件 { persist, root, folders }
   openFile: null,      // 当前打开的本地文本文件 { name, content }
-  knowledge: [],       // [{ kind, docs }] 按类型分组
   diff: [],            // keyedDiff 结果
   diffMeta: '',        // “旧版本 → 新版本”说明文字
 
@@ -73,27 +64,18 @@ export const store = reactive({
   // 改编提议审阅抽屉（对话里只显示摘要，细节在抽屉里看）
   drawer: { open: false, payload: null },
 
-  // 子代理任务面板
+  // 后台任务面板
   tasks: [],              // [{id, name, status, steps, result, created_at, finished_at}]
 
   // ---- v3.0 视频制作 ----
   // 镜头数据
   shots: [],              // 当前项目的镜头列表
   videoVersions: [],      // 视频版本列表
+  videoVersionId: null,   // 当前镜头列表所属的视频版本
   videoJobs: [],          // 视频生成任务列表
   videoBatch: null,       // 批量生成批次状态（null/对象）
   videoMode: localStorage.getItem('sw_video_mode') || 'auto',   // 生成模式：auto | approval
   videoResolution: localStorage.getItem('sw_video_resolution') || '',  // 空=全局默认(768P)
-  // 剧组面板
-  showCrew: false,        // 剧组工位面板开关
-  showSettings: false,    // 设置弹窗开关
-  crewAgents: [           // 剧组成员状态（与后端实际 Agent 对齐）
-    { name: 'writer', label: '编剧', emoji: '📝', status: 'idle', detail: '' },
-    { name: 'director', label: '导演', emoji: '🎬', status: 'idle', detail: '' },
-    { name: 'art_director', label: '美术', emoji: '🎨', status: 'idle', detail: '' },
-    { name: 'dp', label: '摄影', emoji: '📹', status: 'idle', detail: '' },
-  ],
-  pipelineStage: 'idle',  // 流水线阶段
   // 视频播放器
   playingVideo: null,     // { url, title, meta }
   // Prompt 编辑
@@ -108,6 +90,8 @@ export const store = reactive({
 // 非阻塞通知（替代 alert()：不打断、自动消失、可点关闭）
 // ---------------------------------------------------------------------
 let _toastTimer = null
+let _taskRefreshTimer = null
+let _taskRefreshSeq = 0
 export function notify(message, type = 'error') {
   store.toast = { id: Date.now(), message, type }
   clearTimeout(_toastTimer)
@@ -119,20 +103,26 @@ export function dismissToast() {
 }
 
 // ---------------------------------------------------------------------
-// 子代理任务管理
+// 后台任务管理
 // ---------------------------------------------------------------------
-/** 从后端拉取活跃任务列表（轮询用）。 */
+/** 从后端拉取后台任务列表（轮询用）。 */
 export async function refreshTasks() {
+  const seq = ++_taskRefreshSeq
   try {
     const tasks = await api('/tasks?active_only=false')
+    if (seq !== _taskRefreshSeq) return
     store.tasks = tasks || []
   } catch { /* 静默 */ }
 }
 
-/** SSE 收到 sub_agent_started payload 时，触发后端任务刷新。 */
+/** SSE 收到后台任务启动事件时，触发后端任务刷新。 */
 export function onSubAgentStarted() {
   // 异步刷新，不阻塞消息流
-  setTimeout(() => refreshTasks(), 500)
+  clearTimeout(_taskRefreshTimer)
+  _taskRefreshTimer = setTimeout(() => {
+    _taskRefreshTimer = null
+    refreshTasks()
+  }, 500)
 }
 
 /** 清除已完成的任务。 */
@@ -209,8 +199,14 @@ export async function loadTree() {
 }
 
 /** 展开时懒加载某项目下的对话列表。 */
-export async function loadConversations(pid) {
-  try { store.convMap[pid] = await api(`/projects/${pid}/conversations`) } catch { store.convMap[pid] = [] }
+export async function loadConversations(pid, token = null) {
+  try {
+    const conversations = await api(`/projects/${pid}/conversations`)
+    if (token !== null && !_isCurrent(token)) return
+    store.convMap[pid] = conversations
+  } catch {
+    if (token === null || _isCurrent(token)) store.convMap[pid] = []
+  }
 }
 
 /** 展开时懒加载某项目的场景列表（从最新版本提取）。 */
@@ -251,7 +247,7 @@ export async function selectProject(pid) {
   store.convId = null
   store.expanded[pid] = true
   store.messages = [] // 先清空旧内容，避免等待期间显示上一个项目的消息
-  await loadConversations(pid)
+  await loadConversations(pid, token)
   if (!_isCurrent(token)) return
   const convs = store.convMap[pid] || []
   if (convs.length) await selectConversation(pid, convs[0].id, token)
@@ -450,17 +446,6 @@ export async function saveNotes() {
   store.notesDirty = false
 }
 
-/** 拉取项目知识库并按类型分组。 */
-export async function loadKnowledge() {
-  if (!store.pid) return
-  try {
-    const r = await api(`/projects/${store.pid}/knowledge`)
-    const groups = {}
-    for (const d of r.docs || []) (groups[d.kind] = groups[d.kind] || []).push(d)
-    store.knowledge = Object.keys(groups).map((k) => ({ kind: k, docs: groups[k] }))
-  } catch { store.knowledge = [] }
-}
-
 /** 版本对比：最新版本 vs 上一版本。 */
 export async function loadDiff() {
   if (!store.pid || store.versions.length < 1) { store.diff = []; store.diffMeta = ''; return }
@@ -641,7 +626,7 @@ function handleStreamEvent(ev, reply) {
   } else if (ev.event === 'done') {
     reply.content = ev.data.reply || reply.content
     reply.payloads = ev.data.payloads || []
-    // 子代理启动时立即刷新任务列表
+    // 后台任务启动时立即刷新任务列表
     if ((ev.data.payloads || []).some((p) => p.type === 'sub_agent_started')) {
       onSubAgentStarted()
     }
@@ -651,7 +636,7 @@ function handleStreamEvent(ev, reply) {
   }
 }
 
-/** done 事件后的收尾：首轮对话时挂上项目/对话，并刷新右侧面板与子代理任务。 */
+/** done 事件后的收尾：首轮对话时挂上项目/对话，并刷新右侧面板与后台任务。 */
 async function afterAgentDone(data) {
   if (data.project_id && !store.pid) {
     store.pid = data.project_id
@@ -661,7 +646,7 @@ async function afterAgentDone(data) {
     await loadTree()
   }
   if (store.pid) await loadViewer()
-  // 刷新子代理任务（子代理在后台运行，done 时可能已完成或仍在运行）
+  // 刷新后台任务（任务可能已完成，也可能仍在运行）
   await refreshTasks()
 }
 
@@ -738,17 +723,27 @@ export async function submitNewProject({ title, adapt, file, raw }) {
 
 /** 加载项目的镜头列表（从最新 video version 读取）。 */
 export async function loadShots() {
-  if (!store.pid) { store.shots = []; return }
+  if (!store.pid) {
+    store.shots = []
+    store.videoVersions = []
+    store.videoVersionId = null
+    return
+  }
   try {
     const versions = await api(`/projects/${store.pid}/video-versions`)
     store.videoVersions = versions
     if (versions.length > 0) {
       const latest = await api(`/video-versions/${versions[0].id}`)
+      store.videoVersionId = latest.id
       store.shots = latest.shots || []
     } else {
       store.shots = []
+      store.videoVersionId = null
     }
-  } catch { store.shots = [] }
+  } catch {
+    store.shots = []
+    store.videoVersionId = null
+  }
 }
 
 /** 加载项目的视频生成任务列表。 */
@@ -762,6 +757,11 @@ export async function loadVideoJobs() {
 /** 提交视频生成任务。 */
 export async function submitVideoJob(shot) {
   if (!store.pid || !shot?.video_prompt) return
+  if (shot.prompt_status !== 'approved') {
+    notify('请先编辑并批准这个镜头的 Prompt', 'info')
+    openPromptEditor(shot)
+    return
+  }
   // 从已配置的 video providers 中选第一个
   let provider = 'kling'
   let model = 'kling-v3'
@@ -780,6 +780,7 @@ export async function submitVideoJob(shot) {
       provider,
       model,
       prompt: shot.video_prompt,
+      version_id: store.videoVersionId,
     })
     notify(`视频任务已提交：${shot.subject || shot.id}`, 'ok')
     await loadVideoJobs()
@@ -814,6 +815,11 @@ export function setVideoResolution(res) {
 /** 启动批量生成（自动/审批模式由 store.videoMode 决定）。 */
 export async function startVideoBatch() {
   if (!store.pid) return
+  const approved = store.shots.filter((shot) => shot.video_prompt && shot.prompt_status === 'approved')
+  if (!approved.length) {
+    notify('请先逐镜批准视频 Prompt，再开始批量生成', 'info')
+    return
+  }
   try {
     store.videoBatch = await api(`/projects/${store.pid}/video/generate-batch`, 'POST', {
       mode: store.videoMode,
@@ -882,35 +888,33 @@ export function closePromptEditor() {
   store.editingPrompt = null
 }
 
-/** 更新镜头的 video_prompt（保存到最新 video version）。 */
-export async function saveShotPrompt(shot) {
-  if (!store.pid || !shot) return
-  // 重新创建一个 video version 来保存修改
+/** 保存并审阅镜头 Prompt，服务端会创建新的可回滚视频版本。 */
+export async function saveShotPrompt(shot, decision = 'save', note = '') {
+  if (!store.pid || !shot || !store.videoVersionId) return
   try {
-    const updatedShots = store.shots.map(s => s.id === shot.id ? { ...s, video_prompt: shot.video_prompt } : s)
-    await api(`/projects/${store.pid}/video-versions`, 'POST', {
-      shots: updatedShots,
-      source_type: 'manual',
-      label: '手动编辑 Prompt',
-    })
-    store.shots = updatedShots
-    notify('Prompt 已保存', 'ok')
-    closePromptEditor()
+    await api(
+      `/projects/${store.pid}/video-versions/${store.videoVersionId}/shots/${encodeURIComponent(shot.id)}/prompt`,
+      'PUT',
+      {
+        prompt: shot.video_prompt,
+        decision,
+        note,
+      },
+    )
+    await loadShots()
+    const labels = {
+      save: 'Prompt 草稿已保存',
+      approve: 'Prompt 已批准，可以出片',
+      needs_revision: '已标记为需要修改',
+    }
+    notify(labels[decision] || 'Prompt 已保存', 'ok')
+    if (store.editingPrompt?.id === shot.id) closePromptEditor()
   } catch (e) {
-    notify(`保存失败：${e.message}`, 'error')
+    notify(`Prompt 保存失败：${e.message}`, 'error')
   }
 }
 
-/** 更新剧组 Agent 状态（从 SSE sub_agent_started 事件调用）。 */
-export function updateCrewAgentStatus(name, status, detail = '') {
-  const agent = store.crewAgents.find(a => a.name === name)
-  if (agent) {
-    agent.status = status
-    agent.detail = detail
-  }
-}
-
-/** 设置流水线阶段。 */
-export function setPipelineStage(stage) {
-  store.pipelineStage = stage
+/** 仅在当前界面需要手动刷新时调用，避免重复写入版本。 */
+export async function refreshVideoWorkspace() {
+  await Promise.all([loadShots(), loadVideoJobs()])
 }

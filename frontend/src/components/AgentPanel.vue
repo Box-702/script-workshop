@@ -1,8 +1,8 @@
 <script setup>
 // =====================================================================
-// AgentPanel.vue —— 子代理任务面板
+// AgentPanel.vue —— 后台任务面板
 //
-// 展示后台运行的子代理任务列表：每个任务显示名称、状态、步骤时间线、结果摘要。
+// 展示导演、美术、摄影和参考资产任务：每个任务显示名称、状态、步骤时间线、结果摘要。
 // 数据来源：store.tasks（由 SSE 事件驱动更新）。
 // =====================================================================
 
@@ -10,7 +10,7 @@ import { computed } from 'vue'
 import { store, clearCompletedTasks, refreshTasks } from '../stores/app'
 
 const STATUS_LABEL = { pending: '排队中', running: '运行中', done: '已完成', failed: '失败' }
-const STATUS_ICON = { pending: '⏳', running: '⚡', done: '✅', failed: '❌' }
+const STATUS_ICON = { pending: 'P', running: 'R', done: 'D', failed: '!' }
 
 const activeTasks = computed(() => store.tasks.filter((t) => t.status === 'running' || t.status === 'pending'))
 const completedTasks = computed(() => store.tasks.filter((t) => t.status === 'done' || t.status === 'failed'))
@@ -78,9 +78,9 @@ function fmtTime(iso) {
 
     <!-- 空态 -->
     <div v-if="!store.tasks.length" class="ap-empty">
-      <div class="ap-empty-icon">🤖</div>
-      <div>还没有子代理任务</div>
-      <div class="ap-empty-hint">在对话中说「分析场景」「检查风格」「润色对白」等，会在这里启动专职子代理。</div>
+      <div class="ap-empty-icon">AGENT</div>
+      <div>还没有后台任务</div>
+      <div class="ap-empty-hint">在对话中说「拆镜头」「生成风格指南」或「生成视频 Prompt」，任务进度会显示在这里。</div>
     </div>
 
     <!-- 刷新按钮 -->
@@ -108,9 +108,9 @@ function fmtTime(iso) {
   background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
   padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;
 }
-.ap-active { border-left: 3px solid var(--ok); }
-.ap-done { border-left: 3px solid var(--cue); opacity: 0.85; }
-.ap-failed { border-left: 3px solid var(--bad); }
+.ap-active { border-color: color-mix(in oklch, var(--ok) 48%, var(--line)); background: color-mix(in oklch, var(--ok) 5%, var(--panel2)); }
+.ap-done { border-color: color-mix(in oklch, var(--cue) 38%, var(--line)); opacity: 0.85; }
+.ap-failed { border-color: color-mix(in oklch, var(--bad) 48%, var(--line)); background: color-mix(in oklch, var(--bad) 5%, var(--panel2)); }
 
 .ap-card-head { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .ap-icon { flex: none; }
@@ -150,7 +150,7 @@ function fmtTime(iso) {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 8px; color: var(--dim); text-align: center; padding: 32px 16px;
 }
-.ap-empty-icon { font-size: 32px; opacity: 0.5; }
+.ap-empty-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 15px; border: 1px solid var(--line); color: var(--violet); font: 700 12px/1 var(--mono); letter-spacing: .08em; opacity: 0.8; }
 .ap-empty-hint { font-size: 11px; color: var(--dim); max-width: 240px; line-height: 1.6; }
 
 .ap-foot { margin-top: auto; padding-top: 8px; border-top: 1px dashed var(--line); display: flex; justify-content: center; }

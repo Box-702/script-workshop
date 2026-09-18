@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from ..deps import (  # noqa: F401
     llm,
-    plugin_registry,
     settings,
     store,
     subagent_runner,
@@ -23,7 +22,6 @@ from ..deps import (  # noqa: F401
 
 __all__ = [
     "llm",
-    "plugin_registry",
     "settings",
     "store",
     "subagent_runner",

@@ -7,10 +7,8 @@
 #   generation  两阶段生成：故事圣经 → 场景规划
 #   patch       结构化 patch 操作 + 剧本一致性校验
 #   profiles    改编类型 profile（短剧 / 电影 / 剧集 / 舞台剧）
-#   knowledge   题材知识（可能走向 + 写作手法）与作者风格画像
-#   memory      用户偏好 / 项目决策记忆
+#   knowledge   题材识别与作者风格画像
 #   review      改编提议的多维度评审打分
-#   search      Tavily 联网搜索
 #   export      导出 txt / md / docx
 #
 # Agent 层（app/agent）与 API 层（app/api.py）都只是这一层的调用方。

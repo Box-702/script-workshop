@@ -26,7 +26,6 @@ const showCopy = computed(() =>
   !isUser.value && props.message.content && !props.message.streaming && !props.message.payloads?.length)
 
 // ---- 工作步骤面板（替代 chips）----
-const SUBAGENT_TOOLS = new Set(['analyze_scenes', 'check_style', 'polish_dialogue'])
 const stepsExpanded = ref(false)
 const STEP_COLLAPSE = 3
 const visibleEvents = computed(() => {
@@ -37,7 +36,6 @@ const visibleEvents = computed(() => {
 const hiddenCount = computed(() => Math.max(0, (props.message.events || []).length - STEP_COLLAPSE))
 
 function stepIcon(e) {
-  if (e.type === 'tool_call' && SUBAGENT_TOOLS.has(e.name)) return '🤖'
   if (e.type === 'tool_call') return '⚙️'
   if (e.type === 'step') return '⏳'
   return '✅'
@@ -82,7 +80,7 @@ onUnmounted(() => clearTimeout(copiedTimer))
       <!-- 工作步骤面板 -->
       <div v-if="(message.events || []).length" class="steps-panel">
         <div class="steps-header" @click="stepsExpanded = !stepsExpanded">
-          <span class="steps-icon">{{ message.streaming ? '⚡' : '📋' }}</span>
+          <span class="steps-icon">{{ message.streaming ? 'RUN' : 'LOG' }}</span>
           <span class="steps-title">
             {{ message.streaming ? '正在工作…' : `${(message.events || []).length} 个步骤` }}
           </span>
@@ -124,9 +122,10 @@ onUnmounted(() => clearTimeout(copiedTimer))
 /* 用户指令条 */
 .cmd-bar {
   display: inline-flex; align-items: baseline; gap: 8px;
-  max-width: min(80%, 560px); padding: 7px 14px;
+  max-width: min(82%, 620px); padding: 9px 14px;
   background: var(--user); border: 1px solid var(--user-line);
-  border-radius: 10px; border-bottom-right-radius: 4px;
+  border-radius: 11px; border-bottom-right-radius: 4px;
+  box-shadow: 0 8px 24px oklch(.04 .03 278 / .16);
 }
 .cmd-prompt { color: var(--gold); font-weight: 700; font-size: 14px; flex: none; }
 .cmd-text { font-size: 13.5px; color: var(--ink); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
@@ -159,7 +158,7 @@ onUnmounted(() => clearTimeout(copiedTimer))
 
 /* Agent 正文 */
 .agent-body { display: flex; flex-direction: column; min-width: 0; max-width: 100%; position: relative; }
-.content { display: block; min-width: 0; word-break: break-word; text-align: left; }
+.content { display: block; min-width: 0; max-width: 78ch; word-break: break-word; text-align: left; font-size: 14px; line-height: 1.78; }
 .copy {
   display: block; margin-top: 2px; background: transparent; border: 1px solid transparent;
   color: var(--muted); font-size: 11px; padding: 2px 8px; border-radius: 4px;

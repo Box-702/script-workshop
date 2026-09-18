@@ -56,7 +56,7 @@ function pickFile(f) {
     return
   }
   file.value = f
-  dropText.value = `📄 ${f.name}（${(f.size / 1024).toFixed(1)} KB）`
+  dropText.value = `${f.name}（${(f.size / 1024).toFixed(1)} KB）`
 }
 
 function onFileChange(e) { if (e.target.files.length) pickFile(e.target.files[0]) }
@@ -85,7 +85,7 @@ async function submit() {
   <div v-if="store.showNewProject" class="modal-backdrop" @click.self="!submitting && (store.showNewProject = false)">
     <div class="modal" role="dialog" aria-label="新建剧本">
       <h3>新建剧本 <span class="muted" style="font-size: 12px; font-weight: 400">＝ 新项目</span></h3>
-      <div class="sub">导入原著（.txt / .md / .docx）或粘贴原文，创建后自动建立项目知识库（同类走向 / 写作手法 / 作者风格）</div>
+      <div class="sub">导入原著（.txt / .md / .docx）或粘贴原文，创建后可直接生成剧本初稿</div>
 
       <label>剧名</label>
       <input ref="titleInput" v-model="title" placeholder="例如：雨夜" style="width: 100%" @keydown.enter="submit" />

@@ -4,7 +4,7 @@
 //
 // 两个 tab + 智能切换：
 //   - 剧本编辑：标准剧本排版（可编辑/导出/复制）
-//   - Agent 任务：后台子代理任务列表及进度
+//   - Agent 任务：后台剧组任务列表及进度
 //   - 有活跃任务时自动切到 Agent tab，任务完成后自动切回编辑器
 // =====================================================================
 
@@ -17,10 +17,10 @@ import VideoWorkbench from './video/VideoWorkbench.vue'
 import { store, showView, focusScene, exportVersion, syncProjectToWorkspace, setVersionMilestone, notify, loadViewer, saveNotes } from '../stores/app'
 
 const TABS = [
-  { key: 'editor', label: '剧本编辑', icon: '📄' },
-  { key: 'scene', label: '场景聚焦', icon: '🎯' },
-  { key: 'video', label: '视频工作台', icon: '🎬' },
-  { key: 'agents', label: 'Agent 任务', icon: '🤖', badge: true },
+  { key: 'editor', label: '剧本编辑', icon: '01' },
+  { key: 'scene', label: '场景聚焦', icon: '02' },
+  { key: 'video', label: '视频工作台', icon: '03' },
+  { key: 'agents', label: 'Agent 任务', icon: '04', badge: true },
 ]
 
 // 聚焦场景数据
@@ -164,7 +164,7 @@ async function onSaveNotes() {
               <button class="ghost small" @click="doExport('txt')">.txt 纯文本</button>
               <button class="ghost small" @click="doExport('md')">.md 文档</button>
               <button class="ghost small" @click="doExport('docx')">.docx Word</button>
-              <button class="ghost small" @click="doExportPdf">🖨 打印 PDF</button>
+              <button class="ghost small" @click="doExportPdf">打印 PDF</button>
             </div>
           </div>
           <button class="ghost small" :disabled="!store.viewerText" @click="copyScript">
@@ -304,6 +304,7 @@ async function onSaveNotes() {
 .v-tab:hover { color: var(--ink); background: color-mix(in oklch, var(--ink) 6%, transparent); }
 .v-tab.active { background: var(--select); color: var(--ink); font-weight: 600; }
 .v-tab-icon { font-size: 12px; }
+.v-tab-icon { color: var(--gold); font: 700 9px/1 var(--mono); letter-spacing: .08em; }
 .v-tab-badge {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 16px; height: 16px; border-radius: 999px;
@@ -316,7 +317,7 @@ async function onSaveNotes() {
   position: absolute; right: 0; top: calc(100% + 4px); z-index: 20;
   display: flex; flex-direction: column; gap: 2px; min-width: 120px;
   background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 4px;
-  box-shadow: 0 10px 28px oklch(0 0 0 / 0.4);
+  box-shadow: 0 10px 28px oklch(0.03 0.01 270 / 0.32);
   animation: menu-pop 200ms var(--ease-bounce) both;
   transform-origin: top right;
 }

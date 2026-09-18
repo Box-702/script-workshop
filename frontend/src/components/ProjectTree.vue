@@ -183,7 +183,7 @@ async function doDeleteConversation(pid, c) {
               <span v-else class="name" @dblclick.stop="startRename(p.id, c)">{{ c.title }}</span>
               <span v-if="editingId !== c.id" class="ops">
                 <button @click.stop="startRename(p.id, c)">✎</button>
-                <button v-if="confirmDel !== 'conv:' + c.id" @click.stop="confirmDel = 'conv:' + c.id">🗑</button>
+                <button v-if="confirmDel !== 'conv:' + c.id" @click.stop="confirmDel = 'conv:' + c.id" aria-label="删除">×</button>
                 <template v-if="confirmDel === 'conv:' + c.id">
                   <button class="confirm-del" @click.stop="doDeleteConversation(p.id, c)">删</button>
                   <button class="confirm-cancel" @click.stop="confirmDel = null">消</button>
@@ -248,12 +248,7 @@ h2 { font-size: 13px; margin: 0; font-weight: 700; color: var(--ink); letter-spa
 .item:hover { color: var(--ink); background: color-mix(in oklch, var(--ink) 4%, transparent); }
 .item.active {
   color: var(--ink); font-weight: 500;
-  background: color-mix(in oklch, var(--gold) 6%, transparent);
-}
-.item.active::before {
-  content: ''; position: absolute; left: 0; top: 6px; bottom: 6px;
-  width: 2px; border-radius: 1px; background: var(--gold);
-  animation: grow-in 300ms var(--ease-bounce) both;
+  background: color-mix(in oklch, var(--gold) 7%, transparent);
 }
 
 /* 子行交错延迟 */
@@ -319,8 +314,8 @@ h2 { font-size: 13px; margin: 0; font-weight: 700; color: var(--ink); letter-spa
 .scene.drag-over { border-top: 2px solid var(--gold); padding-top: 2px; }
 
 /* 对话行操作 */
-.ops { display: none; gap: 2px; flex: none; }
-.item:hover > .ops { display: flex; }
+.ops { display: flex; gap: 2px; flex: none; opacity: 0; pointer-events: none; transition: opacity 140ms var(--ease); }
+.item:hover > .ops, .item:focus-within > .ops { opacity: 1; pointer-events: auto; }
 .ops button {
   background: transparent; border: none; color: var(--dim); cursor: pointer;
   font-size: 10px; padding: 0 3px; border-radius: 3px;

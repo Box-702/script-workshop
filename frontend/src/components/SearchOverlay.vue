@@ -85,7 +85,7 @@ defineExpose({ openSearch, closeSearch })
   <Teleport to="body">
     <Transition name="search-slide">
       <div v-if="open" class="search-bar" role="search" aria-label="剧本搜索" @keydown="onKeydown">
-        <span class="search-icon">🔍</span>
+        <span class="search-icon">⌕</span>
         <input
           ref="inputRef"
           v-model="query"
@@ -119,7 +119,7 @@ defineExpose({ openSearch, closeSearch })
   from { opacity: 0; transform: translateY(-8px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.search-icon { font-size: 13px; flex: none; }
+.search-icon { color: var(--gold); font: 700 18px/1 var(--mono); flex: none; }
 .search-input {
   width: 220px; padding: 3px 8px; border-radius: 6px;
   background: var(--code-bg); border: 1px solid var(--line);

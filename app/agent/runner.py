@@ -189,17 +189,6 @@ def resume_agent_run(
         status = final_state.get("status", "applied")
         store.update_agent_run(run_id, steps=run.steps + steps)
 
-        # 从用户行为中学习
-        if action in ("accept", "reject"):
-            from ..pipeline.memory import learn_from_decision
-            learn_from_decision(
-                store,
-                project_id=project.id,
-                action=action,
-                instruction=run.user_prompt,
-                patch_summary=f"{len(run.patch)} 项改动",
-            )
-
         return {
             "status": status,
             "new_version_id": final_state.get("new_version_id"),

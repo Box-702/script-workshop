@@ -140,7 +140,8 @@ const structure = computed(() => {
 .sp-scene { margin-bottom: 26px; }
 .sp-heading {
   font-weight: 700; color: var(--ink); letter-spacing: 0.02em;
-  border-left: 3px solid var(--dlg); padding-left: 10px; margin-bottom: 12px;
+  border-bottom: 1px solid color-mix(in oklch, var(--dlg) 55%, var(--line));
+  padding-bottom: 7px; margin-bottom: 12px;
 }
 .sp-action { margin: 8px 0; max-width: 60ch; }
 

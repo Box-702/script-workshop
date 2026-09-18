@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -131,6 +131,14 @@ class VideoVersionCreate(BaseModel):
     parent_version_id: str | None = None
 
 
+class VideoPromptReview(BaseModel):
+    """保存单个镜头的 Prompt，并记录人工审阅决定。"""
+
+    prompt: str = Field(min_length=1, max_length=8000)
+    decision: Literal["save", "approve", "needs_revision"] = "save"
+    note: str = Field(default="", max_length=2000)
+
+
 class VideoJobCreate(BaseModel):
     """视频生成任务。
 
@@ -152,10 +160,3 @@ class VideoJobCreate(BaseModel):
     reference_videos: list[str] = Field(default_factory=list)  # 参考视频（≤3）
     reference_audios: list[str] = Field(default_factory=list)  # 参考音频（≤3）
     content: list[dict[str, Any]] | None = None  # 原生多模态数组直通（优先级最高）
-
-
-# ---------- 插件 ----------
-
-
-class PluginInstallRequest(BaseModel):
-    path: str = Field(min_length=1, description="插件目录路径")

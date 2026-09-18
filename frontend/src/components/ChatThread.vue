@@ -60,8 +60,8 @@ watch(() => store.messages.length, () => { nearBottom.value = true; toBottom() }
 
 <style scoped>
 .thread-wrap { flex: 1; min-height: 0; position: relative; display: flex; }
-.thread { flex: 1; overflow-y: auto; padding: 24px 28px 12px; }
-.thread-inner { max-width: 820px; margin: 0 auto; }
+.thread { flex: 1; overflow-y: auto; padding: 28px clamp(16px, 4vw, 42px) 14px; }
+.thread-inner { max-width: 900px; margin: 0 auto; }
 
 /* 回到最新：悬浮在对话区底部中央 */
 .jump {

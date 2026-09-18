@@ -16,14 +16,11 @@ const inputRef = ref(null)
 
 // ---- 快捷命令定义 ----
 const COMMANDS = [
-  { id: 'new', label: '新建剧本', hint: '创建新的剧本项目', icon: '📝', category: '操作' },
-  { id: 'generate', label: '生成初稿', hint: '为当前项目生成剧本初稿', icon: '✨', category: '操作', needsProject: true },
-  { id: 'adapt', label: '改编剧本', hint: '对当前项目发起改编', icon: '🔄', category: '操作', needsProject: true },
-  { id: 'analyze', label: '分析场景', hint: '启动场景分析子代理', icon: '📊', category: '操作', needsProject: true },
-  { id: 'check-style', label: '检查风格', hint: '检查全剧风格一致性', icon: '🎯', category: '操作', needsProject: true },
-  { id: 'polish', label: '润色对白', hint: '启动对白润色子代理', icon: '💬', category: '操作', needsProject: true },
-  { id: 'editor', label: '剧本编辑器', hint: '切换到剧本编辑面板', icon: '📄', category: '面板' },
-  { id: 'agents', label: 'Agent 任务', hint: '查看后台子代理任务', icon: '🤖', category: '面板' },
+  { id: 'new', label: '新建剧本', hint: '创建新的剧本项目', icon: '01', category: '操作' },
+  { id: 'generate', label: '生成初稿', hint: '为当前项目生成剧本初稿', icon: '02', category: '操作', needsProject: true },
+  { id: 'adapt', label: '改编剧本', hint: '对当前项目发起改编', icon: '03', category: '操作', needsProject: true },
+  { id: 'editor', label: '剧本编辑器', hint: '切换到剧本编辑面板', icon: '04', category: '面板' },
+  { id: 'agents', label: 'Agent 任务', hint: '查看后台任务', icon: '05', category: '面板' },
   { id: 'toggle-panel', label: '切换右侧面板', hint: '打开/关闭右侧 Inspector', icon: '◧', category: '面板' },
 ]
 
@@ -39,7 +36,7 @@ const items = computed(() => {
       id: `proj:${p.id}`,
       label: p.title,
       hint: `${p.version_count} 个版本`,
-      icon: '📁',
+      icon: 'P',
       category: '项目',
       action: () => selectProject(p.id),
     })
@@ -54,7 +51,7 @@ const items = computed(() => {
         id: `conv:${c.id}`,
         label: c.title,
         hint: '对话',
-        icon: '💬',
+        icon: 'C',
         category: '对话',
         action: () => selectConversation(store.pid, c.id),
       })
@@ -90,24 +87,6 @@ function runCommand(id) {
     case 'adapt':
       if (store.pid && store.convId) {
         store.draft = '请对当前剧本进行改编：'
-        store.draftSeq++
-      }
-      break
-    case 'analyze':
-      if (store.pid && store.convId) {
-        store.draft = '分析场景结构'
-        store.draftSeq++
-      }
-      break
-    case 'check-style':
-      if (store.pid && store.convId) {
-        store.draft = '检查风格一致性'
-        store.draftSeq++
-      }
-      break
-    case 'polish':
-      if (store.pid && store.convId) {
-        store.draft = '润色对白'
         store.draftSeq++
       }
       break
@@ -253,7 +232,7 @@ defineExpose({ openPalette, closePalette })
   transition: background var(--dur) var(--ease);
 }
 .cp-item.active { background: var(--select); }
-.cp-item-icon { font-size: 15px; flex: none; width: 22px; text-align: center; }
+.cp-item-icon { color: var(--gold); font: 700 10px/1 var(--mono); letter-spacing: .08em; flex: none; width: 22px; text-align: center; }
 .cp-item-label { font-size: 13px; font-weight: 500; color: var(--ink); flex: none; }
 .cp-item-hint { font-size: 11.5px; color: var(--dim); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
 .cp-empty { padding: 20px; text-align: center; color: var(--dim); font-size: 12px; }

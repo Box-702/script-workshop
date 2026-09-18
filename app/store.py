@@ -327,30 +327,10 @@ class VideoVersion(Base):
         return _json_load(self.style_guide_json, {})
 
 
-# =====================================================================
-# v3.0 记忆系统（替代 RAG）
-# =====================================================================
-
-
-class Memory(Base):
-    """用户级记忆：偏好、决策、反馈、行为模式。"""
-
-    __tablename__ = "memories"
-
-    id: Mapped[str] = mapped_column(primary_key=True)
-    kind: Mapped[str] = mapped_column(default="preference")  # preference|decision|feedback|pattern
-    content: Mapped[str] = mapped_column(default="")
-    scope: Mapped[str] = mapped_column(default="global")  # global|project|conversation
-    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), default=None, index=True)
-    conversation_id: Mapped[str | None] = mapped_column(default=None, index=True)
-    source: Mapped[str] = mapped_column(default="user")  # user|agent|system
-    created_at: Mapped[datetime] = mapped_column(default=_now)
-
-
 class SubAgentTaskRow(Base):
-    """后台子代理任务的落库快照。
+    """后台任务的落库快照。
 
-    子代理在线程里跑，内存态随进程消失；这里保存「启动」与「结束」两个时刻的
+    剧组任务在线程里跑，内存态随进程消失；这里保存「启动」与「结束」两个时刻的
     快照，使已完成的任务历史在重启后仍可查询（进行中的任务本身已随线程终止，
     不假装它还活着）。
     """
@@ -1089,7 +1069,7 @@ class Store:
     # ---- SubAgentTask ----
 
     def save_subagent_task(self, task: dict[str, Any]) -> None:
-        """按 task_id upsert 一条子代理任务快照（由 SubAgentRunner 在起止时刻调用）。"""
+        """按 task_id upsert 一条后台任务快照（由 SubAgentRunner 在起止时刻调用）。"""
         with self.session() as s:
             row = s.get(SubAgentTaskRow, task["id"])
             if row is None:

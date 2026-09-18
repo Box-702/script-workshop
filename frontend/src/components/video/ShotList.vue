@@ -1,7 +1,7 @@
 <template>
   <div class="shot-list">
     <div class="shot-header">
-      <h4>🎬 镜头列表</h4>
+      <h4><span class="section-mark">03</span> 镜头列表</h4>
       <div class="shot-actions">
         <button class="btn-small" @click="$emit('refresh')">刷新</button>
         <button class="btn-small ok" @click="$emit('generate-all')" v-if="shots.length">
@@ -33,9 +33,7 @@
               <span class="shot-type-badge">{{ shotTypeLabel(shot.shot_type) }}</span>
               <span class="shot-order">#{{ shot.order + 1 }}</span>
               <span class="shot-duration">{{ shot.duration_sec }}s</span>
-              <span :class="['video-status', videoStatusClass(shot)]">
-                {{ videoStatusLabel(shot) }}
-              </span>
+              <span :class="['video-status', videoStatusClass(shot)]">{{ videoStatusLabel(shot) }}</span>
             </div>
             <div class="shot-subject">{{ shot.subject }}</div>
             <div class="shot-action">{{ shot.action }}</div>
@@ -43,23 +41,25 @@
               <span v-if="shot.camera?.type !== 'static'" class="meta-tag">
                 {{ cameraLabel(shot.camera) }}
               </span>
-              <span v-if="shot.lighting" class="meta-tag">💡 {{ shot.lighting }}</span>
-              <span v-if="shot.mood" class="meta-tag">🎭 {{ shot.mood }}</span>
+              <span v-if="shot.lighting" class="meta-tag">光线 {{ shot.lighting }}</span>
+              <span v-if="shot.mood" class="meta-tag">情绪 {{ shot.mood }}</span>
             </div>
-            <div v-if="shot.camera?.path" class="shot-path">🎥 {{ truncate(shot.camera.path, 80) }}</div>
-            <div v-if="shot.spatial" class="shot-path">📐 {{ truncate(shot.spatial, 80) }}</div>
+            <div v-if="shot.camera?.path" class="shot-path">运动 {{ truncate(shot.camera.path, 80) }}</div>
+            <div v-if="shot.spatial" class="shot-path">空间 {{ truncate(shot.spatial, 80) }}</div>
             <div v-if="shot.background_action" class="shot-path">
-              👥 {{ truncate(shot.background_action, 80) }}
+              背景 {{ truncate(shot.background_action, 80) }}
             </div>
             <div v-if="shot.video_prompt" class="shot-prompt">
-              <span class="prompt-label">Prompt:</span>
+              <span :class="['prompt-label', shot.prompt_status]">
+                {{ promptStatusLabel(shot) }}
+              </span>
               <span class="prompt-text">{{ truncate(shot.video_prompt, 100) }}</span>
             </div>
             <div class="shot-actions-row">
               <button
                 class="btn-tiny ok"
                 @click.stop="$emit('generate-video', shot)"
-                v-if="shot.video_prompt && !shot.video_url"
+                v-if="shot.video_prompt && shot.prompt_status === 'approved' && !shot.video_url"
               >生成视频</button>
               <button
                 class="btn-tiny"
@@ -140,15 +140,21 @@ function cameraLabel(cam) {
 function videoStatusClass(shot) {
   if (shot.video_url) return 'done'
   if (shot.video_job_id) return 'generating'
-  if (shot.video_prompt) return 'ready'
+  if (shot.video_prompt && shot.prompt_status === 'approved') return 'ready'
+  if (shot.video_prompt) return 'review'
   return 'pending'
 }
 
 function videoStatusLabel(shot) {
-  if (shot.video_url) return '✅'
-  if (shot.video_job_id) return '⏳'
-  if (shot.video_prompt) return '📝'
-  return '—'
+  if (shot.video_url) return '完成'
+  if (shot.video_job_id) return '生成中'
+  if (shot.video_prompt && shot.prompt_status !== 'approved') return '待审阅'
+  if (shot.video_prompt) return '待生成'
+  return '未准备'
+}
+
+function promptStatusLabel(shot) {
+  return shot.prompt_status === 'approved' ? '已批准' : shot.prompt_status === 'needs_revision' ? '需修改' : '待审阅'
 }
 
 function truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '...' : s }
@@ -158,6 +164,7 @@ function truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '...' : s }
 .shot-list { padding: 12px; }
 .shot-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .shot-header h4 { margin: 0; font-size: 14px; }
+.section-mark { color: var(--gold); font: 700 9px/1 var(--mono); letter-spacing: .08em; }
 .shot-actions { display: flex; gap: 6px; }
 .btn-small { padding: 5px 12px; background: var(--code-bg, #111); border: 1px solid var(--border, #333); border-radius: 5px; color: var(--text, #eee); cursor: pointer; font-size: 11px; }
 .btn-small.ok { border-color: var(--green, #4ade80); color: var(--green, #4ade80); }
@@ -183,13 +190,13 @@ function truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '...' : s }
   border: 1px solid var(--border, #222); border-radius: 6px; cursor: pointer;
   transition: border-color .15s;
 }
-.shot-card:hover { border-color: var(--gold, #e94560); }
-.shot-card.selected { border-color: var(--cyan, #22d3ee); background: rgba(34,211,238,.03); }
+.shot-card:hover { border-color: var(--line-strong); background: color-mix(in oklch, var(--ink) 3%, transparent); }
+.shot-card.selected { border-color: color-mix(in oklch, var(--cyan) 65%, var(--line)); background: color-mix(in oklch, var(--cyan) 5%, transparent); }
 
 .shot-top { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .shot-type-badge {
-  font-size: 10px; padding: 1px 6px; background: rgba(168,85,247,.15);
-  border-radius: 3px; color: var(--violet, #a855f7);
+  font-size: 10px; padding: 1px 6px; background: color-mix(in oklch, var(--violet) 10%, transparent);
+  border-radius: 3px; color: var(--violet);
 }
 .shot-order { font-size: 11px; color: var(--text2, #666); }
 .shot-duration { font-size: 10px; color: var(--text2, #555); }
@@ -197,6 +204,7 @@ function truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '...' : s }
 .video-status.done { color: var(--green, #4ade80); }
 .video-status.generating { color: var(--gold, #e94560); }
 .video-status.ready { color: var(--cyan, #22d3ee); }
+.video-status.review { color: var(--warn); }
 .video-status.pending { color: var(--text2, #444); }
 
 .shot-subject { font-size: 13px; margin-bottom: 2px; }
@@ -206,7 +214,9 @@ function truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '...' : s }
 .meta-tag { font-size: 10px; padding: 1px 5px; background: rgba(255,255,255,.04); border-radius: 3px; color: var(--text2, #777); }
 
 .shot-prompt { font-size: 10px; color: var(--text2, #666); margin-bottom: 6px; line-height: 1.4; }
-.prompt-label { color: var(--violet, #a855f7); }
+.prompt-label { color: var(--warn); margin-right: 4px; }
+.prompt-label.approved { color: var(--ok); }
+.prompt-label.needs_revision { color: var(--bad); }
 
 .shot-actions-row { display: flex; gap: 4px; }
 </style>

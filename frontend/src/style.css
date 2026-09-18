@@ -1,84 +1,79 @@
 /* =====================================================================
-   style.css —— 剧本工坊设计系统 v2
+   style.css —— 剧本工坊设计系统 v3
 
-   「深夜创作台」：保留钨丝灯暖调基底，但加入丰富的色彩层次。
-   - 表面：暖黑渐变 + 微妙的色相偏移（不同面板带不同暖色底调）
-   - 色彩：金（品牌）+ 紫（灵感）+ 青（数据）+ 琥珀（警告）+ 玫红（强调）
-   - 3D：perspective 卡片、景深阴影、hover 浮起
-   - 动效：入场动画、呼吸灯、流光边框
+   「夜幕片场」：为 AI 视频 Agent 设计的深色创作工作台。
+   基底安静、动作明亮，二次元视觉只承担氛围和记忆点，不干扰编辑。
    ===================================================================== */
 
 /* ---------- 设计变量 ---------- */
 :root {
-  /* 表面：暖黑三层 + 微妙色相变化 */
-  --bg: oklch(0.165 0.008 80);
-  --panel: oklch(0.21 0.009 80);
-  --panel2: oklch(0.25 0.010 82);
-  --line: oklch(0.30 0.010 80);
-  --line-strong: oklch(0.38 0.012 82);
-  --code-bg: oklch(0.145 0.008 78);
+  /* 表面：中性的蓝黑，让内容和状态色各归其位 */
+  --bg: oklch(0.14 0.012 270);
+  --panel: oklch(0.185 0.015 270);
+  --panel2: oklch(0.225 0.018 270);
+  --line: oklch(0.30 0.018 270);
+  --line-strong: oklch(0.40 0.024 270);
+  --code-bg: oklch(0.115 0.010 270);
 
   /* 文字 */
-  --ink: oklch(0.93 0.005 85);
-  --muted: oklch(0.72 0.010 85);
-  --dim: oklch(0.56 0.010 85);
+  --ink: oklch(0.95 0.012 92);
+  --muted: oklch(0.74 0.012 270);
+  --dim: oklch(0.56 0.016 270);
 
-  /* 主操作：稿纸米白 */
-  --accent: oklch(0.95 0.007 90);
-  --accent-hover: oklch(0.89 0.009 90);
-  --on-accent: oklch(0.22 0.007 80);
+  /* 主操作：柔和的雾蓝，只强调真正的主要动作 */
+  --accent: oklch(0.78 0.10 220);
+  --accent-hover: oklch(0.83 0.09 220);
+  --on-accent: oklch(0.20 0.016 270);
   --accent-soft: color-mix(in oklch, var(--accent) 12%, transparent);
 
-  /* 品牌金（核心品牌色） */
-  --gold: oklch(0.80 0.08 90);
+  /* 品牌色与二次元信号色 */
+  /* 历史变量名保留，视觉上已经改为雾蓝 */
+  --gold: oklch(0.78 0.10 220);
   --gold-soft: color-mix(in oklch, var(--gold) 18%, transparent);
-  --gold-glow: oklch(0.78 0.10 88);
-
-  /* 灵感紫（创意/Agent 工作态） */
-  --violet: oklch(0.68 0.14 300);
+  --gold-glow: oklch(0.83 0.09 220);
+  --violet: oklch(0.70 0.085 305);
   --violet-soft: color-mix(in oklch, var(--violet) 15%, transparent);
-
-  /* 数据青（统计/分析） */
-  --cyan: oklch(0.72 0.10 200);
+  --cyan: oklch(0.74 0.085 205);
   --cyan-soft: color-mix(in oklch, var(--cyan) 12%, transparent);
-
-  /* 琥珀（警告，与品牌金分离） */
-  --amber: oklch(0.76 0.14 65);
+  --amber: oklch(0.78 0.09 70);
   --amber-soft: color-mix(in oklch, var(--amber) 12%, transparent);
-
-  /* 玫红（强调/高亮） */
-  --rose: oklch(0.68 0.16 15);
+  --rose: oklch(0.70 0.10 8);
   --rose-soft: color-mix(in oklch, var(--rose) 12%, transparent);
 
   /* 选中态 */
-  --select: oklch(0.30 0.012 82);
+  --select: oklch(0.27 0.022 270);
 
   /* 语义色 */
-  --ok: oklch(0.68 0.12 168);
-  --warn: oklch(0.76 0.14 65);
-  --bad: oklch(0.65 0.19 25);
+  --ok: oklch(0.68 0.08 168);
+  --warn: oklch(0.76 0.10 65);
+  --bad: oklch(0.65 0.12 25);
 
   /* diff */
-  --diff-add-bg: oklch(0.34 0.05 155);
-  --diff-del-bg: oklch(0.37 0.06 30);
+  --diff-add-bg: oklch(0.31 0.06 166);
+  --diff-del-bg: oklch(0.32 0.07 28);
 
   /* 节拍语义 */
-  --act: oklch(0.72 0.008 80);
+  --act: oklch(0.80 0.03 92);
   --dlg: var(--ok);
-  --cue: oklch(0.75 0.012 85);
+  --cue: oklch(0.80 0.04 92);
 
-  /* 用户气泡 */
-  --user: oklch(0.30 0.012 280);       /* 带紫调的深色 */
-  --user-line: oklch(0.38 0.015 280);
+  /* 用户消息 */
+  --user: oklch(0.26 0.024 270);
+  --user-line: oklch(0.38 0.028 270);
+
+  /* 兼容旧组件，避免出现第二套默认颜色 */
+  --border: var(--line);
+  --text: var(--ink);
+  --text2: var(--muted);
+  --green: var(--ok);
+  --red: var(--bad);
+  --danger: var(--bad);
 
   /* 动效 */
   --ease: cubic-bezier(0.25, 1, 0.5, 1);
-  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-bounce: cubic-bezier(0.22, 1.2, 0.36, 1);
   --dur: 150ms;
   --dur-slow: 300ms;
-
-  /* 3D */
-  --perspective: 800px;
 
   /* 字体 */
   --mono: "JetBrains Mono", Consolas, "Courier New", monospace;
@@ -117,21 +112,21 @@ body.layout-resizing { cursor: col-resize; user-select: none; }
 /* ---------- 按钮系统 ---------- */
 button {
   background: var(--accent); color: var(--on-accent); border: 1px solid transparent;
-  padding: 6px 12px; border-radius: 10px; font-size: 12.5px;
+  padding: 7px 12px; border-radius: 8px; font-size: 12.5px;
   font-weight: 600; cursor: pointer; font-family: inherit;
-  transition: all var(--dur) var(--ease);
+  transition: background-color 160ms var(--ease), border-color 160ms var(--ease), color 160ms var(--ease), opacity 160ms var(--ease);
 }
-button:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); }
-button:active:not(:disabled) { background: color-mix(in oklch, var(--accent) 88%, black); transform: translateY(0); }
-button.ok { background: var(--ok); color: oklch(0.98 0.01 170); }
-button.ok:hover:not(:disabled) { background: color-mix(in oklch, var(--ok) 84%, white); box-shadow: 0 2px 12px color-mix(in oklch, var(--ok) 25%, transparent); }
+button:hover:not(:disabled) { background: var(--accent-hover); }
+button:active:not(:disabled) { background: color-mix(in oklch, var(--accent) 88%, black); }
+button.ok { background: var(--ok); color: oklch(0.96 0.01 170); }
+button.ok:hover:not(:disabled) { background: color-mix(in oklch, var(--ok) 90%, white); }
 button.danger { background: var(--bad); color: oklch(0.97 0.01 25); }
-button.danger:hover:not(:disabled) { background: color-mix(in oklch, var(--bad) 85%, white); box-shadow: 0 2px 12px color-mix(in oklch, var(--bad) 25%, transparent); }
+button.danger:hover:not(:disabled) { background: color-mix(in oklch, var(--bad) 90%, white); }
 button.ghost { background: transparent; border-color: var(--line); color: var(--ink); }
-button.ghost:hover:not(:disabled) { background: color-mix(in oklch, var(--ink) 6%, transparent); border-color: var(--line-strong); }
-button.ghost:active:not(:disabled) { background: color-mix(in oklch, var(--ink) 10%, transparent); }
+button.ghost:hover:not(:disabled) { background: color-mix(in oklch, var(--ink) 5%, transparent); border-color: var(--line-strong); }
+button.ghost:active:not(:disabled) { background: color-mix(in oklch, var(--ink) 8%, transparent); }
 button.small { padding: 3px 8px; font-size: 11.5px; }
-button:disabled { opacity: 0.45; cursor: not-allowed; transform: none !important; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .mono { font-family: var(--mono); font-size: 11.5px; letter-spacing: -0.2px; }
 
@@ -145,7 +140,7 @@ input:hover:not(:disabled):not(:focus), textarea:hover:not(:disabled):not(:focus
 input:focus, textarea:focus, select:focus {
   outline: none;
   border-color: color-mix(in oklch, var(--gold) 40%, var(--line));
-  box-shadow: 0 0 0 3px var(--gold-soft), 0 0 20px color-mix(in oklch, var(--gold) 8%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--gold) 16%, transparent);
 }
 textarea { resize: vertical; }
 input[type="checkbox"] { accent-color: var(--gold); }
@@ -185,14 +180,12 @@ input[type="checkbox"] { accent-color: var(--gold); }
 /* ---------- 3D 卡片系统 ---------- */
 .card {
   background: var(--panel); border: 1px solid var(--line);
-  border-radius: 14px; padding: 12px 14px; margin-top: 8px;
-  transform: perspective(var(--perspective)) translateZ(0);
-  transition: transform var(--dur-slow) var(--ease), box-shadow var(--dur-slow) var(--ease), border-color var(--dur-slow) var(--ease);
+  border-radius: 10px; padding: 12px 14px; margin-top: 8px;
+  transition: border-color 160ms var(--ease), background-color 160ms var(--ease);
 }
 .card:hover {
-  transform: perspective(var(--perspective)) translateZ(8px);
-  box-shadow: 0 8px 32px oklch(0 0 0 / 0.3), 0 0 0 1px color-mix(in oklch, var(--gold) 10%, var(--line));
   border-color: var(--line-strong);
+  background: color-mix(in oklch, var(--panel) 94%, var(--ink));
 }
 .card h3 { font-size: 13px; margin: 0 0 8px; color: var(--ink); font-weight: 600; }
 
@@ -202,11 +195,11 @@ input[type="checkbox"] { accent-color: var(--gold); }
 }
 .card-glow::before {
   content: ''; position: absolute; inset: -1px; border-radius: 15px;
-  background: conic-gradient(from var(--glow-angle, 0deg), var(--gold), var(--violet), var(--cyan), var(--gold));
+  background: var(--line-strong);
   opacity: 0; z-index: -1;
   transition: opacity var(--dur-slow) var(--ease);
 }
-.card-glow:hover::before { opacity: 0.15; }
+.card-glow:hover::before { opacity: 0; }
 
 /* ---------- 动画关键帧 ---------- */
 
@@ -262,7 +255,7 @@ input[type="checkbox"] { accent-color: var(--gold); }
   60% { transform: scale(1.03); }
   100% { transform: scale(1); opacity: 1; }
 }
-.pop-in { animation: pop-in var(--dur-slow) var(--ease-bounce) both; }
+.pop-in { animation: pop-in var(--dur-slow) var(--ease) both; }
 
 /* 侧栏弹出 */
 @keyframes expand-in {
@@ -295,7 +288,8 @@ input[type="checkbox"] { accent-color: var(--gold); }
 .md pre code { background: none; border: none; padding: 0; color: var(--ink); }
 .md blockquote {
   margin: 8px 0; padding: 6px 12px;
-  color: var(--muted); background: var(--panel2); border-left: 3px solid var(--gold); border-radius: 0 10px 10px 0;
+  color: var(--muted); background: color-mix(in oklch, var(--panel2) 88%, var(--gold));
+  border: 1px solid color-mix(in oklch, var(--gold) 22%, var(--line)); border-radius: 8px;
 }
 .md table { border-collapse: collapse; margin: 8px 0; font-size: 12.5px; width: 100%; }
 .md th, .md td { border: 1px solid var(--line-strong); padding: 5px 10px; text-align: left; }
@@ -303,4 +297,3 @@ input[type="checkbox"] { accent-color: var(--gold); }
 .md hr { border: none; border-top: 1px solid var(--line); margin: 12px 0; }
 .md a { color: var(--gold); text-decoration: underline; text-underline-offset: 3px; }
 .md a:hover { color: var(--gold-glow); }
-

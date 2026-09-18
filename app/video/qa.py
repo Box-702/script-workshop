@@ -51,7 +51,10 @@ def _ffmpeg() -> str | None:
     from ..config import get_settings
 
     configured = (get_settings().ffmpeg_path or "").strip()
-    return configured or find_ffmpeg()
+    # 配置路径可能因目录搬迁/删除失效，失效时回退自动探测，避免静默拿到死路径
+    if configured and Path(configured).exists():
+        return configured
+    return find_ffmpeg()
 
 
 def _ffprobe() -> str | None:

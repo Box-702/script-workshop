@@ -211,7 +211,8 @@ function cancel() { emit('cancel') }
 /* 场景标题：左侧色条 + 加粗，同书稿 */
 .ed-heading {
   font-weight: 700; color: var(--ink); letter-spacing: 0.02em;
-  border-left: 3px solid var(--dlg); padding-left: 10px; margin-bottom: 12px;
+  border-bottom: 1px solid color-mix(in oklch, var(--dlg) 55%, var(--line));
+  padding-bottom: 7px; margin-bottom: 12px;
   display: flex; align-items: baseline; gap: 8px;
 }
 .ed-num { font-size: 11px; color: var(--dim); font-family: var(--mono); font-variant-numeric: tabular-nums; min-width: 18px; }

@@ -29,7 +29,9 @@
   │                  分镜定义：一个分镜 = 一段连贯的角色动作，或一段连贯的角色对话剧情
   │                  输出连续性计划：reference_group（共享环境分组）、chain_from（首尾接力）、cut_reason
   │
-  ├─ crew/dp.py             摄影指导 → 视频提示词（模型感知 + 锚逐字复用）
+  ├─ crew/dp.py             摄影指导 → 视频提示词草稿（模型感知 + 锚逐字复用）
+  │                  ↓
+  │   视频工作台              用户逐镜编辑 / 保存 / 标记需修改 / 批准
   │                  只做组装：环境锚 + 出场人物锚 + 本镜动作运镜 + 风格
   │
   ├─ video/providers/*      视频 Provider 适配层（runway/kling/cogvideo/sora/minimax）
@@ -45,11 +47,11 @@
 ## 二、开发环境与启动
 
 ```bash
-# 依赖（Python 3.12+）
-pip install -e .
+# 依赖（uv 按 .python-version 自动准备解释器，按 uv.lock 精确安装）
+uv sync
 
 # 启动后端（开发模式）
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+uv run python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 # 前端
 cd frontend && npm install && npm run build   # 构建产物由 FastAPI 托管
@@ -60,9 +62,9 @@ cd frontend && npm install && npm run build   # 构建产物由 FastAPI 托管
 - `.env` 是唯一配置入口；改完**必须重启 uvicorn**（`Settings` 是 `lru_cache` 单例，热改不生效）。
 - 本机若没有项目自带 Postgres，可用 SQLite 独立跑，不碰别人的容器：
   ```bash
-  DATABASE_URL="sqlite:///./data/dev.db" CHECKPOINTER=memory python -m uvicorn app.main:app --port 8000
+  DATABASE_URL="sqlite:///./data/dev.db" CHECKPOINTER=memory uv run python -m uvicorn app.main:app --port 8000
   ```
-- 跑测试：`DATABASE_URL="sqlite:///./data/ci.db" CHECKPOINTER=memory python -m pytest tests/ -q`
+- 跑测试：`DATABASE_URL="sqlite:///./data/ci.db" CHECKPOINTER=memory uv run pytest tests/ -q`
 
 ---
 
@@ -73,7 +75,7 @@ cd frontend && npm install && npm run build   # 构建产物由 FastAPI 托管
 | `Script` | `app/domain.py` | 剧本：characters / locations / scenes（含 beats） |
 | `SceneBreakdown` + `Shot` | `app/domain.py` | 分镜方案；`Shot` 承载连续性字段与视频状态 |
 | `StyleGuide` | `app/domain.py` | 视觉风格指南；**角色造型与环境描述是全局唯一来源** |
-| 视频提示词 | `Shot.video_prompt` | DP 组装的最终提示词，直接喂给视频模型 |
+| 视频提示词 | `Shot.video_prompt` | DP 提出的草稿；批准后才会喂给视频模型 |
 | `VideoJob` | `app/store.py` | 视频任务；状态由队列回调写回 DB |
 
 **`Shot` 字段速查**
@@ -83,6 +85,19 @@ cd frontend && npm install && npm run build   # 构建产物由 FastAPI 托管
 - 连续性计划：`reference_group`（共享环境参考分组）、`chain_from`（本镜首帧取自哪一镜尾帧）
 - 运行时输入：`reference_images / reference_videos / first_frame_image / last_frame_image`
 - 生成状态：`video_prompt / video_url / video_job_id`
+- Prompt 审阅：`prompt_status`（`needs_review` / `needs_revision` / `approved`）、`prompt_review_note`
+
+### 5.9 Prompt 人机协同
+
+摄影指导的职责是提出结构化 Prompt 草稿，不负责替作者做最终出片决定。视频工作台把每个镜头分成三个状态：
+
+- `needs_review`：模型刚生成，或用户保存了草稿，不能提交视频任务；
+- `needs_revision`：用户认为仍需修改，保留备注并继续编辑；
+- `approved`：用户确认当前 Prompt，单镜和批量生成才允许使用。
+
+每次 Prompt 操作都会基于当前 `VideoVersion` 创建新的手动版本，使用 `parent_version_id` 串成版本链。这样 Prompt 文本、审阅备注和批准时点都可追溯，不需要再引入单独的审批表。
+
+后端有两道门：单镜提交前校验当前镜头状态，批量生成只收集 `approved` 镜头。前端按钮状态只是体验层提示，不能替代后端校验。
 
 ---
 
@@ -106,7 +121,7 @@ cd frontend && npm install && npm run build   # 构建产物由 FastAPI 托管
 
 ### 4.3 新增一个 API 路由
 
-路由按业务域拆在 `app/api/` 下（system / projects / versions / agent_runs / chat / video / plugins）。
+路由按业务域拆在 `app/api/` 下（system / projects / versions / agent_runs / chat / video）。
 新增同域路由直接加在对应文件；新开一域就新建文件并在 `app/api/__init__.py` 的 include 列表里注册。
 
 两条约定：
@@ -252,13 +267,13 @@ cd frontend && npm install && npm run build   # 构建产物由 FastAPI 托管
 
 #### 任务只在内存里会丢
 
-视频任务与子代理任务的状态若只在内存，进程重启即丢。两者现在都通过落库解决：
+视频任务与后台任务的状态若只在内存，进程重启即丢。两者现在都通过落库解决：
 视频任务是「状态回调写回 DB」（`app/main.py` 的 `_wire_video_job_writeback`），
-子代理任务是「起止两个时刻各落库一次」（`app/agent/skills.py` 的 `SubAgentRunner._persist`
+后台任务是「起止两个时刻各落库一次」（`app/agent/skills.py` 的 `SubAgentRunner._persist`
 → `subagent_tasks` 表，`/api/tasks` 合并内存态与历史态）。
 注意：**进行中**的任务本身随线程终止，落库只保证已完成任务的历史可查，不假装它还在跑。
 
-> 踩坑：测试里子代理 runner 若不显式绑定测试库，会经由全局 `deps.store()` 去连 `.env`
+> 踩坑：测试里后台任务 runner 若不显式绑定测试库，会经由全局 `deps.store()` 去连 `.env`
 > 里配置的开发库（本机是 Postgres），连接不可达时会把整个测试卡住。`tests/test_api.py`
 > 的 client fixture 因此额外替换了 `app.api.deps.subagent_runner`。
 
@@ -384,7 +399,7 @@ MiniMax 按 token 计费（6s/768P ≈ 19.5 万 token/条）。反复「盲出�
 | 提示词里缺少某个锚 | 风格指南是否生成（`projects.video_style_json`）；锚的键是否与地点名/人物名对得上；`normalize_id` 是否又出双前缀 |
 | 视频任务失败 | 错误信息里是 `402/insufficient balance`（余额）还是 `400`（内容审核）还是 `Invalid header`（provider key） |
 | 任务长时间 `generating` | 直接拿 `external_task_id` 查服务商真实状态，再对照状态映射（子串陷阱） |
-| 后台子代理没动静 | 用 `GET /api/tasks` 确认任务是否真的创建（别信回复文本） |
+| 后台任务没动静 | 用 `GET /api/tasks` 确认任务是否真的创建（别信回复文本） |
 | 分镜切得很碎 | 上游是否把多章塞成了一场戏；导演提示词是否被改回了「覆盖式拍摄」 |
 | 参考图质检永远不合格 | 判定标准是否把「水印 / 细节数量」也算 FAIL；角色是否戴面具（东亚面孔那条要写例外） |
 | 视觉质检报 `Failed to download image` | 图片 URL 是否失效；改用 base64 data URI |

@@ -9,7 +9,7 @@
 import { store, toggleRightPanel, toggleLeftPanel } from '../stores/app'
 import LogoMark from './LogoMark.vue'
 
-const emit = defineEmits(['open-palette', 'open-knowledge'])
+const emit = defineEmits(['open-palette'])
 </script>
 
 <template>
@@ -26,26 +26,21 @@ const emit = defineEmits(['open-palette', 'open-knowledge'])
       </svg>
     </button>
 
-    <h1>
+    <h1 class="brand">
       <span class="logo" aria-hidden="true"><LogoMark :size="22" /></span>
-      剧本工坊
+      <span class="brand-name">剧本工坊</span>
+      <span class="brand-mode">VIDEO AGENT</span>
     </h1>
 
-    <button class="cmd-trigger" @click="emit('open-palette')">
-      <span class="cmd-icon">⌘</span>
+    <button class="cmd-trigger" aria-label="搜索或执行命令" @click="emit('open-palette')">
+      <span class="cmd-icon">⌕</span>
       <span class="cmd-text">搜索或执行命令…</span>
       <kbd>Ctrl+K</kbd>
     </button>
 
-    <button class="ghost small" @click="store.showNewProject = true">＋ 新建</button>
-
-    <!-- 记忆库 -->
-    <button
-      v-if="store.pid"
-      class="ghost small knowledge-btn"
-      title="查看 Agent 记忆库"
-      @click="emit('open-knowledge')"
-    >🧠 记忆</button>
+    <button class="ghost small new-project" @click="store.showNewProject = true">
+      <span aria-hidden="true">＋</span> 新建剧本
+    </button>
 
     <button
       class="ghost panel-toggle"
@@ -67,15 +62,19 @@ header {
   display: flex; align-items: center; gap: 10px; padding: 8px 14px;
   border-bottom: 1px solid var(--line); background: var(--panel);
   min-height: 44px;
-  background: linear-gradient(180deg, color-mix(in oklch, var(--gold) 3%, var(--panel)) 0%, var(--panel) 100%);
+  background: var(--panel);
 }
 h1 {
   font-size: 13px; margin: 0; display: flex; align-items: center; gap: 7px;
-  font-weight: 700; letter-spacing: 0.02em; flex: none;
-  background: linear-gradient(135deg, var(--ink), var(--gold));
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  font-weight: 700; letter-spacing: 0.02em; flex: none; color: var(--ink);
 }
 .logo { display: inline-flex; flex: none; }
+.brand-name { white-space: nowrap; }
+.brand-mode {
+  color: var(--gold); font: 600 9px/1 var(--mono); letter-spacing: 0.12em;
+  padding: 4px 5px; border: 1px solid color-mix(in oklch, var(--gold) 35%, var(--line));
+  border-radius: 5px; background: transparent;
+}
 header button { flex: none; white-space: nowrap; height: 28px; padding: 0 10px; display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; }
 
 /* 导航开关 */
@@ -87,12 +86,12 @@ header button { flex: none; white-space: nowrap; height: 28px; padding: 0 10px; 
   flex: 1; max-width: 380px; height: 28px;
   display: inline-flex; align-items: center; gap: 7px;
   padding: 0 10px; border-radius: 8px;
-  background: color-mix(in oklch, var(--ink) 4%, var(--code-bg));
+  background: color-mix(in oklch, var(--panel2) 66%, var(--code-bg));
   border: 1px solid var(--line);
   color: var(--dim); font-size: 11.5px; cursor: pointer;
   transition: all var(--dur) var(--ease);
 }
-.cmd-trigger:hover { border-color: var(--line-strong); background: color-mix(in oklch, var(--ink) 6%, var(--code-bg)); }
+.cmd-trigger:hover { border-color: var(--line-strong); background: color-mix(in oklch, var(--ink) 4%, var(--code-bg)); }
 .cmd-icon { font-size: 12px; opacity: 0.5; }
 .cmd-text { flex: 1; text-align: left; }
 .cmd-trigger kbd {
@@ -105,4 +104,16 @@ header button { flex: none; white-space: nowrap; height: 28px; padding: 0 10px; 
 .panel-toggle svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .panel-toggle .fill-hint { fill: currentColor; stroke: none; opacity: 0.5; }
 .panel-toggle.on { background: var(--select); border-color: var(--line-strong); color: var(--ink); }
+
+@media (max-width: 760px) {
+  header { min-height: 48px; padding: 8px 10px; gap: 7px; }
+  .brand-mode { display: none; }
+  .cmd-trigger { max-width: none; }
+  .cmd-trigger .cmd-text { display: none; }
+  .cmd-trigger { flex: 0 0 38px; justify-content: center; padding: 0; }
+  .cmd-trigger kbd { display: none; }
+  .new-project { padding-inline: 8px; }
+  .new-project { font-size: 0; }
+  .new-project span { font-size: 16px; }
+}
 </style>

@@ -72,7 +72,6 @@ class Settings(BaseSettings):
     image_model: str = Field(default="", alias="IMAGE_MODEL")
 
     # ---------- 可选第三方服务 ----------
-    tavily_api_key: str = Field(default="", alias="TAVILY_API_KEY")
     # LangSmith 监控：开启后 LangGraph / LLM 运行轨迹自动上报。
     langsmith_tracing: bool = Field(default=False, alias="LANGSMITH_TRACING")
     langsmith_endpoint: str = Field(default="https://api.smith.langchain.com", alias="LANGSMITH_ENDPOINT")

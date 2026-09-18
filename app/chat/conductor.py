@@ -4,7 +4,7 @@
 # 这是本次改造的核心：把「表单式」的工作台升级为「对话式」的 agent。
 # 用户像和 Codex / DSH 对话一样，通过自然语言完成：
 #   新建剧本（新建项目）-> 生成初稿 -> 提出改编需求 -> 审阅 / 接受 / 拒绝
-#   -> 咨询同类剧本走向 / 写作手法 / 作者风格 -> 让 Agent 记住偏好。
+#   -> 导演拆解 -> 视觉风格 -> 视频 Prompt -> 定妆图参考资产。
 #
 # 架构（两层，底层复用既有工作流）：
 #   - 上层：ChatConductor —— 一个绑定了工具的对话式 LangGraph 小图，
@@ -12,8 +12,6 @@
 #   - 底层：既有 LangGraph 改编工作流（app/agent/graph.py / app/agent/runner.py），
 #     由 run_adaptation / resume 工具调用，改动仍走
 #     propose -> guard -> review(interrupt) -> apply 的审阅闭环。
-#   - 记忆：项目知识（同类走向 / 手法 / 作者风格，见 app/pipeline/knowledge.py）
-#     与用户记忆（app/pipeline/memory.py 的 memories 表），由 create_project / remember / ask 工具读写。
 #
 # 服务入口：
 #   chat_once()    一次非流式对话（返回完整回复）；
@@ -37,20 +35,11 @@ from ..agent import runner as agent_svc
 from ..config import Settings
 from ..domain import normalize_adaptation_type
 from ..pipeline.generation import generate_script as run_generation
-from ..pipeline.knowledge import (
-    detect_genres,
-    format_author_style,
-    format_genre_knowledge,
-)
+from ..pipeline.knowledge import detect_genres, format_author_style
 from ..llm import LLM
 from ..pipeline.patch import validate_script
 from ..store import Project, Store
-from ..agent.skills import (
-    SubAgentRunner,
-    run_analyze_scenes,
-    run_check_style,
-    run_polish_dialogue,
-)
+from ..agent.skills import SubAgentRunner
 
 log = logging.getLogger(__name__)
 
@@ -80,26 +69,23 @@ class _Collector(TypedDict, total=False):
 
 SYSTEM_PROMPT = (
     "你是「剧本工坊」的改编协作者 Agent，工作形式类似 Codex / DSH：通过对话与作者协作，"
-    "把一部作品改编成结构化剧本，并持续打磨。你的能力边界：\n"
+    "把一部作品改编成结构化剧本，并持续打磨到成片。你的能力边界：\n"
     "1. 新建剧本：用户说「新建项目 / 新建剧本 / 新开一部」时调用 create_project。"
     "缺少标题、改编类型或原文时，先向用户问清楚再创建。\n"
     "2. 生成初稿：用户要求「生成 / 初稿 / 第一版 / 出剧本」时调用 generate_script。\n"
     "3. 改编：用户提出改编需求（改对白、改节奏、改标题、压缩、反转、口语化等）时调用 run_adaptation。"
     "改编会走底层审阅工作流，结果以「审阅卡片」展示，请引导用户接受 / 拒绝 / 重新生成。\n"
-    "4. 咨询：用户问「剧本怎么样 / 同类剧怎么走 / 写作手法 / 我的风格」时调用 get_script_overview 或 ask，"
-    "用项目知识库（同类剧本走向、写作手法、作者风格）给出有依据的回答，不要凭空编造。\n"
-    "5. 记忆：用户表达风格偏好或创作原则（如「我喜欢冷峻的笔调」「结尾要留白」）时调用 remember 记入知识库。\n"
-    "6. 场景分析：用户要求「分析场景 / 看看结构 / 场景节奏」时调用 analyze_scenes，会在后台启动专职分析代理。\n"
-    "7. 风格检查：用户要求「检查风格 / 看看对白是否一致 / 人设有没有崩」时调用 check_style。\n"
-    "8. 对白润色：用户要求「润色对白 / 改一下台词 / 让对白更自然」时调用 polish_dialogue。\n"
-    "9. 导演拆解：用户要求「拆镜头 / 分镜 / 设计镜头 / 场景拆解」时调用 breakdown_scenes，将场景拆解为镜头方案。\n"
-    "10. 美术指导：用户要求「风格指南 / 视觉风格 / 角色造型 / 画面风格」时调用 generate_style_guide。\n"
-    "11. 摄影指导：用户要求「视频 prompt / 生成 prompt / 镜头描述」时调用 generate_video_prompts，为镜头生成英文视频 Prompt。\n"
-    "12. 联网搜索：用户要求「搜索 / 查资料 / 找参考 / 同类作品」时调用 web_search，查找创作参考和行业资讯。\n"
-    "13. 参考资产：用户要求「定妆图 / 参考图 / 人物形象图 / 视觉参考」时调用 generate_reference_assets，为角色与场景生成定妆图并质检注册，锁跨镜一致性。\n"
+    "4. 咨询：用户问「剧本怎么样 / 这个结尾好不好」时调用 get_script_overview 或 ask，"
+    "基于剧本概况与作者风格给出有依据的回答，不要凭空编造。\n"
+    "5. 导演拆解：用户要求「拆镜头 / 分镜 / 设计镜头 / 场景拆解」时调用 breakdown_scenes，将场景拆解为镜头方案。\n"
+    "6. 美术指导：用户要求「风格指南 / 视觉风格 / 角色造型 / 画面风格」时调用 generate_style_guide。\n"
+    "7. 摄影指导：用户要求「视频 prompt / 生成 prompt / 镜头描述」时调用 generate_video_prompts，"
+    "先生成待人工审阅的 Prompt 草稿，不直接出片。\n"
+    "8. 参考资产：用户要求「定妆图 / 参考图 / 人物形象图 / 视觉参考」时调用 generate_reference_assets，"
+    "为角色与场景生成定妆图并质检注册，锁跨镜一致性。\n"
     "行为准则：回复简洁、口语化、用简体中文；不确定时先问；不要虚构剧本内容；"
     "不要替用户做最终决定，审阅与落版决定永远交给用户。"
-    "子代理（6-11、13）会在后台运行，启动后告知用户可在右栏查看进度。"
+    "剧组任务（5-8）会在后台运行，启动后告知用户可在右栏查看进度。"
 )
 
 # 改编类型 -> 中文名，用于提示模型填参数。
@@ -156,10 +142,10 @@ def build_chat_tools(
         )
         collector["project_id"] = p.id
         label = _ADAPT_TYPE_LABELS.get(name, name)
-        # 提取作者风格存入 notes
+        # 作者风格只做规则画像（无网络调用），避免对话轮次被额外 LLM 调用拖慢
         try:
             from ..pipeline.knowledge import extract_author_style
-            style = extract_author_style(raw_text, llm=llm, language="zh-CN")
+            style = extract_author_style(raw_text)
             notes = f"作者风格：{style.get('summary', '')}"
             store.set_project_notes(p.id, notes)
         except Exception:
@@ -260,18 +246,10 @@ def build_chat_tools(
 
     @tool
     def ask(project_id: str, question: str) -> str:
-        """就剧本 / 改编创作提问（参考题材知识、作者风格、用户偏好），给出有依据的回答。参数：project_id=项目 id，question=问题。"""
+        """就剧本 / 改编创作提问（参考剧本概况与作者风格），给出有依据的回答。参数：project_id=项目 id，question=问题。"""
         p = _project(project_id)
         overview = _overview_text(p)
-        # 题材知识
-        genres = detect_genres(p.raw_text, top=2)
-        genre_text = format_genre_knowledge(genres)
-        # 作者风格
         style_text = format_author_style(p.raw_text)
-        # 用户记忆
-        from ..pipeline.memory import format_memories, recall_memories
-        memories = recall_memories(store, project_id=p.id, limit=5)
-        memory_text = format_memories(memories)
 
         if llm.available:
             try:
@@ -279,16 +257,14 @@ def build_chat_tools(
                     [
                         SystemMessage(
                             content=(
-                                "你是剧本创作顾问。基于下面提供的剧本概况、题材知识、作者风格和用户偏好回答问题；"
+                                "你是剧本创作顾问。基于下面提供的剧本概况和作者风格回答问题；"
                                 "回答要具体、可操作，不要编造。"
                             )
                         ),
                         HumanMessage(
                             content=(
                                 f"剧本概况：\n{overview}\n\n"
-                                f"题材知识：\n{genre_text}\n\n"
                                 f"作者风格：\n{style_text}\n\n"
-                                f"用户偏好：\n{memory_text or '暂无'}\n\n"
                                 f"用户问题：{question}"
                             )
                         ),
@@ -297,92 +273,9 @@ def build_chat_tools(
                 return str(resp.content or "").strip()
             except Exception as e:  # noqa: BLE001
                 log.warning("ask 组装回答失败：%s", e)
-        return f"（未配置模型，以下为直接信息）\n{genre_text}\n\n{style_text}"
+        return f"（未配置模型，以下为直接信息）\n{style_text}"
 
-    @tool
-    def remember(project_id: str, content: str, kind: str = "preference") -> str:
-        """把用户表达的偏好 / 创作原则记入项目记忆。kind 可选：preference（偏好）、decision（决策）、feedback（反馈）。参数：project_id=项目 id。"""
-        from ..pipeline.memory import save_memory
-        p = _project(project_id)
-        kind_map = {
-            "preference": "preference", "偏好": "preference", "风格": "preference",
-            "decision": "decision", "决策": "decision", "决定": "decision",
-            "feedback": "feedback", "反馈": "feedback",
-        }
-        kind_key = kind_map.get(str(kind).strip(), "preference")
-        save_memory(store, kind=kind_key, content=content, scope="project", project_id=p.id)
-        label = {"preference": "偏好", "decision": "决策", "feedback": "反馈"}.get(kind_key, kind_key)
-        return f"已记住（{label}）：{content.strip()}。后续改编会参考这条记忆。"
-
-    # ---- 子代理工具 ----
-
-    @tool
-    def analyze_scenes(project_id: str) -> str:
-        """启动场景分析子代理：分析场景结构、节拍节奏、人物出场分布。在后台运行，用户可在右栏查看进度。参数：project_id=项目 id。"""
-        p = _project(project_id)
-        version = store.latest_version(p)
-        if version is None:
-            return "还没有剧本版本，请先生成初稿。"
-        script = version.script
-
-        def _run(task):
-            return run_analyze_scenes(task, llm, script)
-
-        task_id = runner.start("场景分析", _run) if runner else "local"
-        collector["payloads"].append({
-            "type": "sub_agent_started",
-            "task_id": task_id,
-            "name": "场景分析",
-            "project_id": p.id,
-        })
-        return f"已启动场景分析代理（任务 {task_id}），正在后台分析《{script.title}》的场景结构。你可以在右侧「Agent 任务」面板查看进度，也可以继续对话。"
-
-    @tool
-    def check_style(project_id: str) -> str:
-        """启动风格一致性检查子代理：检查全剧对白风格一致性、人设符合度。在后台运行。参数：project_id=项目 id。"""
-        p = _project(project_id)
-        version = store.latest_version(p)
-        if version is None:
-            return "还没有剧本版本，请先生成初稿。"
-        script = version.script
-
-        def _run(task):
-            return run_check_style(task, llm, script)
-
-        task_id = runner.start("风格一致性检查", _run) if runner else "local"
-        collector["payloads"].append({
-            "type": "sub_agent_started",
-            "task_id": task_id,
-            "name": "风格一致性检查",
-            "project_id": p.id,
-        })
-        return f"已启动风格检查代理（任务 {task_id}），正在后台检查《{script.title}》的风格一致性。可在右侧「Agent 任务」面板查看进度。"
-
-    @tool
-    def polish_dialogue(project_id: str, scene_id: str = "") -> str:
-        """启动对白润色子代理：对指定场景（或全部场景）的对白做润色建议。在后台运行。参数：project_id=项目 id，scene_id=场景 id（可选，不填则润色全部）。"""
-        p = _project(project_id)
-        version = store.latest_version(p)
-        if version is None:
-            return "还没有剧本版本，请先生成初稿。"
-        script = version.script
-        sid = scene_id.strip() or None
-
-        def _run(task):
-            return run_polish_dialogue(task, llm, script, scene_id=sid)
-
-        label = f"对白润色（{sid}）" if sid else "对白润色"
-        task_id = runner.start(label, _run) if runner else "local"
-        collector["payloads"].append({
-            "type": "sub_agent_started",
-            "task_id": task_id,
-            "name": label,
-            "project_id": p.id,
-        })
-        scope = f"场景 {sid}" if sid else "全部场景"
-        return f"已启动对白润色代理（任务 {task_id}），正在后台润色{scope}的对白。可在右侧「Agent 任务」面板查看进度。"
-
-    # ---- v3.0 导演组工具 ----
+    # ---- 导演组工具 ----
 
     @tool
     def breakdown_scenes(project_id: str, scene_ids: str = "") -> str:
@@ -502,14 +395,25 @@ def build_chat_tools(
                 max_duration=max_duration,
             )
             if result.success:
-                # 更新 video_versions 中的 shots
-                shots_data = [s.model_dump() for s in result.data]
+                # 摄影指导只提交草稿，人工批准前不得进入视频任务队列。
+                shots_data = [
+                    {
+                        **s.model_dump(),
+                        "prompt_status": "needs_review",
+                        "prompt_review_note": "",
+                    }
+                    for s in result.data
+                ]
+                previous = p.current_video_version_id and store.get_video_version(
+                    p.current_video_version_id
+                )
                 store.create_video_version(
                     project_id=p.id,
                     shots=shots_data,
                     source_type="agent",
-                    label="含视频 Prompt",
-                    notes=result.summary,
+                    label="视频 Prompt 待审阅",
+                    notes=f"{result.summary}；生成后需逐镜人工批准，才能提交视频任务。",
+                    parent_version_id=previous.id if previous else None,
                 )
             return result.summary
 
@@ -520,7 +424,10 @@ def build_chat_tools(
             "name": "摄影指导",
             "project_id": p.id,
         })
-        return f"已启动摄影指导 Agent（任务 {task_id}），正在为镜头生成视频 Prompt。可在右侧「Agent 任务」面板查看进度。"
+        return (
+            f"已启动摄影指导 Agent（任务 {task_id}），正在生成待审阅的视频 Prompt。"
+            "完成后请在右侧视频工作台逐镜编辑并批准，批准前不会提交视频任务。"
+        )
 
     @tool
     def generate_reference_assets(project_id: str) -> str:
@@ -562,33 +469,17 @@ def build_chat_tools(
             "可在右侧「Agent 任务」面板查看进度。完成后镜头会自动带上这些参考图。"
         )
 
-    @tool
-    def web_search(query: str) -> str:
-        """联网搜索：查找剧本创作参考、同类作品分析、写作技法、行业资讯等。需要配置 TAVILY_API_KEY。"""
-        from ..config import get_settings
-        from ..pipeline.search import format_search_results, search_sync
-        api_key = get_settings().tavily_api_key
-        if not api_key:
-            return "（未配置 TAVILY_API_KEY，无法联网搜索。请在 .env 中设置 TAVILY_API_KEY。）"
-        try:
-            data = search_sync(query, api_key=api_key, max_results=5)
-            return format_search_results(data)
-        except Exception as e:
-            return f"（搜索失败：{e}）"
-
-    result = [create_project, generate_script, run_adaptation, get_script_overview, ask, remember,
-              analyze_scenes, check_style, polish_dialogue,
-              breakdown_scenes, generate_style_guide, generate_reference_assets,
-              generate_video_prompts, web_search]
-
-    # 追加插件工具
-    try:
-        from ..deps import plugin_registry
-        result.extend(plugin_registry().get_all_tools())
-    except Exception:  # noqa: BLE001
-        pass
-
-    return result
+    return [
+        create_project,
+        generate_script,
+        run_adaptation,
+        get_script_overview,
+        ask,
+        breakdown_scenes,
+        generate_style_guide,
+        generate_reference_assets,
+        generate_video_prompts,
+    ]
 
 
 # ---------- 对话图 ----------

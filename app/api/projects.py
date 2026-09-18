@@ -37,9 +37,9 @@ def create_project(payload: ProjectCreate) -> dict[str, Any]:
         raw_text=payload.raw_text,
     )
     common.persist_original(p)
-    # 提取作者风格存入项目 notes
+    # 作者风格只做规则画像（无网络调用）：生成链路本就会用规则版重算
     try:
-        style = extract_author_style(payload.raw_text, llm=deps.llm(), language=payload.language)
+        style = extract_author_style(payload.raw_text)
         deps.store().set_project_notes(p.id, f"作者风格：{style.get('summary', '')}")
     except Exception:
         pass
@@ -150,11 +150,9 @@ async def import_project(
         raw_text=text,
     )
     common.persist_original(p)
-    # 提取作者风格存入项目 notes
+    # 作者风格只做规则画像（无网络调用），避免创建流程被 LLM 阻塞
     try:
-        style = await run_in_threadpool(
-            extract_author_style, text, llm=deps.llm(), language=language,
-        )
+        style = await run_in_threadpool(extract_author_style, text)
         deps.store().set_project_notes(p.id, f"作者风格：{style.get('summary', '')}")
     except Exception:
         pass
@@ -192,25 +190,6 @@ def project_structure(project_id: str) -> dict[str, Any]:
 
 
 # ---------- 知识 / 笔记 ----------
-
-
-@router.get("/projects/{project_id}/knowledge")
-def list_project_knowledge(project_id: str) -> dict[str, Any]:
-    """列出项目的知识（题材知识 + 用户记忆），用于调试与展示。"""
-    from ..pipeline.knowledge import get_all_genre_knowledge
-    from ..pipeline.memory import recall_memories
-
-    p = common.get_project(project_id)
-    genres = detect_genres(p.raw_text, top=2)
-    genre_knowledge = get_all_genre_knowledge(genres)
-    docs = []
-    for kind, items in genre_knowledge.items():
-        for item in items:
-            docs.append({"kind": kind, "source": f"genre:{'、'.join(genres)}", "text": item})
-    memories = recall_memories(deps.store(), project_id=project_id, limit=20)
-    for m in memories:
-        docs.append({"kind": m["kind"], "source": m["source"], "text": m["content"]})
-    return {"project_id": project_id, "total": len(docs), "docs": docs}
 
 
 @router.get("/projects/{project_id}/notes")

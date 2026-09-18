@@ -9,19 +9,18 @@
 
 ```
 app/
-├── main.py / cli.py / desktop.py            入口层（HTTP / CLI / 桌面）
+├── main.py / cli.py                         入口层（HTTP / CLI）
 ├── api/           REST 路由包 —— 按业务域分模块
 ├── config.py / deps.py                      配置与依赖装配（全项目唯一装配点）
 ├── domain.py / store.py / workspace.py      领域模型 / 持久化 / 文件系统
 │
 ├── llm/        模型接入层   —— 对上提供能力，对下屏蔽厂商
 ├── pipeline/   内容生产线   —— 纯逻辑，不依赖 LangGraph / HTTP
-├── agent/      改编智能体   —— LangGraph 状态图 + 专职子代理
+├── agent/      改编智能体   —— LangGraph 状态图 + 后台任务运行器
 ├── chat/       对话编排层   —— 对话式 Agent（复用 agent 的工作流）
 ├── crew/       剧组 Agent   —— 导演 / 美术指导 / 摄影指导
 ├── media/      参考资产层   —— 定妆图 → 质检 → 注册 → 回填
-├── video/      视频生成层   —— Provider 抽象 + 队列 + 连续性 + 拼接
-└── plugin/     插件系统     —— 内置 / 用户级 / 项目级（tool 型插件）
+└── video/      视频生成层   —— Provider 抽象 + 队列 + 连续性 + 拼接
 ```
 
 `app/api/` 内部再分一层，避免路由堆在一个大文件里：
@@ -32,13 +31,12 @@ api/
 ├── deps.py       依赖入口（路由统一 deps.store() 取值，测试可整体替换）
 ├── common.py     共享的序列化与落盘辅助
 ├── schemas.py    请求模型
-├── system.py     运行状态 / 子代理任务 / 工作目录
+├── system.py     运行状态 / 后台任务 / 工作目录
 ├── projects.py   项目生命周期、初稿生成、导入、落盘、笔记、文件浏览
 ├── versions.py   剧本版本（含导出）
 ├── agent_runs.py 改编智能体的运行与审阅
 ├── chat.py       对话式 Agent 与会话管理
-├── video.py      Provider / 模型偏好 / 视频版本 / 生成任务
-└── plugins.py    插件管理
+└── video.py      Provider / 模型偏好 / 视频版本 / 生成任务
 ```
 
 **依赖方向（单向向下，不允许反向或跨层回指）**
@@ -59,8 +57,8 @@ api/
 2. 需要模型能力时只 `from ..llm import LLM`，不允许任何模块自己 new `ChatOpenAI` 或直接读写 API key。
 3. 路由不直接 `from ..deps import store`，一律经 `app/api/deps.py` 取值——依赖查找是运行时的，
    测试替换一处即可覆盖全部路由。
-4. 所有单例（Store / LLM / 插件表 / 视频队列 / 子代理管理器）只在 `app/deps.py` 里创建，
-   入口层取值；测试可以单独构造。子代理任务的落库依赖也在这里注入。
+4. 所有单例（Store / LLM / 视频队列 / 后台任务管理器）只在 `app/deps.py` 里创建，
+   入口层取值；测试可以单独构造。后台任务的落库依赖也在这里注入。
 5. 状态里只放可序列化数据，依赖（store / llm / tools）通过闭包注入图节点。
 
 
@@ -136,13 +134,13 @@ ProviderSpec(
 
 ## 三、多 Agent 协作：谁是谁
 
-系统里共有 **7 个 LLM Agent 角色**，分三类：
+系统里共有 **4 个 LLM Agent 角色**，分两类：
 
 ### 3.1 对话编排（1 个）—— `app/chat/conductor.py`
 
 | Agent | 角色 | 职责 |
 |---|---|---|
-| **ChatConductor** | 前厅 / 调度 | 绑定 14 个工具理解用户意图，把请求路由到确定性流水线或后台子代理 |
+| **ChatConductor** | 前厅 / 调度 | 绑定 9 个工具理解用户意图，把请求路由到确定性流水线或后台剧组任务 |
 
 它是一个 ReAct 小图（`chat_agent` ↔ `tools`），工具循环上限 8 轮。
 关键设计：**审阅动作走确定性路径**（accept/reject 不经过 LLM），避免「对话式工具调用不可靠」导致误操作。
@@ -158,15 +156,11 @@ ProviderSpec(
 三者都继承 `CrewAgent`，输出统一的 `CrewTaskResult`（结构化数据 + 摘要 + 错误列表），
 并且都有**规则兜底**：LLM 不可用时返回可用的降级结果，而不是报错中断。
 
-### 3.3 后台专职子代理（3 个）—— `app/agent/skills.py`
+### 3.3 后台任务运行器 —— `app/agent/skills.py`
 
-| 子代理 | 工具名 | 职责 |
-|---|---|---|
-| 场景分析 | `analyze_scenes` | 结构 / 节拍节奏 / 人物出场分布 + LLM 深度分析 |
-| 风格一致性检查 | `check_style` | 全剧对白风格统一性、人设符合度、时代感 |
-| 对白润色 | `polish_dialogue` | 对指定场景（或全部）给出逐条润色建议 |
-
-由 `SubAgentRunner` 在后台线程执行，通过 `update_step()` 实时上报进度到前端右栏任务面板。
+剧组工具（导演拆解 / 美术指导 / 摄影指导 / 参考资产）都是耗时操作，统一由 `SubAgentRunner`
+在后台线程执行，通过 `update_step()` 实时上报进度到前端右栏任务面板；任务起止快照落库
+（`subagent_tasks` 表），重启后历史仍可查询。
 
 ### 3.4 不是 Agent 的部分（容易混淆，单独说明）
 
@@ -191,7 +185,7 @@ ProviderSpec(
   ★ 容错层：模型 id 不合规 / 结构错位 / 多章塌成一场，都有兼容与退化护栏
 
 ③ 改编              app/agent/graph.py（人机协同闭环）
-  context → plan(ReAct 查原文/查知识/查版本) → propose(结构化 patch)
+  context → plan(ReAct 查原文/查版本) → propose(结构化 patch)
           → guard(硬校验 + 五维评审，不合格回炉，上限 3 次)
           → review(interrupt：接受 / 编辑 / 重新生成 / 拒绝)
           → apply(落成新版本) → finalize
@@ -208,8 +202,10 @@ ProviderSpec(
   画面调度：camera.path/height（镜头轨迹与机位高度）、带方向的光线、spatial、background_action、
   action 的接触动作物理过程（接触点 / 先后节拍 / 身体姿态 / 不穿模的让位关系）
 
-⑦ 视频提示词        crew/dp.py
-  Shot.video_prompt = 环境锚 + 出场人物锚 + 本镜画面调度 + 风格（锚逐字复用）
+⑦ 视频提示词        crew/dp.py → 视频工作台 Prompt 人审
+  摄影指导提出 Shot.video_prompt 草稿：环境锚 + 出场人物锚 + 本镜画面调度 + 风格
+  （锚逐字复用）。用户可以逐镜编辑、保存草稿、标记需修改或批准。
+  每次人工操作创建新的 VideoVersion 快照；只有 prompt_status=approved 的镜头可提交。
   七条写作铁律见 dp.py::_BODY_RULES_ZH：动作与运镜并重 / 呼吸感 / 光的方向 / 人物编号与距离 /
   背景人物各有各的事 / 只写看得见的东西 / 接触动作写物理过程
   （LLM 整段漏写运镜时用 camera.path 兜底补一次）
@@ -218,7 +214,7 @@ ProviderSpec(
   registry 选 Provider → queue 提交 + 轮询 + 状态回调写回 DB
   continuity.resolve_continuity() 已实现「reference_group / chain_from → reference_videos」
   （上一镜成片的公开直链作为下一镜的参考素材，无需额外图床）——
-  但**尚未接入投递路径**，详见第五节技术债
+  单镜和批量投递都会再次校验 Prompt 是否已批准
 
 ⑨ 拼接成片          app/video/assemble.py（FFmpeg concat / filter_complex）
 ```
@@ -226,7 +222,7 @@ ProviderSpec(
 **两条贯穿全链路的原则**
 
 1. **视觉锚只产一次，下游逐字复用**——这是跨镜一致性的第一道保障。
-2. **AI 只提议，人做决定**——改编走 `interrupt` 四决策闭环；视频走「分镜版本 → 提示词版本 → 成片版本」的链式快照，可回溯可回退。
+2. **AI 只提议，人做决定**——改编走 `interrupt` 四决策闭环；视频先审 Prompt，再审成片，所有操作都进入可回溯的链式快照。
 
 ---
 
@@ -238,8 +234,7 @@ ProviderSpec(
 |---|---|---|
 | `app/api.py` | 单文件 1400+ 行，业务逻辑写在路由里 | 拆成 `app/api/` 包（7 个域模块 + common/schemas/deps）；路由表逐条比对无增删（66 → 66） |
 | `app/chat/conductor.py` | 部分工具直接用 `store.session()` 操作 ORM，绕过 `Store` | 收敛为 `Store` 方法（`get/set_version_breakdown`、`get/set/merge_video_style`） |
-| `app/plugin/registry.py` | `reload()` 调用 `PluginLoader._load_plugin`（私有方法） | 提升为公开 `load_plugin()` |
-| `app/agent/skills.py` | 子代理任务只在内存，进程重启即丢 | 起止两个时刻快照落库（`subagent_tasks` 表）；`/api/tasks` 合并内存态与历史态 |
+| `app/agent/skills.py` | 后台任务只在内存，进程重启即丢 | 起止两个时刻快照落库（`subagent_tasks` 表）；`/api/tasks` 合并内存态与历史态 |
 | `app/api/video.py` | `cancel` 只改本地状态，未通知服务商 | 先尽力调用 provider 的 `cancel_job`，失败不影响本地状态收尾 |
 | `app/api/system.py` | `/status` 用 openai/deepseek 三元表达式猜模型名（漏了智谱） | 改为读 `LLM.describe()` 的解析结果，另附视觉模型状态 |
 

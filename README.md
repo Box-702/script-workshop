@@ -36,9 +36,9 @@
 
 - **剧组 Agent 系统**：导演 / 美术指导 / 摄影指导三个 Agent 各司其职（美术指导产出的角色造型与环境描述是全片视觉锚的唯一来源，下游逐字复用）。
 - **参考资产流水线（图像级一致性）**：为角色与场景生成定妆图 → 视觉模型质检 → 注册为全局参考 → 回填到镜头，让视频模型「看见」同一个角色，而不是只靠文字描述。
-- **镜头级视频生成**：镜头数由导演按剧情内容决定（分镜 = 一段连贯的角色动作或一段连贯的角色对话剧情），首尾帧接力 + 参考图/参考视频锁一致性，最后 FFmpeg 拼接。
+- **镜头级视频生成**：镜头数由导演按剧情内容决定（分镜 = 一段连贯的角色动作或一段连贯的角色对话剧情）。摄影指导只提出 Prompt 草稿，用户可逐镜编辑、保存、标记需修改或批准；只有批准后的 Prompt 才能提交视频任务。首尾帧接力 + 参考图/参考视频锁一致性，最后 FFmpeg 拼接。
 - **视频 Provider 抽象层**：统一接口适配 Runway / Kling / CogVideoX / Sora / MiniMax，用户自由切换。
-- **人审环节**：剧本改编走 `interrupt` 暂停 / `Command.resume` 恢复的四决策闭环（接受 / 编辑 / 重新生成 / 拒绝）；视频侧以「分镜版本 → 提示词版本 → 成片版本」的链式快照承载人工审核与回退。
+- **人审环节**：剧本改编走 `interrupt` 暂停 / `Command.resume` 恢复的四决策闭环（接受 / 编辑 / 重新生成 / 拒绝）；视频侧先审 Prompt，再审成片，所有决定都进入「分镜版本 → 提示词版本 → 成片版本」的链式快照。
 - **版本迭代**：视频版本链式快照，支持回溯/分叉/里程碑标记。
 
 > 开发指引与踩坑记录见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)；
@@ -46,9 +46,9 @@
 
 ### 工具集
 
-**对话 Conductor 工具（14 个）**：`create_project` / `generate_script` / `run_adaptation` / `get_script_overview` / `ask` / `remember` / `analyze_scenes` / `check_style` / `polish_dialogue` / `breakdown_scenes` / `generate_style_guide` / `generate_video_prompts` / `generate_reference_assets` / `web_search`。
+**对话 Conductor 工具（9 个）**：`create_project` / `generate_script` / `run_adaptation` / `get_script_overview` / `ask` / `breakdown_scenes` / `generate_style_guide` / `generate_video_prompts` / `generate_reference_assets`。
 
-**改编图 ReAct 工具（11 个）**：
+**改编图 ReAct 工具（7 个）**：
 
 | 工具 | 说明 |
 |------|------|
@@ -56,15 +56,9 @@
 | `get_scene_detail` | 查看场景详情 |
 | `get_source_text` | 查看原文片段 |
 | `search_source` | 在原文中搜索关键词 |
-| `get_genre_knowledge` | 查看题材改编知识 |
 | `get_author_style` | 查看作者语言风格 |
 | `list_versions` | 查看历史版本 |
 | `validate_tool` | 校验剧本一致性 |
-| `remember_preference` | 记住用户偏好 |
-| `recall_preferences` | 回忆用户偏好 |
-| `web_search` | 联网搜索（Tavily） |
-
-两组工具都会自动合并 `app/plugin/` 注册的插件工具（内置 `research` 插件提供 `deep_research`）。
 
 ### 其他
 
@@ -72,8 +66,7 @@
 - **工作区文件树**：左栏显示本地文件夹映射。
 - **剧本导出**：一键导出为 `.txt / .md / .docx`。
 - **剧本编辑器**：直接改台词、动作、场景，保存成新版本。
-- **联网搜索**：Agent 可搜索创作参考、同类作品分析。
-- **用户记忆**：从用户行为中学习偏好，自动优化改编建议。
+- **剧组 Agent**：导演拆解分镜 → 美术指导锁定视觉风格 → 摄影指导提出 Prompt → 人工逐镜批准 → 参考资产与视频生成。
 
 ## 架构
 
@@ -88,14 +81,13 @@
 分层（依赖单向向下，见 `docs/ARCHITECTURE.md`）：
 
 - `app/llm/`：**统一模型接入层**。门面 `LLM` + 厂商表 + 配置解析（`.env` / DB），覆盖 chat / vision / image 三个能力维度。
-- `app/pipeline/`：**内容生产线**。导入解析、两阶段生成、patch 与校验、题材知识、记忆、评审、搜索、导出；不依赖 LangGraph，也不感知 HTTP。
-- `app/agent/`：**改编智能体**。`graph` / `nodes` / `tools` / `state` 是 LangGraph 状态图，`runner` 是薄服务层，`skills` 是后台专职子代理。
+- `app/pipeline/`：**内容生产线**。导入解析、两阶段生成、patch 与校验、题材识别、评审、导出；不依赖 LangGraph，也不感知 HTTP。
+- `app/agent/`：**改编智能体**。`graph` / `nodes` / `tools` / `state` 是 LangGraph 状态图，`runner` 是薄服务层，`skills` 是后台任务运行器（剧组任务）。
 - `app/chat/`：**对话式编排**（ChatConductor），绑定工具理解意图，底层复用 `app/agent` 的审阅工作流。
 - `app/crew/`：**剧组 Agent**（导演 / 美术指导 / 摄影指导）。
 - `app/media/`：**参考资产流水线**（定妆图 → 视觉质检 → 注册 → 回填镜头）。
-- `app/video/`：视频 Provider 抽象层 + 异步任务队列 + 连续性解析（尚未接入投递路径）+ FFmpeg 拼接。
-- `app/plugin/`：插件系统（内置 / 用户级 / 项目级，tool 型插件）。
-- `app/api/`：**REST 路由包**，按域拆分为 system / projects / versions / agent_runs / chat / video / plugins；统一经 `api/deps.py` 取依赖。
+- `app/video/`：视频 Provider 抽象层 + 异步任务队列 + 连续性解析 + FFmpeg 拼接。
+- `app/api/`：**REST 路由包**，按域拆分为 system / projects / versions / agent_runs / chat / video；统一经 `api/deps.py` 取依赖。
 - `app/store.py`：业务持久化（SQLAlchemy，Postgres / SQLite）。
 - `frontend/`：Vue 3 + Vite 单页，三栏布局（聊天 + 创作区 + Inspector）。
 
@@ -116,18 +108,21 @@ START → context → plan ──(有工具调用)──> tools → plan   (ReAc
 ### 方式一：本机运行（零基础设施）
 
 ```bash
-# 1. 安装依赖
-pip install -e ".[dev]"
+# 0. 安装 uv（一次性，包与解释器管理工具；详见 https://docs.astral.sh/uv/）
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# 1. 安装依赖（自动创建 .venv，按 uv.lock 精确复现环境）
+uv sync
 
 # 2. 配置环境变量（可选，不配也能跑通演示）
 # 复制 .env.example 为 .env，填入模型 key
 cp .env.example .env
 
 # 3. 运行命令行演示
-python -m app.cli
+uv run python -m app.cli
 
 # 4. 启动 API
-uvicorn app.main:app --port 8000 --reload
+uv run uvicorn app.main:app --port 8000 --reload
 
 # 5. 启动前端
 cd frontend && npm install && npm run dev
@@ -135,6 +130,17 @@ cd frontend && npm install && npm run dev
 ```
 
 不配模型 key 时，全部走本地回退，链路依然闭环。
+
+### 视频 Prompt 审阅
+
+导演拆镜和摄影指导完成后，视频工作台会把每个 Prompt 标为「待审阅」。用户可以：
+
+1. 打开单个镜头，直接修改最终提示词；
+2. 保存草稿，保留当前版本但暂不允许出片；
+3. 标记需要修改，留下审阅备注；
+4. 批准 Prompt，解锁单镜或批量视频生成。
+
+每次保存都会创建新的视频版本快照，因此 Prompt 修改和审批决定都可以回看、比较和回退。视频批次只会读取已批准的镜头。
 
 ### 方式二：用 Docker 提供 Postgres
 
@@ -146,10 +152,10 @@ cp .env.example .env
 docker compose up -d
 
 # 3. 本机安装依赖并连 Postgres 启动
-pip install -e ".[dev]"
+uv sync
 export DATABASE_URL="postgresql+psycopg://script:script@localhost:5432/script_agent"
 export CHECKPOINTER="postgres"
-uvicorn app.main:app --port 8000
+uv run uvicorn app.main:app --port 8000
 ```
 
 两种方式访问入口相同：
@@ -176,13 +182,12 @@ Script Workshop/
 │   ├── workspace.py          # 工作目录文件树
 │   │
 │   ├── api/                  # ★ REST 路由包（按业务域拆分）
-│   │   ├── system.py         #   运行状态 / 子代理任务 / 工作目录
+│   │   ├── system.py         #   运行状态 / 后台任务 / 工作目录
 │   │   ├── projects.py       #   项目生命周期、导入、落盘、笔记、文件
 │   │   ├── versions.py       #   剧本版本 + 导出
 │   │   ├── agent_runs.py     #   改编智能体的运行与审阅
 │   │   ├── chat.py           #   对话式 Agent 与会话管理
-│   │   ├── video.py          #   Provider / 模型偏好 / 视频版本 / 生成任务
-│   │   └── plugins.py        #   插件管理
+│   │   └── video.py          #   Provider / 模型偏好 / 视频版本 / 生成任务
 │   │
 │   ├── llm/                  # ★ 统一模型接入层
 │   │   ├── client.py         #   LLM 门面（chat / structured / vision / image）
@@ -195,10 +200,8 @@ Script Workshop/
 │   │   ├── generation.py     #   两阶段生成：故事圣经 → 场景规划
 │   │   ├── patch.py          #   结构化 patch + 剧本校验
 │   │   ├── profiles.py       #   改编类型 profile
-│   │   ├── knowledge.py      #   题材知识 + 作者风格
-│   │   ├── memory.py         #   用户/项目记忆
+│   │   ├── knowledge.py      #   题材识别 + 作者风格
 │   │   ├── review.py         #   五维评审打分
-│   │   ├── search.py         #   Tavily 联网搜索
 │   │   ├── importer.py       #   文件导入解析
 │   │   ├── export.py         #   导出 txt / md / docx
 │   │   └── chunking.py       #   文本切片
@@ -209,7 +212,7 @@ Script Workshop/
 │   │   ├── tools.py          #   ReAct 工具集
 │   │   ├── state.py          #   AgentState
 │   │   ├── runner.py         #   运行服务（启动 / 恢复 / 兜底）
-│   │   └── skills.py         #   后台子代理（场景分析 / 风格检查 / 对白润色）
+│   │   └── skills.py         #   后台任务运行器（剧组任务进度上报）
 │   │
 │   ├── chat/
 │   │   └── conductor.py      # 对话式 Agent（ChatConductor）
@@ -226,8 +229,6 @@ Script Workshop/
 │   │   ├── continuity.py     #   连续性解析（接力 → 参考视频）
 │   │   ├── assemble.py       #   FFmpeg 拼接
 │   │   └── providers/        #   5 个 Provider 适配器
-│   ├── plugin/               # 插件系统（内置 / 用户级 / 项目级）
-│   └── plugins/builtin/      # 内置插件（research）
 │
 ├── frontend/
 │   └── src/
@@ -239,10 +240,9 @@ Script Workshop/
 │           ├── SettingsModal.vue     # 模型/Provider 设置
 │           ├── ShotList.vue          # 镜头列表
 │           ├── VideoPlayer.vue       # 视频播放器
-│           ├── CrewPanel.vue         # 剧组工位面板
 │           └── ...
 │
-└── tests/                    # 测试套件（98 tests）
+└── tests/                    # 测试套件（114 tests）
 ```
 
 ## 环境变量
@@ -260,7 +260,6 @@ Script Workshop/
 | `VISION_PROVIDER` / `VISION_MODEL` / `VISION_API_KEY` | 视觉质检单独配置（留空则自动复用支持视觉的厂商） | 自动 |
 | `IMAGE_PROVIDER` / `IMAGE_MODEL` / `IMAGE_API_KEY` | 文生图单独配置（`cogview` / `openai`） | `cogview` → `openai` |
 | `MINIMAX_API_KEY` | MiniMax 视频生成 key | - |
-| `TAVILY_API_KEY` | 联网搜索 key | - |
 | `DATABASE_URL` | 数据库连接串 | SQLite |
 | `CHECKPOINTER` | checkpointer 类型（`memory` / `postgres`） | `memory` |
 
@@ -268,7 +267,7 @@ Script Workshop/
 
 ```bash
 python -m pytest tests -q
-# 98 passed
+# 114 passed
 ```
 
 ## 许可证
