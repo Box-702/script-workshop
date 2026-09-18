@@ -2,15 +2,12 @@
 # plugin —— 万物皆插件系统
 #
 # 提供插件发现、加载、注册、执行的完整生命周期。
-# 支持三种插件类型：
-#   - tool：自定义工具（Agent 可调用）
-#   - agent：自定义 Agent（剧组成员）
-#   - skill：技能指令（用户可触发）
+# 插件类型：tool（自定义工具，Agent 可调用）。
 #
-# 插件来源：
-#   - 内置插件（app/plugins/builtin/）
+# 插件来源（优先级从高到低，同名高优先级生效）：
+#   - 项目级插件（<project>/.plugins/，构造 PluginLoader 时传 project_dir）
 #   - 用户级插件（~/.script-workshop/plugins/）
-#   - 项目级插件（<project>/.plugins/）
+#   - 内置插件（app/plugins/builtin/）
 # =====================================================================
 
 from .base import Plugin, PluginManifest, PluginType

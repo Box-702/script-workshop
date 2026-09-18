@@ -18,7 +18,6 @@ from typing import Any
 import yaml
 
 from .base import (
-    MCPServerDef,
     Plugin,
     PluginManifest,
     PluginType,
@@ -89,14 +88,7 @@ class PluginLoader:
         # 加载 tools.py
         tools_py = plugin_dir / "tools.py"
         if tools_py.is_file():
-            langchain_tools = self._load_tools_from_py(tools_py, manifest.tools)
-            plugin.langchain_tools = langchain_tools
-
-        # 加载 agents.py
-        agents_py = plugin_dir / "agents.py"
-        if agents_py.is_file():
-            crew_agents = self._load_agents_from_py(agents_py)
-            plugin.crew_agents = crew_agents
+            plugin.langchain_tools = self._load_tools_from_py(tools_py, manifest.tools)
 
         return plugin
 
@@ -134,16 +126,6 @@ class PluginLoader:
                 parameters=params,
             ))
 
-        mcp_def = None
-        mcp_data = data.get("mcp")
-        if mcp_data:
-            mcp_def = MCPServerDef(
-                command=mcp_data.get("command", ""),
-                args=mcp_data.get("args", []),
-                env=mcp_data.get("env", {}),
-                url=mcp_data.get("url", ""),
-            )
-
         return PluginManifest(
             name=name,
             version=str(data.get("version", "1.0")),
@@ -151,7 +133,6 @@ class PluginLoader:
             author=data.get("author", ""),
             type=plugin_type,
             tools=tools,
-            mcp=mcp_def,
             config_schema=data.get("config", {}),
             path=plugin_dir,
         )
@@ -189,25 +170,3 @@ class PluginLoader:
                     tools.append(wrapped)
 
         return tools
-
-    def _load_agents_from_py(self, py_path: Path) -> list[Any]:
-        """从 agents.py 加载 CrewAgent 子类。"""
-        spec = importlib.util.spec_from_file_location(
-            f"_plugin_{py_path.parent.name}_agents", str(py_path)
-        )
-        if spec is None or spec.loader is None:
-            return []
-        module = importlib.util.module_from_spec(spec)
-        try:
-            spec.loader.exec_module(module)
-        except Exception as e:  # noqa: BLE001
-            log.warning("执行 %s 失败：%s", py_path, e)
-            return []
-
-        agents: list[Any] = []
-        for attr_name in dir(module):
-            attr = getattr(module, attr_name)
-            if isinstance(attr, type) and hasattr(attr, "run") and hasattr(attr, "name"):
-                # 看起来像 CrewAgent 子类
-                agents.append(attr)
-        return agents

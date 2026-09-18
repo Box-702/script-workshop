@@ -94,7 +94,7 @@
 - `app/crew/`：**剧组 Agent**（导演 / 美术指导 / 摄影指导）。
 - `app/media/`：**参考资产流水线**（定妆图 → 视觉质检 → 注册 → 回填镜头）。
 - `app/video/`：视频 Provider 抽象层 + 异步任务队列 + 连续性解析（尚未接入投递路径）+ FFmpeg 拼接。
-- `app/plugin/`：插件系统（内置 / 用户级 / 项目级）。插件 `mcp:` 清单段已能解析，MCP 执行层尚未接线。
+- `app/plugin/`：插件系统（内置 / 用户级 / 项目级，tool 型插件）。
 - `app/api/`：**REST 路由包**，按域拆分为 system / projects / versions / agent_runs / chat / video / plugins；统一经 `api/deps.py` 取依赖。
 - `app/store.py`：业务持久化（SQLAlchemy，Postgres / SQLite）。
 - `frontend/`：Vue 3 + Vite 单页，三栏布局（聊天 + 创作区 + Inspector）。

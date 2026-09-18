@@ -10,7 +10,6 @@
 # =====================================================================
 
 import os
-import sys
 from functools import lru_cache
 from pathlib import Path
 
@@ -19,19 +18,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 项目根目录（仓库根），与 .env、docker-compose.yml 同级。
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
-# 桌面模式检测：PyInstaller 打包后 sys.frozen=True，或 desktop.py 设置了标记。
-_DESKTOP_MODE = getattr(sys, "frozen", False) or getattr(sys, "_desktop_mode", False)
-
-# 桌面模式下的用户数据目录（跨平台）。
-def _desktop_data_dir() -> Path:
-    if sys.platform == "win32":
-        base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
-    elif sys.platform == "darwin":
-        base = Path.home() / "Library" / "Application Support"
-    else:
-        base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-    return base / "ScriptWorkshop"
 
 
 class Settings(BaseSettings):
@@ -45,13 +31,9 @@ class Settings(BaseSettings):
     )
 
     # ---------- 业务数据库（Postgres，可回退 SQLite） ----------
-    # 桌面模式默认用 SQLite（无需外部服务），开发/Docker 模式默认用 Postgres。
+    # 开发/Docker 模式默认用 Postgres；本机免部署时在 .env 换 SQLite。
     database_url: str = Field(
-        default=(
-            f"sqlite:///{_desktop_data_dir() / 'script_agent.db'}"
-            if _DESKTOP_MODE
-            else "postgresql+psycopg://script:script@localhost:5432/script_agent"
-        ),
+        default="postgresql+psycopg://script:script@localhost:5432/script_agent",
         alias="DATABASE_URL",
     )
 
@@ -115,6 +97,16 @@ class Settings(BaseSettings):
     # ffmpeg 可执行文件路径（抽帧/拼接用）；留空则用 PATH 里的 ffmpeg。
     ffmpeg_path: str = Field(default="", alias="FFMPEG_PATH")
 
+    # ---------- 配音（TTS） ----------
+    # 视频模型没有「文字→语音」通路，台词语音由 TTS 合成后按时间轴混入成片。
+    # key 留空时回落 MINIMAX_API_KEY（TTS 与视频同厂商，零配置可用）。
+    tts_provider: str = Field(default="minimax", alias="TTS_PROVIDER")
+    tts_api_key: str = Field(default="", alias="TTS_API_KEY")
+    tts_base_url: str = Field(default="", alias="TTS_BASE_URL")
+    tts_model: str = Field(default="speech-02-hd", alias="TTS_MODEL")
+    # 台词混入时的环境音音量（0-1），防止人声被环境音盖住。
+    dubbing_bg_volume: float = Field(default=0.25, alias="DUBBING_BG_VOLUME")
+
     # ---------- 服务 ----------
     # 默认只监听本机：全部 API 无鉴权，且可设置任意工作目录，绝不能默认暴露到局域网。
     api_host: str = Field(default="127.0.0.1", alias="API_HOST")
@@ -123,11 +115,7 @@ class Settings(BaseSettings):
 
     # ---------- 工作目录（默认落盘到项目下 data/，不存在会自动创建） ----------
     # 剧本以「文件」形式存到 data/<剧名>/01原稿 等子目录；数据库承担聊天与 Agent 工作流。
-    # 桌面模式默认写到用户数据目录，开发模式默认写到项目下 data/。
-    workspace_root: str = Field(
-        default=str(_desktop_data_dir() / "workspace") if _DESKTOP_MODE else "",
-        alias="WORKSPACE_ROOT",
-    )
+    workspace_root: str = Field(default="", alias="WORKSPACE_ROOT")
     workspace_persist: bool = Field(default=True, alias="WORKSPACE_PERSIST")
 
     @property

@@ -15,6 +15,7 @@
 from .base import Modality, ModelConfig, ProviderSpec
 from .client import LLM, build_llm
 from .image import ImageClient, build_image_client
+from .tts import TTSClient, build_tts_client
 from .providers import (
     all_provider_specs,
     get_provider_spec,
@@ -24,6 +25,7 @@ from .registry import (
     describe_providers,
     resolve_chat,
     resolve_image,
+    resolve_tts,
     resolve_vision,
 )
 from .vision import VisionClient
@@ -35,13 +37,16 @@ __all__ = [
     "ModelConfig",
     "ProviderSpec",
     "ImageClient",
+    "TTSClient",
     "VisionClient",
     "build_image_client",
+    "build_tts_client",
     "get_provider_spec",
     "all_provider_specs",
     "register_provider",
     "resolve_chat",
     "resolve_vision",
     "resolve_image",
+    "resolve_tts",
     "describe_providers",
 ]

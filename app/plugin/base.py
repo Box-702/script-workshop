@@ -20,8 +20,6 @@ log = logging.getLogger(__name__)
 class PluginType(str, Enum):
     """插件类型。"""
     TOOL = "tool"
-    AGENT = "agent"
-    SKILL = "skill"
 
 
 @dataclass
@@ -44,15 +42,6 @@ class ToolDef:
 
 
 @dataclass
-class MCPServerDef:
-    """MCP Server 定义（来自 plugin.yaml 的 mcp 段）。"""
-    command: str = ""
-    args: list[str] = field(default_factory=list)
-    env: dict[str, str] = field(default_factory=dict)
-    url: str = ""  # HTTP 传输的远程 URL
-
-
-@dataclass
 class PluginManifest:
     """插件清单（解析自 plugin.yaml）。
 
@@ -64,7 +53,6 @@ class PluginManifest:
     author: str = ""
     type: PluginType = PluginType.TOOL
     tools: list[ToolDef] = field(default_factory=list)
-    mcp: MCPServerDef | None = None
     config_schema: dict[str, Any] = field(default_factory=dict)
     # ---- 运行时填充 ----
     path: Path = field(default_factory=Path)
@@ -89,11 +77,6 @@ class PluginManifest:
                 }
                 for t in self.tools
             ],
-            "mcp": {
-                "command": self.mcp.command,
-                "args": self.mcp.args,
-                "url": self.mcp.url,
-            } if self.mcp else None,
             "config_schema": self.config_schema,
             "path": str(self.path),
             "enabled": self.enabled,
@@ -102,14 +85,9 @@ class PluginManifest:
 
 @dataclass
 class Plugin:
-    """插件运行时对象。
-
-    包含清单 + 已加载的工具/Agent 实例。
-    """
+    """插件运行时对象：清单 + 已加载的工具实例。"""
     manifest: PluginManifest
     langchain_tools: list[BaseTool] = field(default_factory=list)
-    crew_agents: list[Any] = field(default_factory=list)
-    mcp_tools: list[BaseTool] = field(default_factory=list)
     error: str | None = None
 
     @property
@@ -122,11 +100,10 @@ class Plugin:
 
     def all_tools(self) -> list[BaseTool]:
         """返回该插件提供的所有 LangChain 工具。"""
-        return self.langchain_tools + self.mcp_tools
+        return list(self.langchain_tools)
 
     def to_dict(self) -> dict[str, Any]:
         d = self.manifest.to_dict()
         d["tool_count"] = len(self.all_tools())
-        d["agent_count"] = len(self.crew_agents)
         d["error"] = self.error
         return d

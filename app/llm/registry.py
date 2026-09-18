@@ -258,3 +258,26 @@ def describe_providers() -> list[dict[str, Any]]:
         }
         for s in all_provider_specs()
     ]
+
+
+def resolve_tts(settings: Any, store: Any = None) -> ModelConfig | None:
+    """TTS 模型：显式 TTS_* > MINIMAX_API_KEY 环境变量回落。
+
+    minimax 不在 llm 厂商表（它只作为视频 provider 存在），所以不走
+    _from_settings，直接读环境变量——与 MiniMaxProvider 的取 key 方式一致。
+    """
+    provider = _canonical(_settings_attr(settings, "tts_provider")) or "minimax"
+    api_key = _settings_attr(settings, "tts_api_key")
+    base_url = _settings_attr(settings, "tts_base_url")
+    if not api_key and provider == "minimax":
+        api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
+    if not api_key:
+        return None
+    return ModelConfig(
+        provider=provider,
+        label="MiniMax 语音合成" if provider == "minimax" else provider,
+        model=_settings_attr(settings, "tts_model") or "speech-02-hd",
+        api_key=api_key,
+        base_url=base_url or ("https://api.minimax.cn" if provider == "minimax" else ""),
+        source="env",
+    )

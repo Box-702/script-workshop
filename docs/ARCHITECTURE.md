@@ -21,7 +21,7 @@ app/
 ├── crew/       剧组 Agent   —— 导演 / 美术指导 / 摄影指导
 ├── media/      参考资产层   —— 定妆图 → 质检 → 注册 → 回填
 ├── video/      视频生成层   —— Provider 抽象 + 队列 + 连续性 + 拼接
-└── plugin/     插件系统     —— 内置 / 用户级 / 项目级（MCP 执行层未接线，见技术债）
+└── plugin/     插件系统     —— 内置 / 用户级 / 项目级（tool 型插件）
 ```
 
 `app/api/` 内部再分一层，避免路由堆在一个大文件里：
@@ -247,9 +247,6 @@ ProviderSpec(
 
 | 位置 | 问题 | 影响 | 建议 |
 |---|---|---|---|
-| `app/video/continuity.py` | `resolve_continuity()` 实现了却没被任何生产路径调用（只有单测在调） | 导演规划的 `reference_group` / `chain_from` 不会真的变成 `reference_videos`，跨镜接力的最后一步没生效 | 在 `app/api/video.py` 的 `_submit_video_job()` 里，用项目最新视频版本的 shots 解析连续性，把结果并入该镜头的 `reference_videos` 后再投递 |
-| `app/plugin/mcp.py` | `mcp_tools_to_langchain()` 与 `MCPConnection` 都没被调用；loader 只把 plugin.yaml 的 `mcp:` 段解析进 manifest | 插件系统的 MCP 支持是**声明层齐、执行层空**（`Plugin.mcp_tools` 永远为空） | 在 `PluginLoader.load_plugin()` 里：若 `manifest.mcp` 存在则建连接并 `plugin.mcp_tools = mcp_tools_to_langchain(conn)`。注意这会引入启动时拉起外部进程/网络的行为，需要同时加超时与失败降级 |
-| `app/plugins/builtin` | 目录没有 `__init__.py`，且 `script-workshop.spec` 的 `datas` 只收了 `frontend/dist` | 源码/可编辑安装下正常；**打 wheel 或 PyInstaller 包时内置插件会丢失**（loader 是按路径读 `app/plugins/builtin`，不是按模块导入） | spec 的 `datas` 加一条 `(app/plugins, 'app/plugins')`；若要随 wheel 分发则补 `__init__.py` 或改用 `package_data` |
 | 全仓 | `ruff` 配置为 `select = ["E","F","I","B","UP"]`、`line-length = 100`，但全量检查有 200 处 `E501` 等未清 | 一旦在 CI 里加 ruff 就会红 | 要么清账（主要是长行拆分），要么把 `E501` 移出 select。`app/api/`、`app/llm/` 这两个新目录目前是全绿的 |
 | `app/chat/conductor.py` | 每轮对话重建图与全部工具闭包 | 实测开销可忽略（纯对象装配，无 I/O；LLM 调用才是耗时大头） | 仅在压测显示瓶颈后再做，需要先把 collector 从闭包挪进图状态 |
 | `app/agent/skills.py` | 进行中的任务只有内存态（历史已落库） | 重启后运行中的任务面板清空——这是真实情况，不假装还活着 | 若要多实例部署再接队列 |
