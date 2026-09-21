@@ -24,7 +24,9 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    restart: unless-stopped
+    # 不随 Docker Desktop 自启：需要时手动 `docker compose up -d postgres`
+    # （restart: unless-stopped 会让容器跟着 Docker 守护进程开机自启，用户不要这个行为）
+    restart: "no"
 
 volumes:
   pgdata:

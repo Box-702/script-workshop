@@ -611,11 +611,17 @@ def _finalize_turn(
     store: Store, collector: _Collector, conversation_id: str | None,
     project_id: str | None, message: str, meta: dict[str, Any] | None,
     final_text: str, events: list[dict[str, Any]],
+    save_user: bool = True,
 ) -> dict[str, Any]:
-    """保存消息并返回对话结果。"""
+    """保存消息并返回对话结果。
+
+    save_user=False：流式路径已在流开始时保存过用户消息，这里只补 assistant，
+    避免同一条用户消息重复入库。
+    """
     thread = conversation_id or GLOBAL_THREAD
     new_project_id = collector.get("project_id") or project_id
-    store.save_chat_message(thread_id=thread, role="user", content=message, payload=[meta or {}])
+    if save_user:
+        store.save_chat_message(thread_id=thread, role="user", content=message, payload=[meta or {}])
     store.save_chat_message(
         thread_id=thread, role="assistant", content=final_text,
         payload=collector.get("payloads") or [], events=events,
@@ -844,6 +850,10 @@ def chat_stream(
         store, llm, runner,
         conversation_id, project_id, message, meta,
     )
+    # 用户消息在流开始时就落库：生成中途断开（客户端切走/刷新）或出错时，
+    # 至少保住用户说过的话——此前只在整轮结束时统一保存，一旦中断整段丢失。
+    thread = conversation_id or GLOBAL_THREAD
+    store.save_chat_message(thread_id=thread, role="user", content=message, payload=[meta or {}])
     events: list[dict[str, Any]] = []
     final_text = ""
     last_update_text = ""
@@ -875,12 +885,23 @@ def chat_stream(
                         yield {"event": "token", "data": {"delta": delta}}
         if not final_text:
             final_text = last_update_text
+    except GeneratorExit:
+        # 客户端断开（切走会话/刷新页面）：把已生成的部分回复落库，避免全部丢失。
+        if final_text:
+            store.save_chat_message(
+                thread_id=thread, role="assistant", content=final_text,
+                payload=collector.get("payloads") or [], events=events,
+            )
+        raise
     except Exception as e:  # noqa: BLE001
         log.warning("对话流式运行失败：%s", e)
         yield {"event": "error", "data": {"message": str(e)}}
         return
 
-    result = _finalize_turn(store, collector, conversation_id, project_id, message, meta, final_text, events)
+    result = _finalize_turn(
+        store, collector, conversation_id, project_id, message, meta, final_text, events,
+        save_user=False,
+    )
     yield {"event": "done", "data": result}
 
 

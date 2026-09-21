@@ -11,7 +11,7 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import HeaderBar from './components/HeaderBar.vue'
 import ProjectTree from './components/ProjectTree.vue'
 import ChatList from './components/ChatList.vue'
-import WorkspaceTree from './components/WorkspaceTree.vue'
+import AssetPanel from './components/AssetPanel.vue'
 import ChatThread from './components/ChatThread.vue'
 import ChatComposer from './components/ChatComposer.vue'
 import ViewerPanel from './components/ViewerPanel.vue'
@@ -19,9 +19,10 @@ import CommandPalette from './components/CommandPalette.vue'
 import SearchOverlay from './components/SearchOverlay.vue'
 import NewProjectModal from './components/NewProjectModal.vue'
 import WorkspaceModal from './components/WorkspaceModal.vue'
+import SettingsModal from './components/settings/SettingsModal.vue'
 import PatchDrawer from './components/PatchDrawer.vue'
 import Toast from './components/Toast.vue'
-import { loadTree, loadWorkspace, loadGlobalConversations, loadWorkspaceTree, restorePanelPrefs, toggleRightPanel, toggleLeftPanel, notify, store } from './stores/app'
+import { loadTree, loadWorkspace, loadGlobalConversations, loadWorkspaceTree, restorePanelPrefs, toggleRightPanel, toggleLeftPanel, notify, store, pollVideoBatch, ensureBatchPolling, loadModelStatus } from './stores/app'
 import { importProject } from './api'
 
 // ---- 命令面板 ----
@@ -139,6 +140,16 @@ function globalKey(e) {
   }
 }
 
+// ---- 左栏分段：对话 / 项目 / 素材 ----
+// 工作区（本地文件夹映射）对单机用途没意义，换成素材面板：上传/登记参考视频。
+const LEFT_TABS = ['chat', 'project', 'assets']
+const _savedTab = localStorage.getItem('sw-left-tab')
+const leftTab = ref(LEFT_TABS.includes(_savedTab) ? _savedTab : 'chat')
+function switchLeftTab(tab) {
+  leftTab.value = tab
+  localStorage.setItem('sw-left-tab', tab)
+}
+
 watch(() => store.rightOpen, () => clampAll())
 
 onMounted(async () => {
@@ -150,6 +161,10 @@ onMounted(async () => {
   await loadTree()
   await loadGlobalConversations()
   await loadWorkspaceTree()
+  // 启动时若已有进行中的批次，立刻接上全局轮询（刷新页面不断进度）
+  await pollVideoBatch()
+  ensureBatchPolling()
+  await loadModelStatus()
 })
 onUnmounted(() => {
   endDrag()
@@ -174,15 +189,30 @@ onUnmounted(() => {
     ref="layoutEl" class="layout"
     @dragenter="onDragEnter" @dragover="onDragOver"
   >
-    <!-- 左：聊天 + 项目导航 + 工作区 -->
+    <!-- 左：对话 / 项目 / 素材（分段切换） -->
     <div class="panel-wrap" :class="{ closed: !store.leftOpen }" :style="{ '--pw': leftW + 'px' }">
       <div class="pane pane-left" :style="{ width: leftW + 'px' }">
-        <div class="left-top">
-          <ChatList />
+        <div class="left-tabs" role="tablist">
+          <button
+            :class="['ltab', { active: leftTab === 'chat' }]"
+            role="tab" :aria-selected="leftTab === 'chat'"
+            @click="switchLeftTab('chat')"
+          >对话</button>
+          <button
+            :class="['ltab', { active: leftTab === 'project' }]"
+            role="tab" :aria-selected="leftTab === 'project'"
+            @click="switchLeftTab('project')"
+          >项目</button>
+          <button
+            :class="['ltab', { active: leftTab === 'assets' }]"
+            role="tab" :aria-selected="leftTab === 'assets'"
+            @click="switchLeftTab('assets')"
+          >素材</button>
         </div>
-        <div class="left-divider"></div>
-        <div class="left-bottom">
-          <WorkspaceTree @open-workspace="store.showWorkspace = true" />
+        <div class="left-body">
+          <ChatList v-if="leftTab === 'chat'" />
+          <ProjectTree v-else-if="leftTab === 'project'" />
+          <AssetPanel v-else />
         </div>
       </div>
       <div class="split" @pointerdown="startDrag('left', $event)"></div>
@@ -202,6 +232,10 @@ onUnmounted(() => {
   <SearchOverlay />
   <NewProjectModal />
   <WorkspaceModal />
+  <SettingsModal
+    :open="store.showSettings"
+    @close="store.showSettings = false; loadModelStatus()"
+  />
   <PatchDrawer />
   <Toast />
 </template>
@@ -219,12 +253,23 @@ onUnmounted(() => {
   background: var(--panel);
   border-right: 1px solid var(--line);
 }
-.left-top { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
-.left-divider {
-  flex: none; height: 1px; background: var(--border, #222);
-  position: relative; cursor: row-resize;
+/* 左栏分段头：对话 / 项目 / 素材 */
+.left-tabs {
+  flex: none; display: flex; gap: 2px; padding: 8px 8px 6px;
+  border-bottom: 1px solid var(--line);
 }
-.left-bottom { flex: 0 0 200px; min-height: 120px; overflow: hidden; display: flex; flex-direction: column; }
+.ltab {
+  flex: 1; height: 26px; border: 1px solid transparent; border-radius: 7px;
+  background: transparent; color: var(--muted); font-size: 11.5px;
+  cursor: pointer; transition: all 150ms var(--ease);
+}
+.ltab:hover { color: var(--ink); background: color-mix(in oklch, var(--ink) 5%, transparent); }
+.ltab.active {
+  color: var(--ink); font-weight: 600;
+  background: var(--select); border-color: var(--line);
+}
+.left-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.left-body > * { flex: 1; min-height: 0; }
 .pane-mid { display: flex; flex-direction: column; min-height: 0; min-width: 0; flex: 1; }
 .split { flex: none; width: 8px; cursor: col-resize; position: relative; }
 .split::before {
@@ -289,7 +334,6 @@ onUnmounted(() => {
   .panel-right-wrap.closed { width: 0; }
   .panel-right-wrap .pane-right { width: min(var(--pw), calc(100vw - 28px)) !important; height: 100%; }
   .panel-right-wrap .split { display: none; }
-  .left-bottom { flex-basis: 170px; }
 }
 
 @media (max-width: 760px) {

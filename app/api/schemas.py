@@ -114,7 +114,8 @@ class ProviderUpdate(BaseModel):
 class ModelPreferenceSet(BaseModel):
     task_type: str = Field(min_length=1)
     provider_id: str | None = None
-    model_name: str = Field(min_length=1)
+    # provider_id=null 表示清除界面指定、回落 .env，此时 model_name 允许为空
+    model_name: str = Field(default="")
     params: dict[str, Any] = Field(default_factory=dict)
     is_default: bool = True
 
@@ -137,6 +138,9 @@ class VideoPromptReview(BaseModel):
     prompt: str = Field(min_length=1, max_length=8000)
     decision: Literal["save", "approve", "needs_revision"] = "save"
     note: str = Field(default="", max_length=2000)
+    # 用户自备参考视频（白模/previz/前镜成片等公网 URL）。
+    # None=本次不改动；列表=整体替换（空列表即清空），最多 3 条。
+    reference_videos: list[str] | None = Field(default=None, max_length=3)
 
 
 class VideoPromptBulkReview(BaseModel):

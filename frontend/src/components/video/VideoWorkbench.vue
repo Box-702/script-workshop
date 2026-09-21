@@ -6,7 +6,7 @@
 // 可选的成片审批。分镜生成串行推进，前镜成片自动作为后镜接力参考。
 // =====================================================================
 
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import ShotList from './ShotList.vue'
 import VideoPlayer from './VideoPlayer.vue'
 import PromptEditor from './PromptEditor.vue'
@@ -14,7 +14,7 @@ import {
   store, loadShots, loadVideoJobs, submitVideoJob, playVideo, closeVideo, openPromptEditor,
   closePromptEditor, loadPromptHistory, saveShotPrompt, bulkReviewPrompts,
   setVideoMode, setVideoResolution, startVideoBatch,
-  pollVideoBatch, batchCommand,
+  pollVideoBatch, ensureBatchPolling, batchCommand,
 } from '../../stores/app'
 
 const RESOLUTIONS = [
@@ -69,15 +69,12 @@ async function onStart() {
   }
 }
 
-// 轮询：批次进行中每 3 秒刷新进度；组件挂载时也拉一次镜头与任务。
-let timer = null
+// 批次轮询收敛到 store 层（ensureBatchPolling）：切走视图也能继续跟进，
+// 进度经 store.videoBatch 响应式同步回来；这里只负责进面板时的首次拉取。
 onMounted(async () => {
   await Promise.all([loadShots(), loadVideoJobs(), pollVideoBatch()])
-  timer = setInterval(() => {
-    if (running.value || awaiting.value) pollVideoBatch()
-  }, 3000)
+  ensureBatchPolling()
 })
-onUnmounted(() => clearInterval(timer))
 
 async function onPromptReview(payload) {
   await saveShotPrompt(payload, payload.decision, payload.prompt_review_note)

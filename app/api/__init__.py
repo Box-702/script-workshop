@@ -20,11 +20,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from . import agent_runs, chat, projects, system, versions, video
+from . import agent_runs, assets, chat, projects, system, versions, video
 
 router = APIRouter(prefix="/api")
 
-for _sub in (system, projects, versions, agent_runs, chat, video):
+for _sub in (system, projects, versions, agent_runs, chat, video, assets):
     router.include_router(_sub.router)
 
 __all__ = ["router"]

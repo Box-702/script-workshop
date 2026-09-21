@@ -196,8 +196,26 @@ class Conversation(Base):
     title: Mapped[str] = mapped_column(default="新对话")
     created_at: Mapped[datetime] = mapped_column(default=_now)
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
-
     project: Mapped[Project | None] = relationship(back_populates="conversations")
+
+
+class MediaAsset(Base):
+    """项目媒体素材（参考视频等）。
+
+    source=upload：文件落盘在 workspace_root 下（file_path 相对路径），
+    url 为本服务回放地址；source=url：直接登记外部公网链接（MiniMax 等服务商要求公网可访问）。
+    """
+
+    __tablename__ = "media_assets"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    kind: Mapped[str] = mapped_column(default="video")          # video | image | audio
+    name: Mapped[str] = mapped_column(default="")
+    source: Mapped[str] = mapped_column(default="upload")        # upload | url
+    url: Mapped[str] = mapped_column(default="")
+    file_path: Mapped[str | None] = mapped_column(default=None)  # 相对 workspace_root
+    created_at: Mapped[datetime] = mapped_column(default=_now)
 
 
 class ChatMessage(Base):
@@ -410,6 +428,16 @@ class Store:
                     conn.execute(text("ALTER TABLE script_versions ADD COLUMN milestone VARCHAR"))
                 if "breakdown_json" not in cols_ver:
                     conn.execute(text("ALTER TABLE script_versions ADD COLUMN breakdown_json VARCHAR DEFAULT '{}'"))
+
+            # ---- conversations 表：project_id 需可空（全局对话）----
+            # 「聊天与项目解耦」只在新库里生效；老 Postgres 库的列仍是 NOT NULL，
+            # 导致建全局对话必撞 NotNullViolation。SQLite 不支持 DROP NOT NULL，
+            # 但 SQLite 库都是模型改版后新建的（create_all 即 nullable），无需处理。
+            if "conversations" in tables and not self.engine.url.get_backend_name().startswith("sqlite"):
+                cols_conv = {c["name"]: c for c in insp.get_columns("conversations")}
+                if cols_conv.get("project_id") and not cols_conv["project_id"].get("nullable"):
+                    with self.engine.begin() as conn:
+                        conn.execute(text("ALTER TABLE conversations ALTER COLUMN project_id DROP NOT NULL"))
 
         except Exception as e:  # noqa: BLE001
             # 表不存在或已是最新：迁移失败不阻塞启动，但必须可观测——
@@ -772,6 +800,37 @@ class Store:
 
     # ---- Conversation（项目下的对话线程）----
 
+    # ---- Media assets ----
+    def add_asset(self, project_id: str, *, kind: str, name: str, source: str,
+                  url: str, file_path: str | None = None, id: str | None = None) -> MediaAsset:
+        with self.session() as s:
+            a = MediaAsset(id=id or gen_id("asset"), project_id=project_id, kind=kind,
+                           name=name, source=source, url=url, file_path=file_path)
+            s.add(a)
+            s.commit()
+            s.refresh(a)
+            return a
+
+    def list_assets(self, project_id: str, kind: str | None = None) -> list[MediaAsset]:
+        with self.session() as s:
+            q = s.query(MediaAsset).filter_by(project_id=project_id)
+            if kind:
+                q = q.filter_by(kind=kind)
+            return q.order_by(MediaAsset.created_at.desc()).all()
+
+    def get_asset(self, asset_id: str) -> MediaAsset | None:
+        with self.session() as s:
+            return s.get(MediaAsset, asset_id)
+
+    def delete_asset(self, asset_id: str) -> MediaAsset | None:
+        with self.session() as s:
+            a = s.get(MediaAsset, asset_id)
+            if not a:
+                return None
+            s.delete(a)
+            s.commit()
+            return a
+
     def create_conversation(self, project_id: str | None = None, title: str = "新对话") -> Conversation:
         with self.session() as s:
             c = Conversation(id=gen_id("conv"), project_id=project_id, title=title)
@@ -897,6 +956,8 @@ class Store:
             p = s.get(ApiProvider, provider_id)
             if not p:
                 return False
+            # 先解除模型偏好对该 provider 的引用（FK 约束 + 语义上偏好随之失效）
+            s.query(ModelPreference).filter_by(provider_id=provider_id).delete()
             s.delete(p)
             s.commit()
             return True

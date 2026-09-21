@@ -44,6 +44,18 @@ watch(activeTaskCount, (newVal, oldVal) => {
   }
 })
 
+// 场景聚焦空态兜底：直接点「场景聚焦」tab 且从未选过场景时，
+// 自动聚焦第一场——否则该视图永远空白，没有任何提示。
+watch(
+  () => [store.view, store.viewerScript, store.focusedSceneId],
+  ([view, script, focused]) => {
+    if (view !== 'scene' || focused) return
+    const scenes = script?.scenes || []
+    if (scenes.length) focusScene(scenes[0].id)
+  },
+  { immediate: true },
+)
+
 const latestVersionId = computed(() => store.versions[0]?.id || null)
 const latestMilestone = computed(() => store.versions[0]?.milestone || null)
 const MILESTONE_ZH = { draft: '草稿', candidate: '候选', final: '终稿' }

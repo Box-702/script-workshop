@@ -62,6 +62,9 @@
               </span>
               <span v-if="shot.lighting" class="meta-tag">光线 {{ shot.lighting }}</span>
               <span v-if="shot.mood" class="meta-tag">情绪 {{ shot.mood }}</span>
+              <span v-if="shot.reference_videos?.length" class="meta-tag ref-tag">
+                参考视频 ×{{ shot.reference_videos.length }}
+              </span>
             </div>
             <div v-if="shot.camera?.path" class="shot-path">运动 {{ truncate(shot.camera.path, 80) }}</div>
             <div v-if="shot.spatial" class="shot-path">空间 {{ truncate(shot.spatial, 80) }}</div>
@@ -268,6 +271,11 @@ function truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '...' : s }
 .prompt-label { color: var(--warn); margin-right: 4px; }
 .prompt-label.approved { color: var(--ok); }
 .prompt-label.needs_revision { color: var(--bad); }
+
+.meta-tag.ref-tag {
+  color: var(--cyan);
+  background: color-mix(in oklch, var(--cyan) 10%, transparent);
+}
 
 .shot-actions-row { display: flex; gap: 4px; }
 </style>

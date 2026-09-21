@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from ..deps import (  # noqa: F401
+    batch_manager,
     llm,
     settings,
     store,
@@ -21,9 +22,15 @@ from ..deps import (  # noqa: F401
 )
 
 __all__ = [
+    "batch_manager",
     "llm",
     "settings",
     "store",
     "subagent_runner",
     "video_manager",
 ]
+
+
+def reset_llm() -> None:
+    """用户增删 provider / 改模型偏好后调用：下一个请求重建 LLM 单例。"""
+    llm.cache_clear()

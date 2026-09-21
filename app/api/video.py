@@ -88,6 +88,7 @@ def create_provider(payload: ProviderCreate) -> dict[str, Any]:
         config=payload.config,
         enabled=payload.enabled,
     )
+    deps.reset_llm()
     return {"id": p.id, "name": p.name, "label": p.label, "kind": p.kind}
 
 
@@ -137,6 +138,7 @@ def update_provider(provider_id: str, payload: ProviderUpdate) -> dict[str, Any]
     p = deps.store().update_api_provider(provider_id, **fields)
     if not p:
         raise HTTPException(404, "Provider 不存在")
+    deps.reset_llm()
     return {"id": p.id, "ok": True}
 
 
@@ -145,6 +147,7 @@ def delete_provider(provider_id: str) -> dict[str, Any]:
     """删除 Provider。"""
     if not deps.store().delete_api_provider(provider_id):
         raise HTTPException(404, "Provider 不存在")
+    deps.reset_llm()
     return {"ok": True}
 
 
@@ -195,6 +198,7 @@ def set_preference(payload: ModelPreferenceSet) -> dict[str, Any]:
         params=payload.params,
         is_default=payload.is_default,
     )
+    deps.reset_llm()
     return {"id": pref.id, "task_type": pref.task_type, "ok": True}
 
 
@@ -278,6 +282,20 @@ def get_video_version(version_id: str) -> dict[str, Any]:
     }
 
 
+def _normalize_reference_videos(urls: list[str] | None) -> list[str]:
+    """清洗用户自备参考视频 URL：去空白、去重、只留 http(s)、上限 3 条。"""
+    cleaned: list[str] = []
+    for raw in urls or []:
+        url = str(raw or "").strip()
+        if not url.startswith(("http://", "https://")):
+            continue
+        if url not in cleaned:
+            cleaned.append(url)
+        if len(cleaned) >= 3:
+            break
+    return cleaned
+
+
 @router.put("/projects/{project_id}/video-versions/{version_id}/shots/{shot_id}/prompt")
 def review_video_prompt(
     project_id: str,
@@ -303,6 +321,8 @@ def review_video_prompt(
         "needs_review"
     )
     target["prompt_review_note"] = payload.note.strip()
+    if payload.reference_videos is not None:
+        target["reference_videos"] = _normalize_reference_videos(payload.reference_videos)
 
     labels = {
         "approve": "批准视频 Prompt",
@@ -708,14 +728,15 @@ def _batch_submit(
     """构造批次提交回调，只为已批准 Prompt 的镜头创建任务。"""
     store = deps.store()
 
+    # 版本快照在批次启动时取一次：批次期间镜头计划不会变（改 Prompt 会开新版本）。
+    if version_id:
+        version = store.get_video_version(version_id)
+        shots = version.shots if version else []
+    else:
+        versions = sorted(store.list_video_versions(project_id), key=lambda v: v.created_at)
+        shots = versions[-1].shots if versions else []
+
     def _submit(shot_id: str) -> str | None:
-        shots = []
-        if version_id:
-            version = store.get_video_version(version_id)
-            shots = version.shots if version else []
-        else:
-            versions = sorted(store.list_video_versions(project_id), key=lambda v: v.created_at)
-            shots = versions[-1].shots if versions else []
         shot = next((s for s in shots if isinstance(s, dict) and s.get("id") == shot_id), None)
         if shot is None or not shot.get("video_prompt") or shot.get("prompt_status") != "approved":
             return None
@@ -724,6 +745,10 @@ def _batch_submit(
                 shot_id=shot_id, provider=provider, model=model,
                 prompt=shot.get("video_prompt") or "", version_id=version_id,
                 params=({"resolution": resolution} if resolution else {}),
+                # 镜头级用户自备参考素材随镜头计划透传；
+                # 与自动接力（_auto_references）不冲突：显式给的键优先。
+                reference_videos=[u for u in shot.get("reference_videos") or [] if u],
+                reference_images=[u for u in shot.get("reference_images") or [] if u],
             ))
             return job.id
         except Exception as e:  # noqa: BLE001

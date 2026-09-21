@@ -1,11 +1,8 @@
 <template>
   <div class="chat-list">
     <div class="chat-header">
-      <div>
-        <span class="chat-eyebrow">WORKSPACE</span>
-        <span class="chat-title">对话空间</span>
-      </div>
-      <button class="btn-new" @click="onNew" title="新建聊天" aria-label="新建聊天">+</button>
+      <span class="chat-title">对话</span>
+      <button class="btn-new" @click="onNew" title="新建聊天" aria-label="新建聊天">＋</button>
     </div>
 
     <!-- 全局对话 -->
@@ -16,7 +13,7 @@
         :class="['conv-item', { active: isActive(null, conv.id) }]"
         @click="onSelect(null, conv.id)"
       >
-        <span class="conv-icon">01</span>
+        <span class="conv-dot" aria-hidden="true"></span>
         <span class="conv-name" v-if="editingId !== conv.id">{{ conv.title }}</span>
         <input
           v-else
@@ -51,7 +48,7 @@
           :class="['conv-item', { active: isActive(p.id, conv.id) }]"
           @click="onSelect(p.id, conv.id)"
         >
-          <span class="conv-icon">02</span>
+          <span class="conv-dot" aria-hidden="true"></span>
           <span class="conv-name" v-if="editingId !== conv.id">{{ conv.title }}</span>
           <input
             v-else
@@ -66,7 +63,9 @@
             <button class="btn-tiny" @click.stop="onDelete(p.id, conv.id)" title="删除" aria-label="删除">×</button>
           </span>
         </div>
-        <button class="conv-add" @click="onNewProject(p.id)">＋ 新对话</button>
+        <button class="conv-add" @click="onNewProject(p.id)">
+          <span aria-hidden="true">＋</span> 新对话
+        </button>
       </div>
     </div>
   </div>
@@ -134,59 +133,88 @@ function onDelete(pid, convId) {
 .chat-list { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 .chat-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 13px 14px 12px; border-bottom: 1px solid var(--line);
+  padding: 12px 12px 10px; border-bottom: 1px solid var(--line);
 }
-.chat-header > div { display: flex; flex-direction: column; gap: 4px; }
-.chat-eyebrow { color: var(--gold); font: 700 9px/1 var(--mono); letter-spacing: .14em; }
-.chat-title { font-size: 13px; font-weight: 650; color: var(--ink); }
+.chat-title { font-size: 12.5px; font-weight: 650; color: var(--ink); }
 .btn-new {
-  width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--line);
-  background: transparent; color: var(--muted); cursor: pointer; font-size: 15px;
-  display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 7px;
+  border: 1px solid var(--line); background: transparent;
+  color: var(--muted); cursor: pointer; font-size: 13px; line-height: 1;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+  transition: color 150ms var(--ease), border-color 150ms var(--ease), background 150ms var(--ease);
 }
-.btn-new:hover { border-color: var(--gold); color: var(--gold); background: var(--gold-soft); }
+.btn-new:hover {
+  border-color: color-mix(in oklch, var(--gold) 45%, var(--line));
+  color: var(--gold); background: var(--gold-soft);
+}
 
-.conv-section { flex: 1; overflow-y: auto; padding: 4px 0; }
+.conv-section { flex: 1; overflow-y: auto; padding: 6px 0; }
 
 .conv-item {
-  display: flex; align-items: center; gap: 6px; padding: 6px 12px;
-  cursor: pointer; font-size: 12px; transition: background .14s, color .14s;
+  position: relative;
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px 7px 14px;
+  margin: 1px 6px; border-radius: 7px;
+  cursor: pointer; font-size: 12px; color: var(--muted);
+  transition: background .14s var(--ease), color .14s var(--ease);
 }
-.conv-item:hover { background: color-mix(in oklch, var(--ink) 4%, transparent); }
-.conv-item.active { background: color-mix(in oklch, var(--gold) 8%, transparent); color: var(--ink); }
-.conv-icon { color: var(--dim); font: 9px/1 var(--mono); flex-shrink: 0; }
+.conv-item:hover { background: color-mix(in oklch, var(--ink) 5%, transparent); color: var(--ink); }
+.conv-item.active {
+  background: color-mix(in oklch, var(--gold) 9%, transparent); color: var(--ink);
+}
+.conv-item.active::before {
+  content: ''; position: absolute; left: 0; top: 7px; bottom: 7px; width: 2px;
+  border-radius: 2px; background: var(--gold);
+}
+.conv-dot {
+  flex: none; width: 5px; height: 5px; border-radius: 50%;
+  background: transparent; border: 1px solid var(--dim);
+  transition: background .14s, border-color .14s;
+}
+.conv-item.active .conv-dot { background: var(--gold); border-color: var(--gold); }
 .conv-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conv-count {
-  font-size: 10px; color: var(--text2, #666); background: rgba(255,255,255,.05);
-  padding: 1px 5px; border-radius: 3px;
+  flex: none; font-size: 10px; color: var(--dim);
+  font-variant-numeric: tabular-nums;
 }
 .conv-actions { display: flex; gap: 2px; opacity: 0; pointer-events: none; transition: opacity 140ms var(--ease); }
 .conv-item:hover .conv-actions, .conv-item:focus-within .conv-actions { opacity: 1; pointer-events: auto; }
 .btn-tiny {
-  background: none; border: none; cursor: pointer; font-size: 10px; padding: 2px;
-  opacity: .6; color: var(--muted);
+  background: transparent; border: none; border-radius: 4px;
+  cursor: pointer; font-size: 10px; padding: 3px 4px;
+  opacity: .55; color: var(--muted);
+  transition: opacity 120ms, background 120ms;
 }
-.btn-tiny:hover { opacity: 1; }
+.btn-tiny:hover { opacity: 1; background: color-mix(in oklch, var(--ink) 8%, transparent); }
 .conv-edit {
-  flex: 1; background: var(--code-bg, #111); border: 1px solid var(--gold, #e94560);
-  border-radius: 3px; color: var(--text, #eee); font-size: 12px; padding: 2px 4px; outline: none;
+  flex: 1; min-width: 0; background: var(--code-bg, #111);
+  border: 1px solid color-mix(in oklch, var(--gold) 45%, var(--line));
+  border-radius: 5px; color: var(--text, #eee); font-size: 12px; padding: 3px 6px; outline: none;
 }
-.conv-empty { padding: 16px 12px; font-size: 11px; color: var(--text2, #555); text-align: center; }
-.conv-add {
-  display: block; width: 100%; padding: 5px 12px 6px 30px; font-size: 11px; color: var(--dim);
-  cursor: pointer; opacity: 0; transition: opacity .15s, color .15s; text-align: left;
-  background: transparent; border: 0; font-weight: 500;
-}
-.conv-group:hover .conv-add { opacity: 1; }
-.conv-add:hover { color: var(--gold); }
+.conv-empty { padding: 18px 12px; font-size: 11px; color: var(--dim); text-align: center; }
 
-.conv-group { border-top: 1px solid rgba(255,255,255,.03); }
-.group-header {
-  display: flex; align-items: center; gap: 6px; padding: 6px 12px;
-  cursor: pointer; font-size: 12px; font-weight: 600;
+/* 「＋ 新对话」：常显的安静虚线胶囊（不再是 hover 才冒出来的裸文字） */
+.conv-add {
+  display: flex; align-items: center; gap: 5px;
+  width: calc(100% - 20px); margin: 2px 10px 6px; padding: 5px 9px;
+  border: 1px dashed var(--line); border-radius: 7px;
+  background: transparent; color: var(--dim);
+  cursor: pointer; font-size: 11.5px; font-weight: 500; text-align: left;
+  transition: color 150ms var(--ease), border-color 150ms var(--ease), background 150ms var(--ease);
 }
-.group-header:hover { background: rgba(255,255,255,.03); }
-.expand-icon { font-size: 9px; color: var(--gold); }
-.group-name { flex: 1; }
-.group-children { padding-left: 8px; }
+.conv-add:hover {
+  color: var(--gold);
+  border-color: color-mix(in oklch, var(--gold) 40%, var(--line));
+  background: var(--gold-soft);
+}
+
+.conv-group { border-top: 1px solid color-mix(in oklch, var(--line) 55%, transparent); }
+.group-header {
+  display: flex; align-items: center; gap: 6px; padding: 8px 10px 5px;
+  cursor: pointer; font-size: 11px; font-weight: 650; color: var(--dim);
+  letter-spacing: .02em;
+}
+.group-header:hover { color: var(--muted); }
+.expand-icon { font-size: 8px; color: var(--dim); }
+.group-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group-children { padding-bottom: 2px; }
 </style>

@@ -46,3 +46,7 @@ clear_db.py
 .claude/
 .dsh/
 *.local
+
+# ---------- Blender 白模渲染产物（体积大，blend 源文件与脚本仍提交） ----------
+blender/renders/
+blender/*.blend1

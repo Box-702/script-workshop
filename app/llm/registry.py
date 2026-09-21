@@ -139,8 +139,31 @@ def _from_db_row(
 # ---------- 三个能力维度的解析入口 ----------
 
 
+def _explicit_chat_pref(store: Any) -> ModelConfig | None:
+    """「设置 → 模型」里用户显式设为默认的对话模型（task_type=chat 的偏好）。"""
+    if store is None:
+        return None
+    try:
+        pref = store.get_model_preference("chat")
+        if pref and pref.provider_id:
+            row = store.get_api_provider(pref.provider_id)
+            if row and row.enabled and row.api_key:
+                return _from_db_row(row, override_model=pref.model_name,
+                                    params=getattr(pref, "params", None) or {})
+    except Exception as e:  # noqa: BLE001
+        log.debug("读取对话模型偏好失败：%s", e)
+    return None
+
+
 def resolve_chat(settings: Any, store: Any = None) -> ModelConfig | None:
-    """对话模型：显式指定 > .env 优先级链 > DB。"""
+    """对话模型：用户在设置里显式选择 > CHAT_PROVIDER > .env 链 > DB 兜底。
+
+    UI 显式偏好排最高——「让用户在界面上选模型」必须能压过 .env，
+    否则设置入口形同虚设；未做过选择时保持 .env 的既有行为。
+    """
+    pref = _explicit_chat_pref(store)
+    if pref:
+        return pref
     forced = _canonical(_settings_attr(settings, "chat_provider"))
     if forced:
         return _from_settings(forced, settings) or _from_store(store, "llm", "chat") or None

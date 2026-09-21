@@ -118,9 +118,9 @@ async function doDeleteConversation(pid, c) {
       </div>
 
       <div v-for="p in filteredProjects" :key="p.id" class="proj">
-        <!-- 项目行 -->
+        <!-- 项目行：父级锚点，与子项明确分层 -->
         <div
-          class="item"
+          class="proj-row"
           :class="{ active: store.pid === p.id }"
           @click="toggleProject(p.id)"
         >
@@ -146,7 +146,7 @@ async function doDeleteConversation(pid, c) {
                 'drag-over': dragOverScene?.sceneId === sc.id && dragOverScene?.projectId === p.id
               }"
               draggable="true"
-              @click="focusScene(sc.id)"
+              @click="focusScene(sc.id, p.id)"
               @dragstart="onSceneDragStart($event, p.id, sc)"
               @dragover="onSceneDragOver($event, p.id, sc)"
               @dragleave="onSceneDragLeave"
@@ -236,11 +236,25 @@ h2 { font-size: 13px; margin: 0; font-weight: 700; color: var(--ink); letter-spa
 .empty p { margin: 2px 0; }
 .empty-sub { font-size: 11px; }
 
-/* 项目行：滑入动画 */
+/* 项目行：父级锚点——更重、更亮，一眼和子项区分 */
+.proj-row {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 8px; border-radius: 7px; cursor: pointer;
+  font-size: 13px; font-weight: 650; color: var(--ink);
+  letter-spacing: 0.01em;
+  transition: all 200ms var(--ease);
+  position: relative;
+  animation: slide-in-left 250ms var(--ease) both;
+}
+.proj-row:hover { background: color-mix(in oklch, var(--ink) 5%, transparent); }
+.proj-row.active { background: color-mix(in oklch, var(--gold) 8%, transparent); }
+.proj-row .arrow { color: var(--muted); }
+
+/* 子项：比父级小一号、淡一档 */
 .item {
   display: flex; align-items: center; gap: 6px;
-  padding: 5px 8px; border-radius: 6px; cursor: pointer;
-  font-size: 12.5px; color: var(--muted);
+  padding: 4px 8px; border-radius: 6px; cursor: pointer;
+  font-size: 12px; color: var(--muted);
   transition: all 200ms var(--ease);
   position: relative;
   animation: slide-in-left 250ms var(--ease) both;
@@ -267,9 +281,12 @@ h2 { font-size: 13px; margin: 0; font-weight: 700; color: var(--ink); letter-spa
   to { transform: scaleY(1); }
 }
 
-/* 展开/折叠动画 */
+/* 展开/折叠动画：缩进 + 左导轨线，表达从属关系 */
 .children {
   overflow: hidden;
+  margin: 2px 0 6px 11px;
+  padding-left: 9px;
+  border-left: 1px solid color-mix(in oklch, var(--line) 85%, transparent);
   animation: expand-in 300ms var(--ease) both;
 }
 @keyframes expand-in {
@@ -299,9 +316,9 @@ h2 { font-size: 13px; margin: 0; font-weight: 700; color: var(--ink); letter-spa
 /* 分组标签 */
 .group { margin-bottom: 4px; }
 .group-label {
-  font-size: 10px; color: var(--dim); font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.3px;
-  padding: 6px 8px 2px;
+  font-size: 9.5px; color: var(--dim); font-weight: 650;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  padding: 7px 8px 3px; opacity: 0.85;
   animation: slide-in-left 200ms var(--ease) both;
 }
 
@@ -334,11 +351,18 @@ h2 { font-size: 13px; margin: 0; font-weight: 700; color: var(--ink); letter-spa
   border: 1px solid var(--line); background: var(--bg); color: var(--ink);
 }
 
-/* 新建对话 */
+/* 新建对话：常显虚线胶囊，压掉全局青色按钮样式 */
 .add-conv {
-  font-size: 11.5px; color: var(--dim); padding: 4px 8px;
-  opacity: 0; transition: opacity 200ms var(--ease);
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11.5px; font-weight: 500; color: var(--dim);
+  padding: 4px 10px; margin: 2px 0 4px 6px;
+  border: 1px dashed var(--line); border-radius: 7px;
+  background: transparent; cursor: pointer; text-align: left;
+  transition: color 150ms var(--ease), border-color 150ms var(--ease), background 150ms var(--ease);
 }
-.group:hover .add-conv { opacity: 1; }
-.add-conv:hover { color: var(--muted); }
+.add-conv:hover {
+  color: var(--gold);
+  border-color: color-mix(in oklch, var(--gold) 40%, var(--line));
+  background: var(--gold-soft);
+}
 </style>

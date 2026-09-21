@@ -56,7 +56,9 @@ export const store = reactive({
   streaming: false,            // 是否正在流式生成
   checked: reactive(new Map()), // runId -> Set(已勾选 patch 下标)
   showNewProject: false,        // 新建剧本弹窗开关
-  showWorkspace: false,         // 工作目录设置弹窗开关
+  showWorkspace: false,             // 工作目录设置弹窗开关
+  showSettings: false,
+  modelInfo: null,                  // {available, provider, name, source} —— 顶栏徽标用
   hint: '',                     // 输入区下方提示文字
   workspace: null,              // 当前工作目录信息 { root, configured, exists }
   toast: null,                  // 非阻塞通知 { id, message, type }
@@ -162,14 +164,25 @@ export function toggleLeftPanel() {
   localStorage.setItem('sw-layout:leftOpen', store.leftOpen ? '1' : '0')
 }
 
-/** 聚焦到单个场景（右栏显示场景详情）。传 null 退出聚焦。 */
-export function focusScene(sceneId) {
+/** 聚焦到单个场景（右栏显示场景详情）。传 null 退出聚焦。
+ *  必须带上场景所属项目：右栏的剧本文本（viewerScript）可能还没加载，
+ *  或停留在另一个项目上——只设 focusedSceneId 会渲染出空白。 */
+export async function focusScene(sceneId, projectId) {
   store.focusedSceneId = sceneId
   if (sceneId && !store.rightOpen) {
     store.rightOpen = true
     localStorage.setItem('sw-layout:rightOpen', '1')
   }
   if (sceneId) store.view = 'scene'
+  if (!sceneId) return
+  // 场景所属项目与当前右栏上下文不一致（或尚未加载）时，先切过去再取剧本。
+  if (projectId && store.pid !== projectId) {
+    store.pid = projectId
+    store.convId = null // 旧对话不属于新项目，交给后端回落到该项目默认对话
+    await loadViewer()
+  } else if (!store.viewerScript) {
+    await loadViewer()
+  }
 }
 /** 开/右侧查看面板；偏好记忆在 localStorage（默认收起）。 */
 export function toggleRightPanel() {
@@ -261,6 +274,13 @@ export async function selectProject(pid) {
 
 /** 选中对话：加载历史消息并刷新右侧面板。token 沿用发起导航时的值。 */
 export async function selectConversation(pid, convId, token = ++_navSeq) {
+  // 已经在这个对话里：不打断进行中的生成、不清屏。
+  // 此前再点一次当前对话会 abort 流 + 清空消息，而生成中的内容尚未落库，
+  // 拉回历史为空，看起来像「整个对话消失」。
+  if (store.pid === pid && store.convId === convId && (store.streaming || store.messages.length)) {
+    store.hint = '已在该对话中。'
+    return
+  }
   _navSeq = token
   if (_streamAbort) _streamAbort.abort()
   store.pid = pid
@@ -344,6 +364,11 @@ export async function newGlobalConversation() {
 
 /** 选中一个全局对话（不关联项目）。 */
 export async function selectGlobalConversation(convId) {
+  // 同 selectConversation：点击当前全局对话不做任何事，保护进行中的流。
+  if (store.pid === null && store.convId === convId && (store.streaming || store.messages.length)) {
+    store.hint = '已在该对话中。'
+    return
+  }
   const token = ++_navSeq
   store.pid = null
   store.convId = convId
@@ -767,6 +792,14 @@ export async function loadPromptHistory(shotId) {
   }
 }
 
+/** 拉取当前生效的对话模型信息（顶栏徽标 + 设置弹窗展示）。 */
+export async function loadModelStatus() {
+  try {
+    const d = await api('/status')
+    store.modelInfo = d.model || null
+  } catch { store.modelInfo = null }
+}
+
 /** 加载项目的视频生成任务列表。 */
 export async function loadVideoJobs() {
   if (!store.pid) { store.videoJobs = []; return }
@@ -802,6 +835,7 @@ export async function submitVideoJob(shot) {
       model,
       prompt: shot.video_prompt,
       version_id: store.videoVersionId,
+      reference_videos: (shot.reference_videos || []).map(s => (s || '').trim()).filter(Boolean),
     })
     notify(`视频任务已提交：${shot.subject || shot.id}`, 'ok')
     await loadVideoJobs()
@@ -848,6 +882,7 @@ export async function startVideoBatch() {
     })
     notify(`批量生成已启动（${store.videoMode === 'auto' ? '自动' : '审批'}模式）`, 'ok')
     await loadVideoJobs()
+    ensureBatchPolling()
   } catch (e) {
     notify(`批量生成启动失败：${e.message}`, 'error')
   }
@@ -861,6 +896,34 @@ export async function pollVideoBatch() {
     store.videoBatch = b.id ? b : null
     if (b.id && (b.status === 'running' || b.status === 'awaiting_approval')) await loadVideoJobs()
   } catch { /* 忽略轮询错误 */ }
+}
+
+let batchPollTimer = null
+/**
+ * 全局批次轮询：只要批次在跑（running / awaiting_approval），不管用户
+ * 停在哪个视图都持续跟进，并在状态跃迁时给出通知。幂等——重复调用只
+ * 会保留一个定时器；批次进入终态（done/failed/aborted）后自动停止。
+ */
+export function ensureBatchPolling() {
+  if (batchPollTimer) return
+  batchPollTimer = setInterval(async () => {
+    const b = store.videoBatch
+    if (!store.pid || !b || (b.status !== 'running' && b.status !== 'awaiting_approval')) {
+      clearInterval(batchPollTimer)
+      batchPollTimer = null
+      return
+    }
+    const before = b.status
+    await pollVideoBatch()
+    const after = store.videoBatch
+    if (before === 'running' && after?.status === 'awaiting_approval') {
+      notify('镜头成片完成，等待审批', 'info')
+    }
+    if (after?.status === 'done' && before !== 'done') {
+      notify(`批次完成（${after.total} 镜）`, 'ok')
+      await loadShots()
+    }
+  }, 3000)
 }
 
 /** 向批次下达命令：approve / reroll / abort。 */
@@ -940,6 +1003,8 @@ export async function saveShotPrompt(shot, decision = 'save', note = '') {
         prompt: shot.video_prompt,
         decision,
         note,
+        // 用户自备参考视频（白模/previz 等 URL，≤3）；无则传空数组清空
+        reference_videos: (shot.reference_videos || []).map(s => (s || '').trim()).filter(Boolean),
       },
     )
     await loadShots()

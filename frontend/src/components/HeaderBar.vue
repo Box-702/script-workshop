@@ -2,14 +2,44 @@
 // =====================================================================
 // HeaderBar.vue —— 顶栏
 //
-// 品牌 + 命令面板入口 + Inspector 开关。
+// 品牌 + 命令面板入口 + 批次状态徽标 + Inspector 开关。
 // 桌面端使用原生窗口标题栏，不需要自定义窗口控制按钮。
 // =====================================================================
 
-import { store, toggleRightPanel, toggleLeftPanel } from '../stores/app'
+import { computed, onMounted } from 'vue'
+import { store, toggleRightPanel, toggleLeftPanel, loadModelStatus } from '../stores/app'
 import LogoMark from './LogoMark.vue'
 
 const emit = defineEmits(['open-palette'])
+
+// 当前生效的对话模型（顶栏徽标，点击打开设置）
+const modelChip = computed(() => {
+  const m = store.modelInfo
+  if (!m?.available) return null
+  const short = { DeepSeek: 'DS' }[m.provider] || m.provider
+  return { label: `${short} · ${m.name}` }
+})
+
+function openSettings() {
+  store.showSettings = true
+}
+
+onMounted(loadModelStatus)
+
+// 批次状态徽标：批次在跑（running / awaiting_approval）时显示，点击直达视频工作台。
+const batchBadge = computed(() => {
+  const b = store.videoBatch
+  if (!b) return null
+  const pos = `${Math.min(b.current_index + 1, b.total)}/${b.total}`
+  if (b.status === 'running') return { status: 'running', text: `生成中 ${pos}` }
+  if (b.status === 'awaiting_approval') return { status: 'awaiting', text: `待审批 ${pos}` }
+  return null
+})
+
+function openWorkbench() {
+  store.view = 'video'
+  if (!store.rightOpen) toggleRightPanel()
+}
 </script>
 
 <template>
@@ -36,6 +66,22 @@ const emit = defineEmits(['open-palette'])
       <span class="cmd-icon">⌕</span>
       <span class="cmd-text">搜索或执行命令…</span>
       <kbd>Ctrl+K</kbd>
+    </button>
+
+    <button
+      v-if="modelChip"
+      class="model-chip"
+      title="当前对话模型 · 点击更换"
+      @click="openSettings"
+    >{{ modelChip.label }}</button>
+
+    <button
+      v-if="batchBadge"
+      :class="['batch-chip', batchBadge.status]"
+      title="打开视频工作台"
+      @click="openWorkbench"
+    >
+      <span class="dot" aria-hidden="true"></span>{{ batchBadge.text }}
     </button>
 
     <button class="ghost small new-project" @click="store.showNewProject = true">
@@ -104,6 +150,39 @@ header button { flex: none; white-space: nowrap; height: 28px; padding: 0 10px; 
 .panel-toggle svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .panel-toggle .fill-hint { fill: currentColor; stroke: none; opacity: 0.5; }
 .panel-toggle.on { background: var(--select); border-color: var(--line-strong); color: var(--ink); }
+
+/* 当前模型徽标：安静的文字 chip，hover 提示可点 */
+.model-chip {
+  height: 28px; padding: 0 10px; border-radius: 8px;
+  border: 1px solid var(--line); background: transparent;
+  color: var(--muted); font-size: 11px; font-family: var(--mono);
+  cursor: pointer; white-space: nowrap;
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.model-chip:hover { color: var(--ink); border-color: var(--line-strong, var(--line)); }
+
+/* 批次状态徽标：生成中（青，脉冲）/ 待审批（金） */
+.batch-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px;
+  padding: 0 11px; border-radius: 8px; font-size: 11.5px; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+  border: 1px solid color-mix(in oklch, var(--cyan) 40%, var(--line));
+  color: var(--cyan);
+  background: color-mix(in oklch, var(--cyan) 9%, transparent);
+  transition: filter var(--dur) var(--ease);
+}
+.batch-chip:hover { filter: brightness(1.15); }
+.batch-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.batch-chip.running .dot { animation: batch-pulse 1.2s ease-in-out infinite; }
+.batch-chip.awaiting {
+  border-color: color-mix(in oklch, var(--gold) 45%, var(--line));
+  color: var(--gold);
+  background: color-mix(in oklch, var(--gold) 10%, transparent);
+}
+@keyframes batch-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.72); }
+}
 
 @media (max-width: 760px) {
   header { min-height: 48px; padding: 8px 10px; gap: 7px; }

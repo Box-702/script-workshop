@@ -34,6 +34,35 @@ export async function importProject(formData) {
   return res.json()
 }
 
+/** 上传素材文件（参考视频等）。 */
+export async function uploadAsset(projectId, file) {
+  const res = await fetch(`${BASE}/projects/${projectId}/assets/upload`, {
+    method: 'POST',
+    body: (() => { const fd = new FormData(); fd.append('file', file); return fd })(),
+  })
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}))
+    throw new Error(j.detail || res.statusText)
+  }
+  return res.json()
+}
+
+/** 登记一个外部素材 URL。 */
+export async function addAssetUrl(projectId, url, name = '') {
+  return api(`/projects/${projectId}/assets/url`, 'POST', { url, name })
+}
+
+/** 列出项目素材。 */
+export async function listAssets(projectId, kind) {
+  const q = kind ? `?kind=${encodeURIComponent(kind)}` : ''
+  return api(`/projects/${projectId}/assets${q}`)
+}
+
+/** 删除素材。 */
+export async function deleteAsset(assetId) {
+  return api(`/assets/${assetId}`, 'DELETE')
+}
+
 /**
  * SSE 流式对话。
  * @param {object} body  { project_id, conversation_id, message, meta }

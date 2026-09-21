@@ -30,6 +30,36 @@
     </div>
 
     <div class="editor-field">
+      <label>参考视频 <span>可选，≤3 条公网 URL（白模 / previz / 前镜成片）</span></label>
+      <div class="ref-video-list">
+        <div v-for="(_, i) in refVideos" :key="i" class="ref-row">
+          <span class="ref-idx">{{ i + 1 }}</span>
+          <input
+            v-model.trim="refVideos[i]"
+            class="ref-input"
+            type="url"
+            inputmode="url"
+            placeholder="https://…（mp4 直链）"
+            @keydown.enter.prevent
+          />
+          <button
+            v-if="refVideos.length > 1"
+            class="ref-del"
+            title="移除这条参考视频"
+            aria-label="移除参考视频"
+            @click="refVideos.splice(i, 1)"
+          >×</button>
+        </div>
+        <button v-if="refVideos.length < 3" class="ref-add" @click="refVideos.push('')">
+          ＋ 添加参考视频
+        </button>
+      </div>
+      <div class="field-foot">
+        <span>随任务作为 reference_video 提交；自动接力的前镜成片不会被它覆盖。</span>
+      </div>
+    </div>
+
+    <div class="editor-field">
       <label for="prompt-review-note">审阅备注 <span>可选</span></label>
       <textarea
         id="prompt-review-note"
@@ -89,10 +119,13 @@ const emit = defineEmits(['close', 'review'])
 
 const editedPrompt = ref('')
 const note = ref('')
+const refVideos = ref([''])
 
 watch(() => props.shot, (s) => {
   editedPrompt.value = s?.video_prompt || ''
   note.value = s?.prompt_review_note || ''
+  const saved = (s?.reference_videos || []).map(v => (v || '').trim()).filter(Boolean)
+  refVideos.value = saved.length ? [...saved] : ['']
 }, { immediate: true })
 
 const statusLabel = computed(() => ({
@@ -108,6 +141,7 @@ function review(decision) {
     ...props.shot,
     video_prompt: editedPrompt.value.trim(),
     prompt_review_note: note.value.trim(),
+    reference_videos: refVideos.value.map(v => (v || '').trim()).filter(Boolean),
     decision,
   })
 }
@@ -157,6 +191,32 @@ function formatTime(value) {
   resize: vertical; box-sizing: border-box; line-height: 1.45;
 }
 .note-textarea:focus { outline: none; border-color: var(--gold); }
+.ref-video-list { display: flex; flex-direction: column; gap: 6px; }
+.ref-row { display: flex; align-items: center; gap: 6px; }
+.ref-idx {
+  flex: none; width: 18px; height: 18px; display: grid; place-items: center;
+  border-radius: 4px; border: 1px solid var(--line);
+  color: var(--cyan); font: 600 10px/1 var(--mono);
+}
+.ref-input {
+  flex: 1; min-width: 0; padding: 7px 9px; background: var(--code-bg);
+  border: 1px solid var(--line); border-radius: 6px;
+  color: var(--text, #eee); font-size: 12px; font-family: var(--mono);
+}
+.ref-input:focus { outline: none; border-color: var(--cyan); }
+.ref-input::placeholder { color: var(--dim); }
+.ref-del {
+  flex: none; width: 22px; height: 22px; border: 1px solid var(--line);
+  border-radius: 5px; background: transparent; color: var(--muted);
+  cursor: pointer; font-size: 12px; line-height: 1;
+}
+.ref-del:hover { color: var(--bad); border-color: var(--bad); }
+.ref-add {
+  align-self: flex-start; padding: 4px 10px; border: 1px dashed var(--line);
+  border-radius: 6px; background: transparent; color: var(--muted);
+  cursor: pointer; font-size: 11px;
+}
+.ref-add:hover { color: var(--ink); border-color: var(--line-strong); }
 .history { margin: 4px 0 14px; border-top: 1px solid var(--line); padding-top: 10px; }
 .history-head { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-bottom: 5px; }
 .history-head span:last-child { color: var(--dim); }
