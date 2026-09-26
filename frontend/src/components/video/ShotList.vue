@@ -71,9 +71,13 @@
             <div v-if="shot.background_action" class="shot-path">
               背景 {{ truncate(shot.background_action, 80) }}
             </div>
+            <div v-if="shot.final_frame" class="shot-path">终帧 {{ truncate(shot.final_frame, 80) }}</div>
             <div v-if="shot.video_prompt" class="shot-prompt">
               <span :class="['prompt-label', shot.prompt_status]">
                 {{ promptStatusLabel(shot) }}
+              </span>
+              <span v-if="shot.prompt_audit?.length" class="audit-tag" title="提示词自动审计提醒，在审阅面板查看详情">
+                ⚠ {{ shot.prompt_audit.length }}
               </span>
               <span class="prompt-text">{{ truncate(shot.video_prompt, 100) }}</span>
             </div>
@@ -91,7 +95,7 @@
               <button
                 class="btn-tiny"
                 @click.stop="$emit('edit-prompt', shot)"
-              >编辑 Prompt</button>
+              >编辑提示词</button>
             </div>
           </div>
         </div>
@@ -271,6 +275,11 @@ function truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '...' : s }
 .prompt-label { color: var(--warn); margin-right: 4px; }
 .prompt-label.approved { color: var(--ok); }
 .prompt-label.needs_revision { color: var(--bad); }
+.audit-tag {
+  margin-right: 4px; padding: 0 4px; border-radius: 3px;
+  color: var(--warn); border: 1px solid color-mix(in oklch, var(--warn) 40%, transparent);
+  font-variant-numeric: tabular-nums;
+}
 
 .meta-tag.ref-tag {
   color: var(--cyan);

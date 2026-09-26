@@ -1,10 +1,11 @@
 # =====================================================================
-# importer.py —— 原著文件导入（.txt / .md / .docx）
+# importer.py —— 原著文件导入（.txt / .md / .docx / .pdf）
 #
 # 新建剧本时支持直接上传文件：
 #   - .txt / .md：按文本读取（优先 UTF-8，回退 GBK）；
 #   - .docx：用标准库 zipfile + xml 解析 word/document.xml 的段落文本
-#     （不引入 python-docx 依赖）。
+#     （不引入 python-docx 依赖）；
+#   - .pdf：用 pypdf 逐页提取文本（纯 Python，无系统依赖）。
 # 解析出的纯文本交给项目创建流程（切片 + 建知识库）。
 # =====================================================================
 
@@ -24,6 +25,7 @@ SUPPORTED_EXTENSIONS: dict[str, str] = {
     ".md": "Markdown",
     ".markdown": "Markdown",
     ".docx": "Word 文档",
+    ".pdf": "PDF 文档",
 }
 
 
@@ -43,11 +45,30 @@ def parse_file(filename: str, data: bytes) -> str:
     ext = extension_of(filename)
     if ext == ".docx":
         return _parse_docx(data)
+    if ext == ".pdf":
+        return _parse_pdf(data)
     if ext in {".txt", ".md", ".markdown"}:
         return _decode_text(data)
     raise ValueError(
         f"不支持的文件类型 {ext or '(无扩展名)'}，支持：{', '.join(SUPPORTED_EXTENSIONS)}"
     )
+
+
+def _parse_pdf(data: bytes) -> str:
+    """用 pypdf 逐页提取 PDF 文本；扫描版（无文本层）给出明确错误。"""
+    try:
+        from pypdf import PdfReader
+    except ImportError as e:  # pragma: no cover - 依赖已随包安装
+        raise ValueError("PDF 解析依赖 pypdf 未安装，请先 uv sync") from e
+    try:
+        reader = PdfReader(BytesIO(data))
+        pages = [(page.extract_text() or "") for page in reader.pages]
+    except Exception as e:  # noqa: BLE001 - 损坏/加密的 PDF 给出可读错误
+        raise ValueError(f"无法解析 PDF 文件：{e}") from e
+    text = "\n".join(p.strip() for p in pages if p and p.strip())
+    if not text.strip():
+        raise ValueError("这份 PDF 没有可提取的文本层（可能是扫描版），请先用 OCR 转成文字再导入")
+    return text
 
 
 def _decode_text(data: bytes) -> str:

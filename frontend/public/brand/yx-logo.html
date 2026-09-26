@@ -1,0 +1,432 @@
+<!doctype html>
+<!-- =====================================================================
+  映叙 YINGXU · 品牌图形规范 v4（斜绕剪辑带版）
+  自包含；dev 下访问 http://localhost:5173/brand/yx-logo.html
+  v4：全面重画——竖屏剧集屏 + 斜向环绕的剪辑带（带从框沿下穿过形成
+  环绕关系，无齿孔无花饰）+ 屏内一颗灵感金点。
+  几何用 <symbol> + CSS 变量统一定义，颜色经变量注入。
+  ===================================================================== -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>映叙 YINGXU · Logo 规范 v6</title>
+<style>
+  :root {
+    --bg: #0e1016; --panel: #14171f; --panel2: #191d27; --line: #262b38;
+    --ink: #eef2f6; --muted: #9aa4b2; --dim: #6e7887;
+    --cyan: #4e97ae; --cyan-deep: #2f7b93; --band: #c6d0da; --gold: #d2a562;
+    --light-bg: #f4f7fa; --light-panel: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", -apple-system, sans-serif;
+    line-height: 1.75; font-size: 14.5px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 56px 28px 96px; }
+  h1 { font-size: 30px; letter-spacing: .02em; margin: 0 0 6px; font-weight: 750; }
+  h2 { font-size: 20px; margin: 68px 0 6px; padding-top: 28px; border-top: 1px solid var(--line); font-weight: 700; }
+  .slogan { color: var(--gold); letter-spacing: .28em; font-size: 13px; margin: 0 0 4px; }
+  .lede { color: var(--muted); max-width: 66ch; }
+  .lede b { color: var(--ink); }
+  .en { font-family: "Space Grotesk", "Manrope", Inter, sans-serif; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
+  .card.light { background: var(--light-panel); border-color: #dfe6ee; color: #1c2730; }
+  .badge { display: inline-block; font-size: 11px; letter-spacing: .12em; color: var(--cyan); border: 1px solid color-mix(in srgb, var(--cyan) 45%, transparent); border-radius: 999px; padding: 2px 10px; margin-bottom: 14px; }
+  .badge.gold { color: var(--gold); border-color: color-mix(in srgb, var(--gold) 45%, transparent); }
+  .rationale { color: var(--muted); font-size: 13px; margin: 14px 0 0; }
+  .rationale b { color: var(--ink); }
+  .demo { display: flex; align-items: center; justify-content: center; min-height: 210px; border-radius: 12px; background: var(--panel2); }
+  .card.light .demo { background: var(--light-bg); }
+  code { font-family: ui-monospace, Consolas, monospace; color: var(--cyan); font-size: 12px; }
+
+  .swatches { display: flex; gap: 12px; flex-wrap: wrap; }
+  .swatch { width: 132px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+  .swatch .chip { height: 64px; }
+  .swatch .meta { padding: 8px 10px; font-size: 11.5px; color: var(--muted); background: var(--panel); }
+  .swatch .meta b { display: block; color: var(--ink); font-size: 12.5px; }
+
+  .favicon-stage { display: flex; align-items: flex-end; gap: 28px; flex-wrap: wrap; }
+  .favicon-cell { text-align: center; }
+  .favicon-cell .cap { font-size: 11px; color: var(--dim); margin-top: 8px; }
+  .tabmock { background: #20242e; border-radius: 8px 8px 0 0; padding: 5px 12px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid #2c313d; border-bottom: none; }
+  .tabmock span { font-size: 11.5px; color: #c6cdd8; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; color: var(--muted); }
+  th { color: var(--ink); background: var(--panel); }
+
+  .stage-hero {
+    display: flex; align-items: center; justify-content: center; gap: 64px;
+    background: radial-gradient(ellipse 70% 90% at 46% 42%, #131722 0%, #0e1016 70%);
+    border: 1px solid var(--line); border-radius: 20px; padding: 44px 20px;
+    flex-wrap: wrap;
+  }
+  .stage-hero .cap { color: var(--dim); font-size: 11px; text-align: center; margin-top: 12px; }
+</style>
+</head>
+<body>
+
+<!-- 唯一几何定义：所有展示处通过 <use> 引用；颜色经 CSS 变量注入 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="yx-mark" viewBox="0 0 48 48">
+      <defs>
+        <mask id="yxFilm" maskUnits="userSpaceOnUse" x="0" y="0" width="48" height="48">
+          <rect x="1" y="21" width="46" height="9.5" rx="2" fill="#fff"/>
+          <rect x="3" y="22.4" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="7.1" y="22.4" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="11.2" y="22.4" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="15.3" y="22.4" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="19.4" y="22.4" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="23.5" y="22.4" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="27.6" y="22.4" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="31.7" y="22.4" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="35.8" y="22.4" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="39.9" y="22.4" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="44" y="22.4" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="3" y="27.5" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="7.1" y="27.5" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="11.2" y="27.5" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="15.3" y="27.5" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="19.4" y="27.5" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="23.5" y="27.5" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="27.6" y="27.5" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="31.7" y="27.5" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="35.8" y="27.5" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="39.9" y="27.5" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+          <rect x="44" y="27.5" width="2.4" height="1.5" rx="0.4" fill="#000"/>
+        </mask>
+        <clipPath id="yxGlassClip"><rect x="14" y="8" width="20" height="32" rx="6"/></clipPath>
+      </defs>
+      <!-- 挤出侧板：后方偏移背板（右下露出 = 厚度） -->
+      <rect x="18.5" y="11.5" width="20" height="32" rx="6" fill="var(--yx-plate)" style="opacity:var(--yx-plate-o,1)"/>
+      <!-- 剪辑带在侧板上的转折面 -->
+      <path d="M34 18.4 L38.5 15.9 L38.5 22.1 L34 24.6 Z" fill="var(--yx-w)" style="opacity:var(--yx-w-o,1)"/>
+      <!-- 玻璃面板（正面） -->
+      <rect x="14" y="8" width="20" height="32" rx="6" fill="var(--yx-g)"/>
+      <!-- 胶片带正面段：齿孔镂空，两端被玻璃边缘裁掉 = 绕到背后 -->
+      <g transform="rotate(-29 24 24)" clip-path="url(#yxGlassClip)">
+        <rect x="1" y="21" width="46" height="9.5" rx="2" fill="var(--yx-b)" mask="url(#yxFilm)"/>
+      </g>
+      <!-- 屏框：右上开口 -->
+      <path d="M22 8 H20 Q14 8 14 14 V34 Q14 40 20 40 H28 Q34 40 34 34 V14"
+            stroke="var(--yx-f)" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <!-- 灵感光点：微光 + 本体 -->
+      <circle cx="24" cy="14.5" r="6" fill="var(--yx-d)" opacity="0.16"/>
+      <circle cx="24" cy="14.5" r="2.6" fill="var(--yx-d)"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+
+  <p class="slogan en">LET STORIES GROW INTO PICTURES</p>
+  <h1>映叙 <span class="en" style="color:var(--muted);font-weight:500;font-size:20px;letter-spacing:.3em;">YINGXU</span>
+    <span style="font-size:12px;color:var(--dim);font-weight:500;letter-spacing:.1em;margin-left:10px;">品牌图形 v6 · 3D 立体版</span>
+  </h1>
+  <p class="lede">AI 视频故事创作工作台 · 让故事长出画面。v6：<b>立起来</b>。竖屏是一块有厚度的玻璃面板（2.5D 挤出，右下露出侧板，flat 分面着色不用渐变）；胶片剪辑带是真的<b>绕过去</b>——正面带齿孔，拐过右边缘时在侧板上留一段压暗的转折、随即消失在背后；灵感金点带一圈微光悬在玻璃上。<b>三次元的那块屏，正在播放你的故事。</b></p>
+
+  <!-- ============ 1. 主 Logo ============ -->
+  <h2>一、优化后的主 Logo</h2>
+  <div class="stage-hero">
+    <div>
+      <svg width="170" height="170" viewBox="0 0 48 48" style="--yx-f:#4e97ae;--yx-b:#c6d0da;--yx-d:#d2a562;--yx-plate:#1f4e5f;--yx-g:#0f1822;--yx-w:#8fa3b0"><use href="#yx-mark"/></svg>
+      <div class="cap">深色主版</div>
+    </div>
+    <div>
+      <svg width="112" height="112" viewBox="0 0 48 48" style="--yx-f:#2f7b93;--yx-b:#2b3844;--yx-d:#b08a4e;--yx-plate:#1d5d73;--yx-g:#f2f7fa;--yx-w:#5e7887"><use href="#yx-mark"/></svg>
+      <div class="cap">浅色版</div>
+    </div>
+    <div>
+      <svg width="112" height="112" viewBox="0 0 48 48" style="--yx-f:#eef2f6;--yx-b:#eef2f6;--yx-d:#eef2f6"><use href="#yx-mark"/></svg>
+      <div class="cap">单色版</div>
+    </div>
+  </div>
+  <div class="grid" style="margin-top:16px;">
+    <div class="card"><span class="badge">玻璃竖屏 · 立起来的画布</span><p class="rationale">5:8 竖立比例不变，但这次它是一块<b>有厚度的玻璃面板</b>：深色玻璃正面 + 右下挤出的侧板，flat 分面着色（两块纯色，不用渐变）。3D 只用「厚度」表达，不抢内容的戏。</p></div>
+    <div class="card"><span class="badge">胶片剪辑带 · 真的绕过去</span><p class="rationale">带身两侧各一排齿孔（mask 镂空，任何背景成立）。3D 之后环绕关系终于物理正确：<b>正面贴着玻璃扫过 → 拐过右边缘 → 在侧板上留一段压暗的转折 → 消失在背后</b>。带子左右两端被玻璃边缘裁掉——它没有「伸出屏外」，它真的绕到了背面。</p></div>
+    <div class="card"><span class="badge">光点 · 玻璃上的灵感</span><p class="rationale">一颗 r2.6 的灵感金点悬在玻璃上，外围一圈 16% 透明度的微光——像监视器待机时亮着的那颗指示灯。全图唯一的暖色，安静而贵重。</p></div>
+  </div>
+
+  <!-- ============ 2. 图形标 ============ -->
+  <h2>二、独立图形标（App 图标 / 头像）</h2>
+  <div class="grid">
+    <div class="card">
+      <span class="badge">深底圆角容器</span>
+      <div class="demo">
+        <div style="width:112px;height:112px;border-radius:26px;background:#101420;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);">
+          <svg width="62" height="62" viewBox="0 0 48 48" style="--yx-f:#4e97ae;--yx-b:#c6d0da;--yx-d:#d2a562;--yx-plate:#1f4e5f;--yx-g:#0f1822;--yx-w:#8fa3b0"><use href="#yx-mark"/></svg>
+        </div>
+      </div>
+      <p class="rationale">图形占 58%；容器 <code>#101420</code> 比底色更深，托出竖屏与斜带。</p>
+    </div>
+    <div class="card light">
+      <span class="badge" style="color:#2f7b93;border-color:#a9cfdd;">浅底容器</span>
+      <div class="demo">
+        <div style="width:112px;height:112px;border-radius:26px;background:#ffffff;display:flex;align-items:center;justify-content:center;border:1px solid #e3e9f0;">
+          <svg width="62" height="62" viewBox="0 0 48 48" style="--yx-f:#2f7b93;--yx-b:#2b3844;--yx-d:#b08a4e;--yx-plate:#1d5d73;--yx-g:#f2f7fa;--yx-w:#5e7887"><use href="#yx-mark"/></svg>
+        </div>
+      </div>
+      <p class="rationale">文档、名片、浅色系统头像。</p>
+    </div>
+  </div>
+
+  <!-- ============ 3/4. 文字组合 ============ -->
+  <h2>三 / 四、中文组合与横向组合</h2>
+  <div class="grid">
+    <div class="card">
+      <span class="badge">「映叙」中文字标</span>
+      <div class="demo" style="gap:16px;">
+        <svg width="44" height="44" viewBox="0 0 48 48" style="--yx-f:#4e97ae;--yx-b:#c6d0da;--yx-d:#d2a562;--yx-plate:#1f4e5f;--yx-g:#0f1822;--yx-w:#8fa3b0"><use href="#yx-mark"/></svg>
+        <span style="font-size:34px;font-weight:760;letter-spacing:.08em;">映叙</span>
+      </div>
+      <p class="rationale">间距 = 一个光点直径（≈7px @44）；思源黑体 Heavy，字距 0.08em。</p>
+    </div>
+    <div class="card">
+      <span class="badge gold">「映叙 YINGXU」横向组合（主锁）</span>
+      <div class="demo" style="gap:15px;">
+        <svg width="40" height="40" viewBox="0 0 48 48" style="--yx-f:#4e97ae;--yx-b:#c6d0da;--yx-d:#d2a562;--yx-plate:#1f4e5f;--yx-g:#0f1822;--yx-w:#8fa3b0"><use href="#yx-mark"/></svg>
+        <span style="font-size:28px;font-weight:760;letter-spacing:.04em;">映叙</span>
+        <span style="width:1px;height:24px;background:var(--line);"></span>
+        <span class="en" style="font-size:13px;letter-spacing:.42em;color:var(--muted);">YINGXU</span>
+      </div>
+      <p class="rationale">顶栏默认锁。YINGXU 可换为「让故事长出画面」。</p>
+    </div>
+    <div class="card">
+      <span class="badge">竖版（启动页 / 封面）</span>
+      <div class="demo" style="flex-direction:column;gap:13px;">
+        <svg width="56" height="56" viewBox="0 0 48 48" style="--yx-f:#4e97ae;--yx-b:#c6d0da;--yx-d:#d2a562;--yx-plate:#1f4e5f;--yx-g:#0f1822;--yx-w:#8fa3b0"><use href="#yx-mark"/></svg>
+        <span style="font-size:22px;font-weight:760;letter-spacing:.3em;text-indent:.3em;">映叙</span>
+        <span style="font-size:11px;letter-spacing:.5em;text-indent:.5em;color:var(--gold);">让故事长出画面</span>
+      </div>
+      <p class="rationale">口号 = 光点的文字回声，永远灵金色。</p>
+    </div>
+  </div>
+
+  <!-- ============ 5/6/7 ============ -->
+  <h2>五 / 六 / 七、深色 · 浅色 · 黑白单色</h2>
+  <div class="grid">
+    <div class="card">
+      <span class="badge">深色背景版（产品默认）</span>
+      <div class="demo">
+        <svg width="128" height="128" viewBox="0 0 48 48" style="--yx-f:#4e97ae;--yx-b:#c6d0da;--yx-d:#d2a562;--yx-plate:#1f4e5f;--yx-g:#0f1822;--yx-w:#8fa3b0"><use href="#yx-mark"/></svg>
+      </div>
+      <p class="rationale">屏 <code>#4E97AE</code> · 带 <code>#C6D0DA</code> · 点 <code>#D2A562</code> · 底 <code>#0E1016</code></p>
+    </div>
+    <div class="card light">
+      <span class="badge" style="color:#2f7b93;border-color:#a9cfdd;">浅色背景版</span>
+      <div class="demo">
+        <svg width="128" height="128" viewBox="0 0 48 48" style="--yx-f:#2f7b93;--yx-b:#2b3844;--yx-d:#b08a4e;--yx-plate:#1d5d73;--yx-g:#f2f7fa;--yx-w:#5e7887"><use href="#yx-mark"/></svg>
+      </div>
+      <p class="rationale">屏 <code>#2F7B93</code> · 带 <code>#2B3844</code> · 点 <code>#B08A4E</code></p>
+    </div>
+    <div class="card">
+      <span class="badge">黑白单色版</span>
+      <div class="demo" style="gap:30px;">
+        <svg width="100" height="100" viewBox="0 0 48 48" style="--yx-f:currentColor;--yx-b:currentColor;--yx-d:currentColor;--yx-plate:currentColor;--yx-g:transparent;--yx-w:currentColor;--yx-plate-o:.3;--yx-w-o:.55;color:#eef2f6"><use href="#yx-mark"/></svg>
+        <svg width="100" height="100" viewBox="0 0 48 48" style="--yx-f:currentColor;--yx-b:currentColor;--yx-d:currentColor;--yx-plate:currentColor;--yx-g:transparent;--yx-w:currentColor;--yx-plate-o:.3;--yx-w-o:.55;color:#14171f;background:#f4f7fa;border-radius:12px;padding:8px"><use href="#yx-mark"/></svg>
+      </div>
+      <p class="rationale">全元素 <code>currentColor</code>——对应组件 <code>variant="mono"</code>。印章 / 水印 / 单色印刷 / 第三方界面。</p>
+    </div>
+  </div>
+
+  <!-- ============ 8. favicon ============ -->
+  <h2>八、favicon（16×16 / 32×32）</h2>
+  <div class="card">
+    <p class="sub">小尺寸补偿：屏框加粗（4.2→<b style="color:var(--ink)">6.0</b>）、带身加宽（9.5→<b style="color:var(--ink)">11</b>）、齿孔放大（2.4×1.5→<b style="color:var(--ink)">3×2.2</b>）、光点 r<b style="color:var(--ink)">3.4</b> 带微光。厚度与齿孔在 16px 下依然成立。</p>
+    <div class="favicon-stage">
+      <div class="favicon-cell">
+        <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <mask id="yxFav32" maskUnits="userSpaceOnUse" x="0" y="0" width="48" height="48">
+      <rect x="1" y="21" width="46" height="9.5" rx="2" fill="#fff"/>
+      <rect x="2.6" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="7.2" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="11.8" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="16.4" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="21" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="25.6" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="30.2" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="34.8" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="39.4" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="44" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="2.6" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="7.2" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="11.8" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="16.4" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="21" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="25.6" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="30.2" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="34.8" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="39.4" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="44" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    </mask>
+    <clipPath id="yxFav32Clip"><rect x="14" y="8" width="20" height="32" rx="6"/></clipPath>
+  </defs>
+  <rect x="18.5" y="11.5" width="20" height="32" rx="6" fill="#1f4e5f"/>
+  <path d="M34 18.4 L38.5 15.9 L38.5 22.1 L34 24.6 Z" fill="#8fa3b0"/>
+  <rect x="14" y="8" width="20" height="32" rx="6" fill="#0f1822"/>
+  <g transform="rotate(-29 24 24)" clip-path="url(#yxFav32Clip)">
+    <rect x="1" y="21" width="46" height="9.5" rx="2" fill="#c6d0da" mask="url(#yxFav32)"/>
+  </g>
+  <path d="M22 8 H20 Q14 8 14 14 V34 Q14 40 20 40 H28 Q34 40 34 34 V14" stroke="#4e97ae" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="24" cy="14.5" r="7" fill="#d2a562" opacity="0.16"/>
+  <circle cx="24" cy="14.5" r="3.4" fill="#d2a562"/>
+        <div class="cap">32×32</div>
+      </div>
+      <div class="favicon-cell">
+        <svg width="16" height="16" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <mask id="yxFav16" maskUnits="userSpaceOnUse" x="0" y="0" width="48" height="48">
+      <rect x="1" y="21" width="46" height="9.5" rx="2" fill="#fff"/>
+      <rect x="2.6" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="7.2" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="11.8" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="16.4" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="21" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="25.6" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="30.2" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="34.8" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="39.4" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="44" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="2.6" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="7.2" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="11.8" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="16.4" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="21" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="25.6" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="30.2" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="34.8" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="39.4" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    <rect x="44" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    </mask>
+    <clipPath id="yxFav16Clip"><rect x="14" y="8" width="20" height="32" rx="6"/></clipPath>
+  </defs>
+  <rect x="18.5" y="11.5" width="20" height="32" rx="6" fill="#1f4e5f"/>
+  <path d="M34 18.4 L38.5 15.9 L38.5 22.1 L34 24.6 Z" fill="#8fa3b0"/>
+  <rect x="14" y="8" width="20" height="32" rx="6" fill="#0f1822"/>
+  <g transform="rotate(-29 24 24)" clip-path="url(#yxFav16Clip)">
+    <rect x="1" y="21" width="46" height="9.5" rx="2" fill="#c6d0da" mask="url(#yxFav16)"/>
+  </g>
+  <path d="M22 8 H20 Q14 8 14 14 V34 Q14 40 20 40 H28 Q34 40 34 34 V14" stroke="#4e97ae" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="24" cy="14.5" r="7" fill="#d2a562" opacity="0.16"/>
+  <circle cx="24" cy="14.5" r="3.4" fill="#d2a562"/>
+        <div class="cap">16×16</div>
+      </div>
+      <div class="favicon-cell">
+        <div class="tabmock">
+          <svg width="16" height="16" viewBox="0 0 48 48" fill="none">
+    <defs>
+      <mask id="yxFavTabD" maskUnits="userSpaceOnUse" x="0" y="0" width="48" height="48">
+        <rect x="1" y="21" width="46" height="9.5" rx="2" fill="#fff"/>
+        <rect x="2.6" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="7.2" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="11.8" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="16.4" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="21" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="25.6" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="30.2" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="34.8" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="39.4" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="44" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="2.6" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="7.2" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="11.8" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="16.4" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="21" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="25.6" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="30.2" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="34.8" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="39.4" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="44" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      </mask>
+      <clipPath id="yxFavTabDClip"><rect x="14" y="8" width="20" height="32" rx="6"/></clipPath>
+    </defs>
+    <rect x="18.5" y="11.5" width="20" height="32" rx="6" fill="#1f4e5f"/>
+    <path d="M34 18.4 L38.5 15.9 L38.5 22.1 L34 24.6 Z" fill="#8fa3b0"/>
+    <rect x="14" y="8" width="20" height="32" rx="6" fill="#0f1822"/>
+    <g transform="rotate(-29 24 24)" clip-path="url(#yxFavTabDClip)">
+      <rect x="1" y="21" width="46" height="9.5" rx="2" fill="#c6d0da" mask="url(#yxFavTabD)"/>
+    </g>
+    <path d="M22 8 H20 Q14 8 14 14 V34 Q14 40 20 40 H28 Q34 40 34 34 V14" stroke="#4e97ae" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="24" cy="14.5" r="7" fill="#d2a562" opacity="0.16"/>
+    <circle cx="24" cy="14.5" r="3.4" fill="#d2a562"/>
+          </svg>
+          <span>映叙 · 让故事长出画面</span>
+        </div>
+        <div class="cap">浏览器页签效果</div>
+      </div>
+      <div class="favicon-cell">
+        <div class="tabmock" style="background:#eef2f6;border-color:#d7dee6;">
+          <svg width="16" height="16" viewBox="0 0 48 48" fill="none">
+    <defs>
+      <mask id="yxFavTabL" maskUnits="userSpaceOnUse" x="0" y="0" width="48" height="48">
+        <rect x="1" y="21" width="46" height="9.5" rx="2" fill="#fff"/>
+        <rect x="2.6" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="7.2" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="11.8" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="16.4" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="21" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="25.6" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="30.2" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="34.8" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="39.4" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="44" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="2.6" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="7.2" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="11.8" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="16.4" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="21" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="25.6" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="30.2" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="34.8" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="39.4" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      <rect x="44" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+      </mask>
+      <clipPath id="yxFavTabLClip"><rect x="14" y="8" width="20" height="32" rx="6"/></clipPath>
+    </defs>
+    <rect x="18.5" y="11.5" width="20" height="32" rx="6" fill="#1d5d73"/>
+    <path d="M34 18.4 L38.5 15.9 L38.5 22.1 L34 24.6 Z" fill="#5e7887"/>
+    <rect x="14" y="8" width="20" height="32" rx="6" fill="#f2f7fa"/>
+    <g transform="rotate(-29 24 24)" clip-path="url(#yxFavTabLClip)">
+      <rect x="1" y="21" width="46" height="9.5" rx="2" fill="#2b3844" mask="url(#yxFavTabL)"/>
+    </g>
+    <path d="M22 8 H20 Q14 8 14 14 V34 Q14 40 20 40 H28 Q34 40 34 34 V14" stroke="#2f7b93" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="24" cy="14.5" r="7" fill="#b08a4e" opacity="0.16"/>
+    <circle cx="24" cy="14.5" r="3.4" fill="#b08a4e"/>
+          </svg>
+          <span style="color:#3a4450;">映叙 · 让故事长出画面</span>
+        </div>
+        <div class="cap">浅色主题页签（favicon.svg 自动切换）</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 色板 ============ -->
+  <h2>色板（延续降饱和）</h2>
+  <div class="swatches">
+    <div class="swatch"><div class="chip" style="background:#4e97ae"></div><div class="meta"><b>映青 Ying-Cyan</b>#4E97AE · 深底屏框<br><span style="color:#2f7b93">浅底用 #2F7B93</span></div></div>
+    <div class="swatch"><div class="chip" style="background:#c6d0da"></div><div class="meta"><b>叙白 Xu-White</b>#C6D0DA · 剪辑带 / 辅助文字</div></div>
+    <div class="swatch"><div class="chip" style="background:#d2a562"></div><div class="meta"><b>灵金 Ying-Gold</b>#D2A562 · 光点 / 口号<br><span style="color:#b08a4e">浅底用 #B08A4E</span></div></div>
+    <div class="swatch"><div class="chip" style="background:#0e1016"></div><div class="meta"><b>夜幕 Ink-Night</b>#0E1016 · 深色底</div></div>
+    <div class="swatch"><div class="chip" style="background:#f4f7fa"></div><div class="meta"><b>晨纸 Paper</b>#F4F7FA · 浅色底</div></div>
+  </div>
+
+  <h3>使用规则</h3>
+  <table>
+    <tr><th style="width:180px">规则</th><th>说明</th></tr>
+    <tr><td>竖屏比例</td><td>屏永远是竖立的 5:8，不得转横或转方——竖屏是「短剧」的身份特征</td></tr>
+    <tr><td>带的层次</td><td>正面带齿孔（mask 镂空）；拐过右边缘的转折面压暗、无齿孔；两端被玻璃边缘裁掉——带子绕到背后，不外伸</td></tr>
+    <tr><td>3D 分面</td><td>厚度只靠三块 flat 色：玻璃正面（最深）、侧板（次深）、带转折面（带色压暗）。<b>不用渐变、不加投影</b></td></tr>
+    <tr><td>安全间距</td><td>图形四周 ≥1 个光点直径（7px @48 网格）</td></tr>
+    <tr><td>最小尺寸</td><td>图形 16px；横版锁 96px；低于 16px 去掉带端外伸、只留屏 + 带 + 点</td></tr>
+    <tr><td>禁止</td><td>播放三角形 / 写实摄像机 / 场记板 / 胶片齿孔 / 机器人头像 / 通用 AI 星星 / 赛博装饰 / 双线交叉 / 高饱和 / 复杂渐变</td></tr>
+    <tr><td>方向语法</td><td>剪辑带永远从左下向右上斜绕（约 -29°）；光点在屏内上方、带子扫过的路径之外</td></tr>
+  </table>
+
+</div>
+</body>
+</html>

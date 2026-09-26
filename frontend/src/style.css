@@ -18,7 +18,7 @@
   /* 文字 */
   --ink: oklch(0.95 0.012 92);
   --muted: oklch(0.74 0.012 270);
-  --dim: oklch(0.56 0.016 270);
+  --dim: oklch(0.61 0.016 270);  /* 提亮的弱文字：深底上保持可读对比 */
 
   /* 主操作：柔和的雾蓝，只强调真正的主要动作 */
   --accent: oklch(0.78 0.10 220);
@@ -75,8 +75,33 @@
   --dur: 150ms;
   --dur-slow: 300ms;
 
+  /* ---------- 结构化设计变量 ---------- */
+  /* 间距（4px 基准） */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px;
+  /* 圆角 */
+  --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px; --radius-full: 999px;
+  /* 阴影（深色主题：低环境光 + 高焦点） */
+  --shadow-1: 0 1px 4px oklch(0 0 0 / .25);
+  --shadow-2: 0 6px 20px oklch(0 0 0 / .35);
+  --shadow-3: 0 16px 44px oklch(0 0 0 / .5);
+  /* 字号（中文阅读：正文 ≥13.5px，行高 1.75） */
+  --fs-xs: 11.5px; --fs-sm: 12.5px; --fs-md: 13.5px; --fs-lg: 15px;
+  --fs-xl: 18px;   --fs-title: 24px; --fs-display: 40px;
+  --lh-body: 1.75; --lh-tight: 1.35;
+  /* 控件与点击目标：可视高度 36px，命中区域 ≥44px */
+  --control-h: 36px;
+  --tap: 44px;
+  /* 顶栏高度（响应式定位的锚点） */
+  --header-h: 48px;
+  /* 焦点环 */
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px color-mix(in oklch, var(--gold) 60%, transparent);
+
   /* 字体 */
   --mono: "JetBrains Mono", Consolas, "Courier New", monospace;
+  /* 楷书 UI 字体：霞鹜文楷（普通楷书，非艺术体），系统楷体兜底。
+     用于周边框架（侧边栏 / 面板 / 输入栏 / 页签）；AI 对话区与品牌字标保持现代无衬线。 */
+  --font-kai: "LXGW WenKai", "KaiTi", "STKaiti", "楷体", serif;
 }
 
 /* ---------- 基础重置 ---------- */
@@ -102,7 +127,12 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--line-strong); background-clip: content-box; }
 
-:focus-visible { outline: 2px solid color-mix(in oklch, var(--gold) 45%, transparent); outline-offset: 2px; }
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+html, body { overflow-x: hidden; }  /* 响应式护栏：任何视口不出现横向滚动 */
 body.layout-resizing { cursor: col-resize; user-select: none; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -297,3 +327,47 @@ input[type="checkbox"] { accent-color: var(--gold); }
 .md hr { border: none; border-top: 1px solid var(--line); margin: 12px 0; }
 .md a { color: var(--gold); text-decoration: underline; text-underline-offset: 3px; }
 .md a:hover { color: var(--gold-glow); }
+
+/* ---------- 页签：极简现代分段（segmented control） ---------- */
+/* 左栏分段与右栏面板页签共用：圆角容器 + 胶囊高亮滑块，无装饰元素。
+   贴合「现代化 / 互联网感」；楷书字体由外层容器继承。 */
+.seg-tabs {
+  position: relative;
+  display: flex; align-items: stretch; gap: 0;
+  padding: 3px;
+  background: color-mix(in oklch, var(--code-bg) 72%, var(--panel2));
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: inset 0 1px 2px oklch(0.05 0.01 270 / .4);
+}
+.seg-tab {
+  position: relative;
+  background: transparent; border: 0; border-radius: 8px;
+  padding: 4px 14px; min-height: 24px;
+  color: var(--muted); font-size: 12.5px; font-weight: 500; letter-spacing: .04em;
+  cursor: pointer; white-space: nowrap;
+  transition: color 160ms var(--ease), background-color 160ms var(--ease), box-shadow 160ms var(--ease);
+}
+/* 压过全局 button 的 hover/active 实心底 */
+.seg-tab:hover:not(:disabled) { background: transparent; color: var(--ink); }
+.seg-tab:active:not(:disabled) { background: transparent; }
+/* 选中项 = 胶囊高亮 */
+.seg-tab.active {
+  color: var(--ink); font-weight: 600;
+  background: color-mix(in oklch, var(--panel2) 78%, var(--ink));
+  box-shadow:
+    0 1px 6px oklch(0.03 0.01 270 / .45),
+    inset 0 1px 0 oklch(0.9 0.02 270 / .07);
+}
+.seg-tab.active:hover:not(:disabled),
+.seg-tab.active:active:not(:disabled) {
+  background: color-mix(in oklch, var(--panel2) 78%, var(--ink));
+}
+
+/* ---------- 楷书界面字体（周边框架） ---------- */
+/* 侧边栏 / 右栏面板 / 输入栏 / 顶栏用楷书（霞鹜文楷）；AI 对话流（ChatThread）
+   保持在 body 的无衬线字体上，不套用本规则。楷书同字号视觉偏小，关键容器同步放大。 */
+.pane-left, .viewer, .composer, header {
+  font-family: var(--font-kai);
+}
+.pane-left { font-size: 13px; }

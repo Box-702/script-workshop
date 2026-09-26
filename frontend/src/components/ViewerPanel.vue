@@ -2,25 +2,23 @@
 // =====================================================================
 // ViewerPanel.vue —— Inspector 面板（上下文感知）
 //
-// 两个 tab + 智能切换：
+// 三个 tab，全部面向创作成果：
 //   - 剧本编辑：标准剧本排版（可编辑/导出/复制）
-//   - Agent 任务：后台剧组任务列表及进度
-//   - 有活跃任务时自动切到 Agent tab，任务完成后自动切回编辑器
+//   - 场景聚焦 / 视频工作台
+// 后台任务的进度只以对话流里的轻提示呈现，工程细节不进入本面板。
 // =====================================================================
 
 import { computed, ref, onUnmounted, watch } from 'vue'
 import ScreenplayView from './ScreenplayView.vue'
 import ScreenplayEditor from './ScreenplayEditor.vue'
-import AgentPanel from './AgentPanel.vue'
 import FolderTree from './FolderTree.vue'
 import VideoWorkbench from './video/VideoWorkbench.vue'
-import { store, showView, focusScene, exportVersion, syncProjectToWorkspace, setVersionMilestone, notify, loadViewer, saveNotes } from '../stores/app'
+import { store, showView, focusScene, exportVersion, syncProjectToWorkspace, setVersionMilestone, notify, loadViewer } from '../stores/app'
 
 const TABS = [
   { key: 'editor', label: '剧本编辑', icon: '01' },
   { key: 'scene', label: '场景聚焦', icon: '02' },
   { key: 'video', label: '视频工作台', icon: '03' },
-  { key: 'agents', label: 'Agent 任务', icon: '04', badge: true },
 ]
 
 // 聚焦场景数据
@@ -33,16 +31,6 @@ const charMap = computed(() => {
   return (store.viewerScript.characters || []).reduce((m, c) => ((m[c.id] = c.name), m), {})
 })
 const currentTitle = computed(() => store.projects.find((p) => p.id === store.pid)?.title || '未选择项目')
-
-// 活跃任务数（用于 badge）
-const activeTaskCount = computed(() => store.tasks.filter((t) => t.status === 'running' || t.status === 'pending').length)
-
-// 有新任务启动时自动切到 Agent tab
-watch(activeTaskCount, (newVal, oldVal) => {
-  if (newVal > oldVal && store.view !== 'agents') {
-    showView('agents')
-  }
-})
 
 // 场景聚焦空态兜底：直接点「场景聚焦」tab 且从未选过场景时，
 // 自动聚焦第一场——否则该视图永远空白，没有任何提示。
@@ -136,31 +124,20 @@ function onSaved() {
   loadViewer()
 }
 
-// ---- 编剧圣经 / 设定备忘 ----
-const savingNotes = ref(false)
-async function onSaveNotes() {
-  if (savingNotes.value) return
-  savingNotes.value = true
-  try {
-    await saveNotes()
-    notify('已保存编剧设定', 'ok')
-  } catch (e) { notify('保存失败：' + e.message) } finally { savingNotes.value = false }
-}
 </script>
 
 <template>
   <div class="viewer">
-    <!-- tab 头 -->
+    <!-- tab 头：极简分段造型（.seg-tabs/.seg-tab 定义在 style.css） -->
     <div class="v-head">
-      <div class="v-tabs">
+      <div class="v-tabs seg-tabs">
         <button
           v-for="t in TABS" :key="t.key"
-          class="v-tab" :class="{ active: store.view === t.key }"
+          :class="['v-tab', 'seg-tab', { active: store.view === t.key }]"
           @click="showView(t.key)"
         >
           <span class="v-tab-icon">{{ t.icon }}</span>
           {{ t.label }}
-          <span v-if="t.badge && activeTaskCount" class="v-tab-badge">{{ activeTaskCount }}</span>
         </button>
       </div>
       <div class="vt">{{ currentTitle }}</div>
@@ -265,11 +242,6 @@ async function onSaveNotes() {
     <div v-else-if="store.view === 'video'" class="v-body v-body-video">
       <VideoWorkbench />
     </div>
-
-    <!-- Agent 任务面板 -->
-    <div v-else-if="store.view === 'agents'" class="v-body v-body-agents">
-      <AgentPanel />
-    </div>
       </Transition>
     </div>
   </div>
@@ -299,30 +271,12 @@ async function onSaveNotes() {
   padding-left: 12px; border-left: 1px solid var(--line);
   display: flex; align-items: center;
 }
-.v-tabs { display: flex; gap: 2px; flex: none; overflow-x: auto; scrollbar-width: none; }
-.v-tab {
-  background: transparent; border: 1px solid transparent; color: var(--muted);
-  padding: 4px 8px; border-radius: 7px; font-size: 11.5px; font-weight: 500;
-  white-space: nowrap; flex: none;
-  transition: all 200ms var(--ease);
-  animation: tab-pop 250ms var(--ease-bounce) both;
+.v-tabs {
+  flex: none; overflow-x: auto; scrollbar-width: none;
+  margin-left: 10px;
 }
-.v-tab:nth-child(1) { animation-delay: 120ms; }
-.v-tab:nth-child(2) { animation-delay: 180ms; }
-@keyframes tab-pop {
-  from { opacity: 0; transform: translateY(-4px) scale(0.9); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-.v-tab:hover { color: var(--ink); background: color-mix(in oklch, var(--ink) 6%, transparent); }
-.v-tab.active { background: var(--select); color: var(--ink); font-weight: 600; }
-.v-tab-icon { font-size: 12px; }
-.v-tab-icon { color: var(--gold); font: 700 9px/1 var(--mono); letter-spacing: .08em; }
-.v-tab-badge {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 16px; height: 16px; border-radius: 999px;
-  background: var(--ok); color: var(--on-accent); font-size: 9px; font-weight: 700;
-  padding: 0 4px; margin-left: 4px;
-}
+.v-tabs::-webkit-scrollbar { display: none; }
+.v-tab-icon { color: var(--gold); font: 700 9px/1 var(--mono); letter-spacing: .08em; margin-right: 5px; }
 .v-acts { display: flex; gap: 4px; align-items: center; position: relative; }
 .export-wrap { position: relative; }
 .export-menu {
@@ -355,7 +309,6 @@ async function onSaveNotes() {
   font-size: 14px; line-height: 1.85; white-space: pre-wrap; word-break: break-word; color: oklch(0.88 0.005 75);
 }
 .v-empty { color: var(--dim); font-size: 12px; padding: 16px; line-height: 1.7; }
-.v-body-agents { padding: 0; }
 .v-foot {
   display: flex; flex-direction: column; gap: 8px;
   padding: 10px 16px; border-top: 1px dashed var(--line); margin-top: 8px;
@@ -370,7 +323,7 @@ async function onSaveNotes() {
 .mile-draft { color: var(--muted); }
 
 /* 场景聚焦视图 */
-.scene-focus { padding: 16px; }
+.scene-focus { padding: 16px; font-family: var(--font-kai); font-size: 13.5px; }
 .sf-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .sf-header h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--ink); }
 .sf-section { margin-bottom: 14px; }

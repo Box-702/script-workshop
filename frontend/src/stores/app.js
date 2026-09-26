@@ -7,7 +7,6 @@
 
 import { reactive } from 'vue'
 import { api, importProject, streamChat } from '../api'
-import { keyedDiff } from '../utils/diff'
 
 // ---------------------------------------------------------------------
 // 全局响应式状态
@@ -45,15 +44,11 @@ export const store = reactive({
   view: 'text',        // text | notes | files | diff
   viewerText: '',      // 最新版本剧本全文（纯文本，供复制）
   viewerScript: null,  // 最新版本结构化剧本（供剧本排版渲染）
-  viewerNotes: '',     // 编剧圣经 / 设定备忘（自由文本）
-  notesDirty: false,   // 设定有未保存改动：切换项目时不被服务端内容覆盖
-  projectFiles: null,  // 项目本地文件 { persist, root, folders }
-  openFile: null,      // 当前打开的本地文本文件 { name, content }
-  diff: [],            // keyedDiff 结果
-  diffMeta: '',        // “旧版本 → 新版本”说明文字
 
   // 杂项标记
   streaming: false,            // 是否正在流式生成
+  streamingStage: '',          // 当前生成阶段（来自工具事件的用户可读文案，如「拆解镜头方案」）
+  focusSeq: 0,                 // 「聚焦输入框」信号：开始页主按钮等递增它，输入区 watch 后 focus
   checked: reactive(new Map()), // runId -> Set(已勾选 patch 下标)
   showNewProject: false,        // 新建剧本弹窗开关
   showWorkspace: false,             // 工作目录设置弹窗开关
@@ -67,8 +62,6 @@ export const store = reactive({
   drawer: { open: false, payload: null },
 
   // 后台任务面板
-  tasks: [],              // [{id, name, status, steps, result, created_at, finished_at}]
-
   // ---- v3.0 视频制作 ----
   // 镜头数据
   shots: [],              // 当前项目的镜头列表
@@ -78,6 +71,7 @@ export const store = reactive({
   videoBatch: null,       // 批量生成批次状态（null/对象）
   videoMode: localStorage.getItem('sw_video_mode') || 'auto',   // 生成模式：auto | approval
   videoResolution: localStorage.getItem('sw_video_resolution') || '',  // 空=全局默认(768P)
+  videoAspect: localStorage.getItem('sw_video_aspect') || '9:16',  // 画幅：短剧默认竖屏 9:16
   // 视频播放器
   playingVideo: null,     // { url, title, meta }
   // Prompt 编辑
@@ -94,8 +88,6 @@ export const store = reactive({
 // 非阻塞通知（替代 alert()：不打断、自动消失、可点关闭）
 // ---------------------------------------------------------------------
 let _toastTimer = null
-let _taskRefreshTimer = null
-let _taskRefreshSeq = 0
 export function notify(message, type = 'error') {
   store.toast = { id: Date.now(), message, type }
   clearTimeout(_toastTimer)
@@ -104,34 +96,6 @@ export function notify(message, type = 'error') {
 export function dismissToast() {
   clearTimeout(_toastTimer)
   store.toast = null
-}
-
-// ---------------------------------------------------------------------
-// 后台任务管理
-// ---------------------------------------------------------------------
-/** 从后端拉取后台任务列表（轮询用）。 */
-export async function refreshTasks() {
-  const seq = ++_taskRefreshSeq
-  try {
-    const tasks = await api('/tasks?active_only=false')
-    if (seq !== _taskRefreshSeq) return
-    store.tasks = tasks || []
-  } catch { /* 静默 */ }
-}
-
-/** SSE 收到后台任务启动事件时，触发后端任务刷新。 */
-export function onSubAgentStarted() {
-  // 异步刷新，不阻塞消息流
-  clearTimeout(_taskRefreshTimer)
-  _taskRefreshTimer = setTimeout(() => {
-    _taskRefreshTimer = null
-    refreshTasks()
-  }, 500)
-}
-
-/** 清除已完成的任务。 */
-export function clearCompletedTasks() {
-  store.tasks = store.tasks.filter((t) => t.status === 'running' || t.status === 'pending')
 }
 
 // ---------------------------------------------------------------------
@@ -452,88 +416,9 @@ export async function loadViewer(token = _navSeq) {
   }
 }
 
-/** 拉取编剧圣经 / 设定备忘。有未保存改动时不覆盖（否则切换项目会静默丢字）。 */
-export async function loadNotes(token = _navSeq) {
-  if (!store.pid) { store.viewerNotes = ''; return }
-  try {
-    const r = await api(`/projects/${store.pid}/notes`)
-    if (!_isCurrent(token)) return
-    if (store.notesDirty) {
-      notify('有未保存的编剧设定改动，输入框内容已保留；确认后请保存或清空。', 'ok')
-      return
-    }
-    store.viewerNotes = r.notes || ''
-  } catch { /* 保留 */ }
-}
-
-/** 保存编剧圣经 / 设定备忘；同步写入工作目录 04_知识库。 */
-export async function saveNotes() {
-  if (!store.pid) return
-  await api(`/projects/${store.pid}/notes`, 'PUT', { notes: store.viewerNotes })
-  store.notesDirty = false
-}
-
-/** 版本对比：最新版本 vs 上一版本。 */
-export async function loadDiff() {
-  if (!store.pid || store.versions.length < 1) { store.diff = []; store.diffMeta = ''; return }
-  const vid = store.versions[0].id
-  const fromId = store.versions.length > 1 ? store.versions[1].id : null
-  try {
-    const to = await api(`/versions/${vid}`)
-    const from = fromId ? await api(`/versions/${fromId}`) : { script: { scenes: [], characters: [], locations: [] } }
-    store.diff = keyedDiff(from.script, to.script)
-    store.diffMeta = `${fromId || '（空）'} → ${vid}`
-  } catch (e) { store.diff = []; store.diffMeta = `对比失败：${e.message}` }
-}
-
 /** 切换查看面板 tab。 */
-export async function showView(name) {
+export function showView(name) {
   store.view = name
-  if (name === 'agents') await refreshTasks()
-}
-
-// ---------------------------------------------------------------------
-// 本地剧本文件（查看 / 下载）
-// ---------------------------------------------------------------------
-function fileUrl(relpath) {
-  const seg = String(relpath).split('/').map(encodeURIComponent).join('/')
-  return `/api/projects/${store.pid}/files/${seg}`
-}
-
-/** 拉取当前项目的本地文件清单（按 01原稿/02版本/03导出/04知识库 分组）。 */
-export async function loadProjectFiles() {
-  if (!store.pid) { store.projectFiles = null; return }
-  try { store.projectFiles = await api(`/projects/${store.pid}/files`) } catch { store.projectFiles = null }
-}
-
-/** 打开一个本地文件：文本内联预览，二进制触发下载。 */
-export async function openProjectFile(relpath, isText) {
-  const url = fileUrl(relpath)
-  if (isText) {
-    const res = await fetch(url)
-    if (!res.ok) { notify('打开失败：' + res.status); return }
-    store.openFile = { name: relpath.split('/').pop(), content: await res.text() }
-  } else {
-    const a = document.createElement('a')
-    a.href = url
-    a.download = ''
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-  }
-}
-
-/** 关闭当前打开的文本文件预览。 */
-export function closeOpenFile() { store.openFile = null }
-
-/** 直接下载一个本地文件。 */
-export function downloadProjectFile(relpath) {
-  const a = document.createElement('a')
-  a.href = fileUrl(relpath)
-  a.download = ''
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
 }
 
 // ---------------------------------------------------------------------
@@ -617,6 +502,31 @@ export async function syncProjectToWorkspace() {
 /** 进行中的流式请求控制器：切换项目/对话时中止，避免流写进已离开的会话。 */
 let _streamAbort = null
 
+/** 工具名 → 生成阶段（用户可读）。唯一来源：输入区的阶段状态条与
+ *  消息流的工作步骤面板都从这里取文案，未登记的工具显示「正在处理」。 */
+export const STAGE_LABELS = {
+  generate_script: '撰写剧本初稿',
+  run_adaptation: '按你的要求改编剧本',
+  get_script_overview: '通读剧本结构',
+  ask: '查阅剧本内容',
+  breakdown_scenes: '拆解镜头方案',
+  generate_style_guide: '统一全片视觉风格',
+  generate_video_prompts: '撰写镜头提示词',
+  generate_reference_assets: '生成定妆图与环境参考图',
+  get_scene_detail: '细读场景',
+  get_source_text: '查阅原著',
+  search_source: '在原著中查找资料',
+  web_search: '联网查找资料',
+  get_author_style: '分析作者文风',
+  list_versions: '整理版本历史',
+  validate_tool: '检查剧本一致性',
+}
+
+/** 聚焦底部输入框（开始页主按钮等调用）。 */
+export function focusComposer() {
+  store.focusSeq++
+}
+
 /** 发送一条用户消息，流式接收回复并实时更新最后一条 assistant 消息。 */
 export async function sendMessage(text) {
   if (store.streaming || !text) return
@@ -626,6 +536,7 @@ export async function sendMessage(text) {
   store.messages.push(reply)
 
   store.streaming = true
+  store.streamingStage = ''
   _streamAbort = new AbortController()
   try {
     await streamChat(
@@ -640,6 +551,7 @@ export async function sendMessage(text) {
     _streamAbort = null
     reply.streaming = false
     store.streaming = false
+    store.streamingStage = ''
     await loadTree()
   }
 }
@@ -648,15 +560,15 @@ export async function sendMessage(text) {
 function handleStreamEvent(ev, reply) {
   if (ev.event === 'tool_call' || ev.event === 'tool_result') {
     reply.events.push(ev.data)
+    // 阶段状态：工具开始即更新文案，供输入区状态条实时展示。
+    if (ev.event === 'tool_call') {
+      store.streamingStage = STAGE_LABELS[ev.data.name] || '正在处理'
+    }
   } else if (ev.event === 'token') {
     reply.content += ev.data.delta
   } else if (ev.event === 'done') {
     reply.content = ev.data.reply || reply.content
     reply.payloads = ev.data.payloads || []
-    // 后台任务启动时立即刷新任务列表
-    if ((ev.data.payloads || []).some((p) => p.type === 'sub_agent_started')) {
-      onSubAgentStarted()
-    }
     afterAgentDone(ev.data)
   } else if (ev.event === 'error') {
     reply.content = `出错：${ev.data.message}`
@@ -673,8 +585,6 @@ async function afterAgentDone(data) {
     await loadTree()
   }
   if (store.pid) await loadViewer()
-  // 刷新后台任务（任务可能已完成，也可能仍在运行）
-  await refreshTasks()
 }
 
 // ---------------------------------------------------------------------
@@ -835,6 +745,7 @@ export async function submitVideoJob(shot) {
       model,
       prompt: shot.video_prompt,
       version_id: store.videoVersionId,
+      params: { aspect_ratio: store.videoAspect || null },
       reference_videos: (shot.reference_videos || []).map(s => (s || '').trim()).filter(Boolean),
     })
     notify(`视频任务已提交：${shot.subject || shot.id}`, 'ok')
@@ -842,16 +753,6 @@ export async function submitVideoJob(shot) {
     return job
   } catch (e) {
     notify(`提交失败：${e.message}`, 'error')
-  }
-}
-
-/** 取消视频生成任务。 */
-export async function cancelVideoJob(jobId) {
-  try {
-    await api(`/video/jobs/${jobId}/cancel`, 'POST')
-    await loadVideoJobs()
-  } catch (e) {
-    notify(`取消失败：${e.message}`, 'error')
   }
 }
 
@@ -867,6 +768,12 @@ export function setVideoResolution(res) {
   localStorage.setItem('sw_video_resolution', res)
 }
 
+/** 设置视频画幅（9:16 竖屏 / 16:9 横屏 / 1:1 等）。 */
+export function setVideoAspect(ratio) {
+  store.videoAspect = ratio
+  localStorage.setItem('sw_video_aspect', ratio)
+}
+
 /** 启动批量生成（自动/审批模式由 store.videoMode 决定）。 */
 export async function startVideoBatch() {
   if (!store.pid) return
@@ -879,6 +786,7 @@ export async function startVideoBatch() {
     store.videoBatch = await api(`/projects/${store.pid}/video/generate-batch`, 'POST', {
       mode: store.videoMode,
       resolution: store.videoResolution || null,
+      aspect_ratio: store.videoAspect || null,
     })
     notify(`批量生成已启动（${store.videoMode === 'auto' ? '自动' : '审批'}模式）`, 'ok')
     await loadVideoJobs()
@@ -937,16 +845,6 @@ export async function batchCommand(command) {
     await loadVideoJobs()
   } catch (e) {
     notify(`命令失败：${e.message}`, 'error')
-  }
-}
-
-/** 重试视频生成任务。 */
-export async function retryVideoJob(jobId) {
-  try {
-    await api(`/video/jobs/${jobId}/retry`, 'POST')
-    await loadVideoJobs()
-  } catch (e) {
-    notify(`重试失败：${e.message}`, 'error')
   }
 }
 
@@ -1020,7 +918,3 @@ export async function saveShotPrompt(shot, decision = 'save', note = '') {
   }
 }
 
-/** 仅在当前界面需要手动刷新时调用，避免重复写入版本。 */
-export async function refreshVideoWorkspace() {
-  await Promise.all([loadShots(), loadVideoJobs()])
-}

@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <!-- 映叙 YINGXU favicon v6：3D 玻璃剧集屏 + 胶片剪辑带（齿孔镂空）+ 灵感光点 -->
+  <style>
+    @media (prefers-color-scheme: light) {
+      .yx-frame { stroke: #2f7b93; }
+      .yx-band { fill: #2b3844; }
+      .yx-plate { fill: #1d5d73; }
+      .yx-wrap { fill: #5e7887; }
+      .yx-glass { fill: #f2f7fa; }
+      .yx-dot { fill: #b08a4e; }
+      .yx-halo { fill: #b08a4e; }
+    }
+  </style>
+  <defs>
+    <mask id="yxFilm" maskUnits="userSpaceOnUse" x="0" y="0" width="48" height="48">
+      <rect x="1" y="21" width="46" height="9.5" rx="2" fill="#fff"/>
+        <rect x="2.6" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="7.2" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="11.8" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="16.4" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="21" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="25.6" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="30.2" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="34.8" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="39.4" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="44" y="21.9" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="2.6" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="7.2" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="11.8" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="16.4" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="21" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="25.6" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="30.2" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="34.8" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="39.4" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+        <rect x="44" y="26.7" width="3" height="2.2" rx="0.6" fill="#000"/>
+    </mask>
+    <clipPath id="yxGlass"><rect x="14" y="8" width="20" height="32" rx="6"/></clipPath>
+  </defs>
+  <rect class="yx-plate" x="18.5" y="11.5" width="20" height="32" rx="6" fill="#1F4E5F"/>
+  <path class="yx-wrap" d="M34 18.4 L38.5 15.9 L38.5 22.1 L34 24.6 Z" fill="#8FA3B0"/>
+  <rect class="yx-glass" x="14" y="8" width="20" height="32" rx="6" fill="#0F1822"/>
+  <g transform="rotate(-29 24 24)" clip-path="url(#yxGlass)">
+    <rect class="yx-band" x="1" y="21" width="46" height="9.5" rx="2" fill="#C6D0DA" mask="url(#yxFilm)"/>
+  </g>
+  <path class="yx-frame" d="M22 8 H20 Q14 8 14 14 V34 Q14 40 20 40 H28 Q34 40 34 34 V14"
+        stroke="#4E97AE" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle class="yx-halo" cx="24" cy="14.5" r="7" fill="#D2A562" opacity="0.16"/>
+  <circle class="yx-dot" cx="24" cy="14.5" r="3.4" fill="#D2A562"/>
+</svg>

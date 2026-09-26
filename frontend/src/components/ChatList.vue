@@ -31,7 +31,11 @@
         </span>
       </div>
       <div v-if="!globalConvs.length" class="conv-empty">
-        还没有对话，点击 + 开始
+        <p class="conv-empty-title">从一句话开始你的第一个故事</p>
+        <button class="conv-empty-cta" @click="onNew">新建对话</button>
+        <div class="conv-empty-tips" role="list" aria-label="示例">
+          <button v-for="t in EMPTY_TIPS" :key="t" class="conv-empty-tip" role="listitem" @click="useTip(t)">{{ t }}</button>
+        </div>
       </div>
     </div>
 
@@ -84,6 +88,19 @@ const editingId = ref(null)
 const editTitle = ref('')
 const editInput = ref(null)
 
+// 空态示例模板：新建对话后把示例填进输入框（不自动发送）。
+const EMPTY_TIPS = [
+  '一个失去记忆的出租车司机，在雨夜接到未来的自己。',
+  '把我贴进项目里的原文改编成 3 分钟短剧。',
+  '从人物开始：一个想退休却总被叫回去的深夜出诊兽医。',
+]
+
+function useTip(t) {
+  onNew()
+  store.draft = t
+  store.draftSeq++
+}
+
 function isActive(pid, convId) {
   return store.convId === convId && store.pid === pid
 }
@@ -135,14 +152,16 @@ function onDelete(pid, convId) {
   display: flex; justify-content: space-between; align-items: center;
   padding: 12px 12px 10px; border-bottom: 1px solid var(--line);
 }
-.chat-title { font-size: 12.5px; font-weight: 650; color: var(--ink); }
+.chat-title { font-size: 13.5px; font-weight: 650; color: var(--ink); }
 .btn-new {
-  width: 24px; height: 24px; border-radius: 7px;
+  position: relative;
+  width: 36px; height: 36px; border-radius: 8px;
   border: 1px solid var(--line); background: transparent;
   color: var(--muted); cursor: pointer; font-size: 13px; line-height: 1;
   display: flex; align-items: center; justify-content: center; padding: 0;
   transition: color 150ms var(--ease), border-color 150ms var(--ease), background 150ms var(--ease);
 }
+.btn-new::after { content: ''; position: absolute; inset: -4px; border-radius: inherit; }
 .btn-new:hover {
   border-color: color-mix(in oklch, var(--gold) 45%, var(--line));
   color: var(--gold); background: var(--gold-soft);
@@ -152,9 +171,9 @@ function onDelete(pid, convId) {
 
 .conv-item {
   position: relative;
-  display: flex; align-items: center; gap: 8px; padding: 7px 10px 7px 14px;
-  margin: 1px 6px; border-radius: 7px;
-  cursor: pointer; font-size: 12px; color: var(--muted);
+  display: flex; align-items: center; gap: 8px; padding: 12px 10px 12px 14px;
+  margin: 1px 6px; border-radius: 8px;
+  cursor: pointer; font-size: 12.5px; color: var(--muted);
   transition: background .14s var(--ease), color .14s var(--ease);
 }
 .conv-item:hover { background: color-mix(in oklch, var(--ink) 5%, transparent); color: var(--ink); }
@@ -179,26 +198,41 @@ function onDelete(pid, convId) {
 .conv-actions { display: flex; gap: 2px; opacity: 0; pointer-events: none; transition: opacity 140ms var(--ease); }
 .conv-item:hover .conv-actions, .conv-item:focus-within .conv-actions { opacity: 1; pointer-events: auto; }
 .btn-tiny {
+  position: relative;
   background: transparent; border: none; border-radius: 4px;
-  cursor: pointer; font-size: 10px; padding: 3px 4px;
+  cursor: pointer; font-size: 12px; padding: 5px 6px;
   opacity: .55; color: var(--muted);
   transition: opacity 120ms, background 120ms;
 }
+.btn-tiny::after { content: ''; position: absolute; inset: -6px; }
 .btn-tiny:hover { opacity: 1; background: color-mix(in oklch, var(--ink) 8%, transparent); }
 .conv-edit {
   flex: 1; min-width: 0; background: var(--code-bg, #111);
   border: 1px solid color-mix(in oklch, var(--gold) 45%, var(--line));
   border-radius: 5px; color: var(--text, #eee); font-size: 12px; padding: 3px 6px; outline: none;
 }
-.conv-empty { padding: 18px 12px; font-size: 11px; color: var(--dim); text-align: center; }
+.conv-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 26px 14px; text-align: center;
+}
+.conv-empty-title { margin: 0; font-size: 13.5px; font-weight: 650; color: var(--ink); line-height: 1.6; }
+.conv-empty-cta { min-height: 44px; padding: 0 20px; border-radius: 10px; font-size: 13px; font-weight: 650; }
+.conv-empty-tips { display: flex; flex-direction: column; gap: 6px; width: 100%; margin-top: 4px; }
+.conv-empty-tip {
+  min-height: 44px; padding: 8px 12px;
+  background: transparent; border: 1px solid var(--line); border-radius: 10px;
+  color: var(--muted); font-size: 12px; font-weight: 400; text-align: left;
+  transition: color 150ms var(--ease), border-color 150ms var(--ease), background 150ms var(--ease);
+}
+.conv-empty-tip:hover { color: var(--ink); border-color: color-mix(in oklch, var(--gold) 40%, var(--line)); background: color-mix(in oklch, var(--gold) 6%, transparent); }
 
 /* 「＋ 新对话」：常显的安静虚线胶囊（不再是 hover 才冒出来的裸文字） */
 .conv-add {
   display: flex; align-items: center; gap: 5px;
-  width: calc(100% - 20px); margin: 2px 10px 6px; padding: 5px 9px;
+  width: calc(100% - 20px); margin: 2px 10px 6px; padding: 10px 9px;
   border: 1px dashed var(--line); border-radius: 7px;
   background: transparent; color: var(--dim);
-  cursor: pointer; font-size: 11.5px; font-weight: 500; text-align: left;
+  cursor: pointer; font-size: 12.5px; font-weight: 500; text-align: left;
   transition: color 150ms var(--ease), border-color 150ms var(--ease), background 150ms var(--ease);
 }
 .conv-add:hover {

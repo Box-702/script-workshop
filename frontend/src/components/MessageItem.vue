@@ -13,6 +13,7 @@ import { computed, ref, onUnmounted } from 'vue'
 import PatchSummaryCard from './PatchSummaryCard.vue'
 import VersionCard from './VersionCard.vue'
 import { mdToHtml, esc } from '../utils/markdown'
+import { STAGE_LABELS } from '../stores/app'
 
 const props = defineProps({
   message: { type: Object, required: true },
@@ -28,6 +29,10 @@ const showCopy = computed(() =>
 // ---- 工作步骤面板（替代 chips）----
 const stepsExpanded = ref(false)
 const STEP_COLLAPSE = 3
+
+// 工具名 → 用户能看懂的创作动作（唯一来源在 stores/app.js 的 STAGE_LABELS，
+// 与输入区的阶段状态条共用同一张表）；未登记的工具一律显示「正在处理」。
+
 const visibleEvents = computed(() => {
   const evts = props.message.events || []
   if (evts.length <= STEP_COLLAPSE || stepsExpanded.value) return evts
@@ -41,12 +46,13 @@ function stepIcon(e) {
   return '✅'
 }
 function stepLabel(e) {
-  if (e.type === 'tool_call') return e.name
-  if (e.type === 'step') return e.label || e.name
+  if (e.type === 'tool_call') return STAGE_LABELS[e.name] || '正在处理'
+  if (e.type === 'step') return e.label || STAGE_LABELS[e.name] || '正在处理'
   return e.name
 }
+// 不给用户看函数参数（JSON 片段），工具结果摘要保留。
 function stepDetail(e) {
-  if (e.type === 'tool_call') return e.args || ''
+  if (e.type === 'tool_call') return ''
   if (e.type === 'step') return ''
   return e.summary || ''
 }
@@ -80,9 +86,9 @@ onUnmounted(() => clearTimeout(copiedTimer))
       <!-- 工作步骤面板 -->
       <div v-if="(message.events || []).length" class="steps-panel">
         <div class="steps-header" @click="stepsExpanded = !stepsExpanded">
-          <span class="steps-icon">{{ message.streaming ? 'RUN' : 'LOG' }}</span>
+          <span class="steps-icon">{{ message.streaming ? '· · ·' : 'DONE' }}</span>
           <span class="steps-title">
-            {{ message.streaming ? '正在工作…' : `${(message.events || []).length} 个步骤` }}
+            {{ message.streaming ? '正在处理…' : '本次完成的工作' }}
           </span>
           <span class="steps-toggle">{{ stepsExpanded ? '收起' : '展开' }}</span>
         </div>

@@ -58,8 +58,8 @@ function openWorkbench() {
 
     <h1 class="brand">
       <span class="logo" aria-hidden="true"><LogoMark :size="22" /></span>
-      <span class="brand-name">剧本工坊</span>
-      <span class="brand-mode">VIDEO AGENT</span>
+      <span class="brand-name">映叙</span>
+      <span class="brand-mode">YINGXU</span>
     </h1>
 
     <button class="cmd-trigger" aria-label="搜索或执行命令" @click="emit('open-palette')">
@@ -105,23 +105,36 @@ function openWorkbench() {
 
 <style scoped>
 header {
-  display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+  display: flex; align-items: center; gap: 10px; padding: 6px 14px;
   border-bottom: 1px solid var(--line); background: var(--panel);
-  min-height: 44px;
-  background: var(--panel);
+  min-height: var(--header-h);
 }
 h1 {
   font-size: 13px; margin: 0; display: flex; align-items: center; gap: 7px;
   font-weight: 700; letter-spacing: 0.02em; flex: none; color: var(--ink);
 }
 .logo { display: inline-flex; flex: none; }
-.brand-name { white-space: nowrap; }
+/* 品牌字标：现代互联网风——重字重无衬线 + 一道掠过的高光渐变（楷书 UI 里的现代锚点） */
+.brand-name {
+  white-space: nowrap;
+  font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14.5px; font-weight: 800; letter-spacing: 0.015em;
+  background: linear-gradient(97deg, var(--ink) 25%, var(--gold-glow) 62%, var(--ink) 95%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
 .brand-mode {
   color: var(--gold); font: 600 9px/1 var(--mono); letter-spacing: 0.12em;
   padding: 4px 5px; border: 1px solid color-mix(in oklch, var(--gold) 35%, var(--line));
   border-radius: 5px; background: transparent;
 }
-header button { flex: none; white-space: nowrap; height: 28px; padding: 0 10px; display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; }
+header button {
+  position: relative;
+  flex: none; white-space: nowrap; height: var(--control-h); padding: 0 10px;
+  display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px;
+}
+/* 可视 36px，命中区外扩到 ≥44px（伪元素承接点击） */
+header button::after { content: ''; position: absolute; inset: -4px -6px; }
 
 /* 导航开关 */
 .nav-toggle { padding: 0 6px; width: 28px; }
@@ -134,7 +147,7 @@ header button { flex: none; white-space: nowrap; height: 28px; padding: 0 10px; 
   padding: 0 10px; border-radius: 8px;
   background: color-mix(in oklch, var(--panel2) 66%, var(--code-bg));
   border: 1px solid var(--line);
-  color: var(--dim); font-size: 11.5px; cursor: pointer;
+  color: var(--dim); font-size: 12.5px; cursor: pointer;
   transition: all var(--dur) var(--ease);
 }
 .cmd-trigger:hover { border-color: var(--line-strong); background: color-mix(in oklch, var(--ink) 4%, var(--code-bg)); }
@@ -185,7 +198,7 @@ header button { flex: none; white-space: nowrap; height: 28px; padding: 0 10px; 
 }
 
 @media (max-width: 760px) {
-  header { min-height: 48px; padding: 8px 10px; gap: 7px; }
+  header { min-height: var(--header-h); padding: 6px 10px; gap: 7px; }
   .brand-mode { display: none; }
   .cmd-trigger { max-width: none; }
   .cmd-trigger .cmd-text { display: none; }

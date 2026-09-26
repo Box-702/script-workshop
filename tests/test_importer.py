@@ -7,7 +7,7 @@ from io import BytesIO
 
 import pytest
 
-from app.pipeline.importer import extension_of, is_supported, parse_file
+from app.pipeline.importer import SUPPORTED_EXTENSIONS, extension_of, is_supported, parse_file
 
 
 def _make_docx(paragraphs: list[str]) -> bytes:
@@ -50,11 +50,29 @@ def test_parse_docx():
 
 def test_parse_unsupported_raises():
     with pytest.raises(ValueError):
-        parse_file("原著.pdf", b"%PDF-1.4 fake")
+        parse_file("原著.epub", b"fake epub bytes")
 
 
 def test_extension_helpers():
     assert extension_of("原著.txt") == ".txt"
     assert extension_of("a.MD") == ".md"
     assert is_supported("原著.docx")
-    assert not is_supported("原著.pdf")
+    assert is_supported("原著.pdf")      # pdf 已支持（pypdf）
+    assert not is_supported("原著.epub")
+
+
+def test_parse_pdf_no_text_layer_gives_clear_error():
+    """无文本层的 PDF（如 pypdf 写出的空白页）给出可读错误，扩展名已注册。"""
+    from io import BytesIO
+
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    buf = BytesIO()
+    writer.write(buf)
+
+    with pytest.raises(ValueError, match="没有可提取的文本层"):
+        parse_file("scan.pdf", buf.getvalue())
+    assert is_supported("a.pdf")
+    assert ".pdf" in SUPPORTED_EXTENSIONS

@@ -125,10 +125,15 @@ const structure = computed(() => {
 </template>
 
 <style scoped>
-/* 剧本观感：等宽正文、舒适行高、接近标准剧本的边距 */
-.sp { color: oklch(0.88 0.005 75); line-height: 1.7; font-size: 14px; }
-.sp-title { text-align: center; font-weight: 700; font-size: 16px; letter-spacing: 0.06em; margin: 6px 0 4px; }
-.sp-logline { text-align: center; color: var(--muted); font-size: 12.5px; margin-bottom: 18px; font-style: italic; }
+/* 剧本观感：楷书正文（霞鹜文楷）、舒适行高、接近标准剧本的边距 */
+.sp { color: oklch(0.88 0.005 75); line-height: 1.85; font-size: 15px; font-family: var(--font-kai); }
+.sp-title {
+  text-align: center; font-weight: 700; font-size: 28px; letter-spacing: 0.14em;
+  font-family: var(--font-kai); color: var(--ink);
+  margin: 14px 0 6px;
+  text-shadow: 0 0 24px color-mix(in oklch, var(--gold) 16%, transparent);
+}
+.sp-logline { text-align: center; color: var(--muted); font-size: 13.5px; margin-bottom: 18px; font-style: italic; }
 
 /* 人物表 */
 .sp-chars { text-align: center; margin: 8px 0 24px; }
@@ -139,14 +144,14 @@ const structure = computed(() => {
 /* 场景 */
 .sp-scene { margin-bottom: 26px; }
 .sp-heading {
-  font-weight: 700; color: var(--ink); letter-spacing: 0.02em;
+  font-weight: 700; color: var(--ink); letter-spacing: 0.06em;
   border-bottom: 1px solid color-mix(in oklch, var(--dlg) 55%, var(--line));
   padding-bottom: 7px; margin-bottom: 12px;
 }
 .sp-action { margin: 8px 0; max-width: 60ch; }
 
 /* 对白：角色名居中，提示斜体，台词缩进 */
-.sp-speaker { text-align: center; font-weight: 700; letter-spacing: 0.04em; margin-top: 12px; }
+.sp-speaker { text-align: center; font-weight: 700; letter-spacing: 0.1em; margin-top: 12px; }
 .sp-paren { text-align: center; color: var(--muted); font-style: italic; font-size: 12.5px; margin: 2px 0; }
 .sp-dialogue { margin: 4px 0 2px; padding-left: 12%; max-width: 46ch; }
 

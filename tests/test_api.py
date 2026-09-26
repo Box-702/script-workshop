@@ -243,3 +243,63 @@ def test_chat_stream_emits_done_frame(client, sample_text):
     assert "done" in names, f"SSE 应以 done 事件收尾，实际：{names}"
     done = next(payload for name, payload in events if name == "done")
     assert done["reply"]
+
+
+def test_video_generation_carries_aspect_ratio(client, sample_text, monkeypatch):
+    """画幅选择（9:16 等）随任务落库：单发与批次都写进 params.aspect_ratio。"""
+    import app.api.video as video_api
+
+    project = _import_project(client, sample_text)
+    created = client.post(
+        f"/api/projects/{project['id']}/video-versions",
+        json={
+            "shots": [
+                {
+                    "id": "shot_scene_001_000",
+                    "scene_id": "scene_001",
+                    "order": 0,
+                    "video_prompt": "A close-up shot of Qi Xia.",
+                    "prompt_status": "approved",
+                },
+                {
+                    "id": "shot_scene_001_001",
+                    "scene_id": "scene_001",
+                    "order": 1,
+                    "video_prompt": "A wide shot of the rainy street.",
+                    "prompt_status": "approved",
+                },
+            ],
+            "label": "已批准",
+        },
+    )
+    assert created.status_code == 200, created.text
+
+    monkeypatch.setattr(video_api, "_submit_video_job", lambda job: None)
+
+    single = client.post(
+        f"/api/projects/{project['id']}/video/generate",
+        json={
+            "shot_id": "shot_scene_001_000",
+            "provider": "minimax",
+            "model": "default",
+            "prompt": "A close-up shot of Qi Xia.",
+            "version_id": created.json()["id"],
+            "params": {"aspect_ratio": "9:16"},
+        },
+    )
+    assert single.status_code == 200, single.text
+
+    batch = client.post(
+        f"/api/projects/{project['id']}/video/generate-batch",
+        json={
+            "mode": "auto",
+            "provider": "minimax",
+            "model": "default",
+            "aspect_ratio": "9:16",
+        },
+    )
+    assert batch.status_code == 200, batch.text
+
+    jobs = client.get(f"/api/projects/{project['id']}/video/jobs").json()
+    assert len(jobs) >= 2
+    assert all(j["params"].get("aspect_ratio") == "9:16" for j in jobs)

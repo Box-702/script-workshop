@@ -1,53 +1,40 @@
 <script setup>
 // =====================================================================
-// WelcomeHero.vue —— 片场首页
+// WelcomeHero.vue —— 首次创作开始页（只在「无项目 + 无对话」的首创态出现）
 //
-// 初始页只保留一个主命题、一个主动作和一组轻量快捷动作。
-// 把功能从「四张同权重卡片」改成「作品氛围 + 创作入口」。
+// 一个主命题 + 一主一次两个动作 + 三个示例模板 + 语义化流程条。
+// 与编辑态（已有项目 / 进行中的对话）完全分流：编辑态的空对话
+// 由 ChatThread 渲染轻量空态，不再回到这张大开始页。
 // =====================================================================
 
-import { computed } from 'vue'
-import { store } from '../stores/app'
+import { store, focusComposer } from '../stores/app'
 import LogoMark from './LogoMark.vue'
 
-const projectName = computed(
-  () => store.projects.find((p) => p.id === store.pid)?.title || ''
-)
+// 三个示例模板：点击只把示例填进输入框（不自动发送），由用户确认后发出。
+const TEMPLATES = [
+  {
+    index: '01',
+    tag: '从一个想法',
+    text: '一个失去记忆的出租车司机，在雨夜接到未来的自己。',
+  },
+  {
+    index: '02',
+    tag: '从一段原文',
+    text: '把我贴进项目里的那段原文改编成 3 分钟短剧，保留原著的语气和节奏。',
+  },
+  {
+    index: '03',
+    tag: '从一个人物',
+    text: '从人物开始：一个总在深夜出诊的乡村兽医，想退休却总被叫回去。',
+  },
+]
 
-const hasProject = computed(() => Boolean(store.pid))
+// 流程条：语义化的四步（有序列表，屏幕阅读器读作「第 1 步 / 共 4 步」）。
+const FLOW_STEPS = ['想法', '剧本', '分镜', '成片']
 
-const quickActions = computed(() => (
-  hasProject.value
-    ? [
-        { index: '01', title: '继续生成', desc: '从当前剧本继续推进', fill: '生成初稿' },
-        { index: '02', title: '拆解分镜', desc: '把场景变成可生成镜头', fill: '帮我把当前故事拆解成可生成的分镜' },
-        { index: '03', title: '打磨对白', desc: '让台词更口语、更像人说话', fill: '把当前剧本的对白改得更口语一点' },
-      ]
-    : [
-        { index: '01', title: '导入原著', desc: '上传 .txt / .md / .docx 文件', open: 'newProject' },
-        { index: '02', title: '粘贴片段', desc: '从一段文字直接开始', open: 'newProject' },
-        { index: '03', title: '了解 Agent', desc: '看看它可以怎样帮你', fill: '你能帮我做什么？' },
-      ]
-))
-
-function fill(text) {
-  store.draft = text
+function useTemplate(t) {
+  store.draft = t.text
   store.draftSeq++
-}
-
-function startPrimary() {
-  if (hasProject.value) fill('生成初稿')
-  else store.showNewProject = true
-}
-
-function startSecondary() {
-  if (hasProject.value) fill('帮我把当前故事拆解成可生成的分镜')
-  else fill('你能帮我做什么？')
-}
-
-function onQuickAction(action) {
-  if (action.fill) fill(action.fill)
-  if (action.open === 'newProject') store.showNewProject = true
 }
 </script>
 
@@ -56,79 +43,48 @@ function onQuickAction(action) {
     <div class="hero-backdrop" aria-hidden="true">
       <div class="hero-image"></div>
       <div class="hero-vignette"></div>
-      <div class="hero-grid"></div>
-    </div>
-
-    <div class="hero-top">
-      <div class="hero-brandline">
-        <span class="hero-brandmark"><LogoMark :size="20" /></span>
-        <span>STORY WORKSHOP</span>
-        <i></i>
-        <span>{{ hasProject ? 'CURRENT PROJECT' : 'NEW STORY' }}</span>
-      </div>
-      <div class="hero-status">
-        <span class="status-dot"></span>
-        READY TO CREATE
-      </div>
     </div>
 
     <div class="hero-main">
-      <div class="hero-copy">
-        <p class="hero-kicker">AI VIDEO STORY STUDIO</p>
-        <h2 class="hero-title">
-          <template v-if="hasProject">继续把《{{ projectName }}》拍出来</template>
-          <template v-else>从一个故事，开始你的第一场戏</template>
-        </h2>
-        <p class="hero-sub">
-          <template v-if="hasProject">剧本、分镜、提示词和成片，都从当前对话继续。</template>
-          <template v-else>导入原著或粘贴片段，让 Agent 先帮你搭起故事的骨架。</template>
-        </p>
+      <p class="hero-kicker">
+        <span class="hero-brandmark" aria-hidden="true"><LogoMark :size="18" /></span>
+        AI VIDEO STORY STUDIO
+      </p>
+      <h2 class="hero-title">把一个想法，变成一场戏</h2>
+      <p class="hero-sub">
+        从一句灵感、一段原文或一个人物开始，AI 会先搭出故事骨架，再带你进入镜头创作。
+      </p>
 
-        <div class="hero-actions">
-          <button class="primary-action" @click="startPrimary">
-            <span>{{ hasProject ? '生成初稿' : '开始一个新故事' }}</span>
-            <span aria-hidden="true">↗</span>
-          </button>
-          <button class="secondary-action" @click="startSecondary">
-            {{ hasProject ? '先拆解分镜' : '先和 Agent 聊聊' }}
-          </button>
-        </div>
+      <div class="hero-actions">
+        <button class="primary-action" @click="focusComposer()">从想法开始</button>
+        <button class="secondary-action" @click="store.showNewProject = true">导入文档</button>
       </div>
 
-      <div class="hero-note">
-        <span class="note-index">01 / 03</span>
-        <strong>{{ hasProject ? '从剧本到镜头' : '从灵感到成片' }}</strong>
-        <span>Agent 会在每一步停下来，让你决定下一步。</span>
-      </div>
-    </div>
-
-    <div class="hero-bottom">
-      <div class="hero-flow">
-        <span class="flow-label">WORKFLOW</span>
-        <span>STORY</span>
-        <i></i>
-        <span>SHOT</span>
-        <i></i>
-        <span>VIDEO</span>
-      </div>
-
-      <div class="quick-actions" role="list" aria-label="快捷动作">
+      <!-- 三个示例模板：填入输入框，不自动发送 -->
+      <div class="templates" role="list" aria-label="示例模板">
         <button
-          v-for="action in quickActions"
-          :key="action.index"
-          class="quick-action"
+          v-for="t in TEMPLATES"
+          :key="t.index"
+          class="template-chip"
           role="listitem"
-          @click="onQuickAction(action)"
+          @click="useTemplate(t)"
         >
-          <span class="quick-index">{{ action.index }}</span>
-          <span class="quick-copy">
-            <strong>{{ action.title }}</strong>
-            <small>{{ action.desc }}</small>
+          <span class="template-index" aria-hidden="true">{{ t.index }}</span>
+          <span class="template-copy">
+            <strong>{{ t.tag }}</strong>
+            <span class="template-text">{{ t.text }}</span>
           </span>
-          <span class="quick-arrow" aria-hidden="true">↗</span>
         </button>
       </div>
     </div>
+
+    <!-- 流程条：想法 → 剧本 → 分镜 → 成片 -->
+    <ol class="hero-flow" aria-label="创作流程">
+      <li v-for="(step, i) in FLOW_STEPS" :key="step" :aria-setindex="i + 1">
+        <span class="flow-num" aria-hidden="true">0{{ i + 1 }}</span>
+        <span class="flow-name">{{ step }}</span>
+      </li>
+    </ol>
   </section>
 </template>
 
@@ -139,16 +95,16 @@ function onQuickAction(action) {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  gap: var(--space-6);
   overflow: hidden;
   isolation: isolate;
-  padding: 24px clamp(20px, 4vw, 56px) 24px;
+  padding: var(--space-6) clamp(var(--space-4), 4vw, var(--space-7)) var(--space-5);
   color: var(--ink);
 }
 
 .hero-backdrop,
 .hero-image,
-.hero-vignette,
-.hero-grid {
+.hero-vignette {
   position: absolute;
   inset: 0;
   pointer-events: none;
@@ -159,7 +115,7 @@ function onQuickAction(action) {
   background:
     url('https://blog-bk.sondo.ai/upload/2025/06/6870109c1e04b.webp') center / cover,
     url('https://images.unsplash.com/photo-1519608487953-e999c86e7455?auto=format&fit=crop&w=1400&q=80') center / cover;
-  opacity: .58;
+  opacity: .55;
   filter: saturate(.88) contrast(1.04);
   transform: scale(1.025);
 }
@@ -168,189 +124,109 @@ function onQuickAction(action) {
     linear-gradient(90deg, color-mix(in oklch, var(--bg) 88%, transparent) 0%, color-mix(in oklch, var(--bg) 42%, transparent) 54%, color-mix(in oklch, var(--bg) 52%, transparent) 100%),
     linear-gradient(180deg, color-mix(in oklch, var(--bg) 56%, transparent) 0%, transparent 44%, color-mix(in oklch, var(--bg) 82%, transparent) 100%);
 }
-.hero-grid {
-  opacity: .08;
-  background-image:
-    linear-gradient(color-mix(in oklch, var(--ink) 18%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in oklch, var(--ink) 18%, transparent) 1px, transparent 1px);
-  background-size: 40px 40px;
-  mask-image: linear-gradient(to bottom, black, transparent 80%);
-}
 
-.hero-top,
-.hero-main,
-.hero-bottom {
-  position: relative;
-  z-index: 1;
-}
+.hero-main { max-width: 640px; }
 
-.hero-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  color: var(--muted);
-  font: 600 10px/1 var(--mono);
-  letter-spacing: .1em;
-}
-.hero-brandline,
-.hero-status,
-.hero-flow {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.hero-brandline i,
-.hero-flow i {
-  width: 22px;
-  height: 1px;
-  background: var(--line-strong);
-}
-.hero-brandmark { display: inline-flex; color: var(--accent); margin-right: 2px; }
-.hero-status { color: var(--dim); letter-spacing: .08em; }
-.status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--cyan);
-}
-
-.hero-main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 210px;
-  align-items: end;
-  gap: 48px;
-  margin: auto 0;
-  padding: 60px 0 72px;
-}
-.hero-copy { max-width: 600px; }
 .hero-kicker {
-  margin: 0 0 18px;
+  margin: 0 0 var(--space-4);
+  display: inline-flex; align-items: center; gap: var(--space-2);
   color: var(--accent);
-  font: 700 10px/1 var(--mono);
+  font: 700 var(--fs-xs)/1 var(--mono);
   letter-spacing: .16em;
 }
+.hero-brandmark { display: inline-flex; }
+
 .hero-title {
-  max-width: 12ch;
   margin: 0;
-  font-size: 42px;
+  font-size: clamp(var(--fs-xl), 5vw, var(--fs-display));
   font-weight: 720;
-  letter-spacing: -.025em;
-  line-height: 1.08;
+  letter-spacing: -.02em;
+  line-height: var(--lh-tight);
 }
+
 .hero-sub {
-  max-width: 42ch;
-  margin: 18px 0 0;
+  max-width: 44ch;
+  margin: var(--space-4) 0 0;
   color: var(--muted);
-  font-size: 14px;
-  line-height: 1.7;
+  font-size: var(--fs-md);
+  line-height: var(--lh-body);
 }
+
+/* 主 / 次动作：点击目标 ≥44px */
 .hero-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 26px;
-}
-.primary-action,
-.secondary-action {
-  min-height: 36px;
-  border-radius: 8px;
+  display: flex; align-items: center; gap: var(--space-3);
+  margin-top: var(--space-5);
+  flex-wrap: wrap;
 }
 .primary-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 18px;
-  padding-inline: 13px 11px;
-  background: var(--accent);
-  color: var(--on-accent);
+  min-height: var(--tap);
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-md);
+  font-weight: 650;
 }
-.primary-action:hover { background: var(--accent-hover); }
 .secondary-action {
-  padding-inline: 12px;
-  background: color-mix(in oklch, var(--bg) 52%, transparent);
-  border-color: color-mix(in oklch, var(--ink) 18%, var(--line));
-  color: var(--muted);
-}
-.secondary-action:hover { color: var(--ink); border-color: var(--line-strong); background: color-mix(in oklch, var(--ink) 5%, transparent); }
-
-.hero-note {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  padding-left: 16px;
-  border-left: 1px solid color-mix(in oklch, var(--accent) 48%, var(--line));
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.55;
-}
-.hero-note strong { color: var(--ink); font-size: 13px; font-weight: 650; }
-.note-index { color: var(--accent); font: 700 10px/1 var(--mono); letter-spacing: .08em; }
-
-.hero-bottom {
-  display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
-  gap: 24px;
-  align-items: end;
-  padding-top: 14px;
-  border-top: 1px solid color-mix(in oklch, var(--ink) 14%, transparent);
-}
-.hero-flow {
-  align-self: start;
-  color: var(--dim);
-  font: 600 10px/1.4 var(--mono);
-  letter-spacing: .08em;
-}
-.flow-label { color: var(--accent); }
-.quick-actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0;
-}
-.quick-action {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 4px 18px;
-  border: 0;
-  border-left: 1px solid var(--line);
-  border-radius: 0;
+  min-height: var(--tap);
+  padding: 0 var(--space-4);
   background: transparent;
+  border: 1px solid var(--line-strong);
   color: var(--muted);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-md);
+  font-weight: 550;
+}
+.secondary-action:hover:not(:disabled) {
+  background: transparent; color: var(--ink);
+  border-color: color-mix(in oklch, var(--gold) 45%, var(--line-strong));
+}
+
+/* 示例模板：安静的横向 chips，填入输入框 */
+.templates {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  margin-top: var(--space-5);
+}
+.template-chip {
+  display: flex; align-items: baseline; gap: var(--space-3);
+  min-height: var(--tap);
+  padding: var(--space-2) var(--space-3);
   text-align: left;
+  background: color-mix(in oklch, var(--panel) 62%, transparent);
+  border: 1px solid color-mix(in oklch, var(--line) 72%, transparent);
+  border-radius: var(--radius-md);
+  color: var(--muted);
+  font-weight: 400;
+  backdrop-filter: none;
+  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
-.quick-action:last-child { border-right: 1px solid var(--line); }
-.quick-action:hover { background: color-mix(in oklch, var(--ink) 4%, transparent); color: var(--ink); }
-.quick-index {
-  align-self: flex-start;
-  color: var(--accent);
-  font: 700 9px/1 var(--mono);
-  letter-spacing: .08em;
+.template-chip:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: color-mix(in oklch, var(--gold) 40%, var(--line));
+  background: color-mix(in oklch, var(--panel) 82%, transparent);
 }
-.quick-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.quick-copy strong { color: inherit; font-size: 12px; font-weight: 650; }
-.quick-copy small { overflow: hidden; color: var(--dim); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
-.quick-arrow { margin-left: auto; color: var(--dim); font-size: 14px; }
+.template-index { flex: none; font: 650 var(--fs-xs)/1.6 var(--mono); color: var(--gold); }
+.template-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.template-copy strong { font-size: var(--fs-sm); font-weight: 650; color: var(--ink); }
+.template-text {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
-@media (max-width: 900px) {
-  .hero-main { grid-template-columns: 1fr; gap: 24px; padding: 48px 0 56px; }
-  .hero-note { max-width: 320px; }
-  .hero-bottom { grid-template-columns: 1fr; gap: 16px; }
+/* 流程条：语义化 ol，减少装饰 */
+.hero-flow {
+  list-style: none;
+  margin: 0; padding: var(--space-3) 0 0;
+  border-top: 1px solid color-mix(in oklch, var(--line) 60%, transparent);
+  display: flex; align-items: center; gap: var(--space-5);
+  flex-wrap: wrap;
 }
+.hero-flow li { display: inline-flex; align-items: baseline; gap: var(--space-2); }
+.flow-num { font: 650 var(--fs-xs)/1 var(--mono); color: var(--gold); }
+.flow-name { font-size: var(--fs-sm); color: var(--muted); font-weight: 550; }
 
-@media (max-width: 620px) {
-  .hero { padding: 18px 16px 18px; }
-  .hero-brandline span:not(.hero-brandmark):nth-last-child(-n + 2) { display: none; }
-  .hero-status { font-size: 9px; }
-  .hero-main { padding: 50px 0 46px; }
-  .hero-title { font-size: 30px; }
-  .hero-sub { font-size: 13px; }
-  .hero-actions { align-items: stretch; flex-direction: column; max-width: 240px; }
-  .hero-actions button { justify-content: space-between; }
-  .quick-actions { grid-template-columns: 1fr; }
-  .quick-action,
-  .quick-action:last-child { border-right: 0; border-left: 0; border-top: 1px solid var(--line); padding: 10px 0; }
-  .quick-action:last-child { border-bottom: 1px solid var(--line); }
+@media (max-width: 640px) {
+  .hero { padding: var(--space-5) var(--space-4); }
+  .template-text { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .hero-flow { gap: var(--space-4); }
 }
 </style>

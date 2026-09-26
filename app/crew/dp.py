@@ -22,8 +22,14 @@ from typing import Any
 from ..domain import SceneBreakdown, Script, Shot, StyleGuide
 from ..llm import LLM
 from .base import CrewAgent, CrewTaskResult
+from .dramaturgy import (
+    audit_video_prompt,
+    strip_slop,
+    strip_spoken_quotes,
+)
 
 log = logging.getLogger(__name__)
+
 
 # 原生支持中文提示词的模型（其余按英文处理）。
 _ZH_PROVIDERS = {"cogvideo", "kling", "minimax"}
@@ -73,6 +79,14 @@ _BODY_RULES_ZH = """**每个镜头的 prompt_body 要写什么**（这是给视�
 9. **台词不进提示词**。不要把角色说的话写成引用（「说道：『……』」「报告：『……』」）——
    视频模型会把台词渲染成含混的假说话，观众完全听不懂。对白段只写说话的**姿态与口型动机**：
    谁对谁说、语速与情绪、身体朝向与距离、手的动作；声音交给后期配音与对口型。
+10. **最终画面收尾**。每个镜头的 prompt_body 以导演给的 final_frame（结束帧的可见状态）
+   作最后一句——视频模型把最后一帧当情绪目的地，结尾停在哪一帧，镜头就朝哪驶去。
+   直接写可见状态本身，不要写「最终画面」「结束帧」这类标签词。
+11. **情绪只写身体，空洞词一概不写**。mood 里的情绪名词（紧张/悲伤/愤怒/压抑）不能直接
+   进提示词——模型渲染不了感情，渲染的是身体：把每次情绪转变翻译成 2-4 个可观察的
+   身体线索（下颌锁死、指节发白、呼吸变浅、眼神下沉），多了像演技过火。同样禁止
+   渲染不出来的占位词：电影感/大片感/史诗感/高级感/cinematic/epic/stunning/masterpiece/
+   high quality/4K——每一个都是「没写出细节」的占位符，一律换成具体的物理事实。
 
 这一镜只讲一段连贯的动作或一段连贯的对话剧情，不要跨场景跳跃。"""
 
@@ -118,6 +132,17 @@ thing the video model sees — anything you leave out, it will invent):
    fake speech nobody can understand. For dialogue beats, write the acting instead:
    who addresses whom, pace and emotion, body orientation and distance, what the hands
    do. Voice belongs to post-production dubbing and lip-sync.
+10. **End on the final frame.** Close every prompt_body with the shot's final_frame
+   (the visible state of the last frame) — the video model treats the last frame as
+   the emotional destination and drives toward it. Write the visible state itself;
+   never meta labels like "final frame".
+11. **Emotions are rendered by bodies only; slop words are banned.** Mood nouns
+   (tense / sad / angry) must not enter the prompt — the model cannot render feelings,
+   only bodies: translate each emotional shift into 2-4 observable body cues (jaw set,
+   knuckles white, breath shallow, gaze sinking); more reads as overacting. Likewise
+   never write unrenderable placeholder words: cinematic / epic / stunning /
+   masterpiece / high quality / 4K — each is a placeholder for missing detail.
+   Replace them with concrete physical facts.
 
 One shot carries one continuous action or one continuous stretch of dialogue."""
 
@@ -131,33 +156,6 @@ def _mentions_camera(text: str) -> bool:
     low = text.lower()
     return any(w in low for w in _CAMERA_WORDS)
 
-
-# 说话动词：紧跟其后的引用几乎一定是台词（招牌/字幕类引用前面的动词是「写着」等）。
-_SPEECH_VERBS = ("说", "问", "答", "喊", "叫", "念", "读", "道", "开口", "报告", "低声", "大声", "嘀咕", "嘟囔")
-_QUOTE_SPAN = re.compile(r"[「『“\"]([^」』”\"]*)[」』”\"]")
-
-
-def _strip_spoken_quotes(text: str) -> str:
-    """把「跟在说话动词后面的引用台词」从提示词里剥掉。
-
-    视频模型会把被引用的台词渲染成含混的假说话（叽里咕噜），语音应交给后期
-    配音；对白信息只保留姿态与口型动机。招牌/字幕类引用（前面是「写着」等）
-    不受影响。模型偶尔仍会把台词写进 body，这是提示词规则之外的机械兜底。
-    """
-    if not text:
-        return text
-    out: list[str] = []
-    last = 0
-    for m in _QUOTE_SPAN.finditer(text):
-        head = text[max(0, m.start() - 6):m.start()]
-        if not any(v in head for v in _SPEECH_VERBS):
-            continue
-        out.append(text[last:m.start()])
-        last = m.end()
-    if not out:
-        return text
-    out.append(text[last:])
-    return "".join(out)
 
 
 _MISSING_HINTS: dict[str, dict[str, str]] = {
@@ -198,7 +196,7 @@ def dp_system(*, language: str, provider_label: str, max_duration: float, has_an
         "**已提供统一的美术风格指南（环境/人物锚已固定）**：\n"
         "- 环境描述与人物造型由美术指导统一下发，本步骤不要改写它们；\n"
         "- 你只需为每个镜头产出 `characters`（本镜出场人物名）与 `prompt_body`"
-        "（本镜画面调度 + 运镜，写法见下面九条）。\n"
+        "（本镜画面调度 + 运镜，写法见下面十一条）。\n"
         if has_anchors
         else
         "**未提供美术风格指南**：请额外为每个场景产出 `environment`（固定环境描述）"
@@ -223,6 +221,11 @@ def dp_system(*, language: str, provider_label: str, max_duration: float, has_an
         '"shots": [{"shot_id": "shot_scene_001_000", "characters": ["人物名"], "prompt_body": "（本镜画面调度 + 运镜）"}]}]}\n'
         "```"
     )
+
+
+def _norm_key(text: str) -> str:
+    """去空白与标点的规范化串：用来判断最终画面是否已被 body 覆盖（模型常改写措辞）。"""
+    return re.sub(r"[\s，,。；;、·「」『』\"'！!？?．.]+", "", str(text or ""))
 
 
 class DPAgent(CrewAgent):
@@ -270,10 +273,17 @@ class DPAgent(CrewAgent):
             raw = self._invoke_json(system, user_prompt)
             updated = self._apply(all_shots, raw, script, style, style_guide, language)
             n = sum(1 for s in updated if s.video_prompt)
+            flagged = sum(1 for s in updated if s.prompt_audit)
+            audit_note = (
+                f"；{flagged} 个镜头有优化提醒，审阅时可逐条查看"
+                if flagged
+                else "，全部通过质量检查"
+            ) if n else ""
             lang_cn = "中文" if language == "zh" else "英文"
             return CrewTaskResult(
                 data=updated,
-                summary=f"摄影指导为 {n}/{len(updated)} 个镜头构建了{lang_cn}视频提示词（目标模型：{label}）",
+                summary=f"已为 {n}/{len(updated)} 个镜头写好{lang_cn}视频提示词{audit_note}。",
+                metadata={"audit_flagged": flagged},
             )
         except Exception as e:  # noqa: BLE001
             log.warning("摄影指导 Agent 失败：%s", e)
@@ -337,6 +347,13 @@ class DPAgent(CrewAgent):
                 parts.append(f"冲突：{sc.conflict}")
                 names = "、".join(char_map.get(cid, cid) for cid in sc.characters)
                 parts.append(f"在场人物：{names}")
+                a = bd.anchors
+                anchor_bits = [
+                    ("情绪", a.emotion), ("母题", a.motif), ("物体", a.object),
+                    ("破裂", a.break_point), ("最终画面", a.final_image),
+                ]
+                if any(v.strip() for _, v in anchor_bits):
+                    parts.append("本场五锚点：" + "；".join(f"{k} {v}" for k, v in anchor_bits if v.strip()))
                 beat_lines: list[str] = []
                 for b in sc.beats[:24]:
                     if b.type == "dialogue":
@@ -355,9 +372,12 @@ class DPAgent(CrewAgent):
                     + (f"/{s.camera.direction}" if s.camera.direction else "")
                     + f"/{s.camera.speed}"
                     + f" | 时长 {s.duration_sec:.0f}s"
+                    + (f" | 功能 {s.function}" if s.function else "")
                 )
                 parts.append(f"      主体：{s.subject}")
                 parts.append(f"      动作：{s.action}")
+                if s.final_frame:
+                    parts.append(f"      最终画面：{s.final_frame}")
                 # 摄影机轨迹是视频模型能否「跟着走」的关键，缺了就显式点出来。
                 if s.camera.type != "static":
                     parts.append(f"      运镜轨迹：{s.camera.path or hints['camera_path']}")
@@ -372,7 +392,7 @@ class DPAgent(CrewAgent):
                 elif s.spatial:
                     parts.append(f"      背景人物：{hints['background']}")
                 if s.mood:
-                    parts.append(f"      情绪：{s.mood}")
+                    parts.append(f"      情绪：{s.mood}（只写身体线索，情绪名词本身不进提示词）")
             parts.append("")
 
         if has_anchors:
@@ -380,10 +400,11 @@ class DPAgent(CrewAgent):
         else:
             parts.append("请按 JSON 输出：每场一份 environment 与 characters，每个镜头一段 prompt_body。")
         parts.append(
-            "写 prompt_body 时按上面九条规则：动作与运镜并重（一种主要运动、不越轴、结尾不改景别）、"
+            "写 prompt_body 时按上面十一条规则：动作与运镜并重（一种主要运动、不越轴、结尾不改景别）、"
             "保留呼吸感、光影写方向与相对关系、空间写人物编号与距离、背景人物各有各的事、"
             "只写看得见的东西、接触动作物理过程只给主事件（节拍≤两步、他人不再碰同一道具）、"
-            "全篇正向描述无否定句、台词不进提示词（对白只写姿态与口型动机）。"
+            "全篇正向描述无否定句、台词不进提示词（对白只写姿态与口型动机）、"
+            "以 final_frame 的可见状态收尾、情绪翻译成身体线索并禁用占位词。"
         )
         return "\n".join(parts)
 
@@ -435,7 +456,9 @@ class DPAgent(CrewAgent):
             meta = shot_meta.get(shot.id) or {}
             body = str(meta.get("prompt_body") or meta.get("video_prompt") or "")
             # 台词兜底：模型偶尔仍把台词写进 body，机械剥掉（语音交给后期配音）。
-            body = _strip_spoken_quotes(body)
+            body = strip_spoken_quotes(body)
+            # 占位词兜底：整段都是占位词的短句机械剥掉；混写句保留，交给逐镜审计提醒。
+            body = strip_slop(body)
 
             # 环境锚：风格指南（按地点名）优先，其次本步骤 LLM 产出；
             # 短片常全片同一场景，若只有一个环境锚就直接用它兜底。
@@ -463,6 +486,14 @@ class DPAgent(CrewAgent):
                 label = "运镜轨迹：" if language == "zh" else "Camera path: "
                 body = f"{body.strip().rstrip('。')}。{label}{shot.camera.path}".strip("。")
 
+            # 最终画面兜底（U11）：模型把最后一帧当情绪目的地，body 必须以
+            # final_frame 收尾；LLM 漏写时把导演方案里的结束帧补成最后一句。
+            ff = str(shot.final_frame or "").strip()
+            if ff:
+                core = _norm_key(ff)[:8]
+                if core and core not in _norm_key(body):
+                    body = f"{body.strip().rstrip('。')}。{ff}".strip("。")
+
             pieces: list[str] = []
             if env:
                 pieces.append(env.strip().rstrip("。"))
@@ -476,6 +507,8 @@ class DPAgent(CrewAgent):
             prompt = "。".join(p for p in pieces if p) + "。" if pieces else ""
             if prompt:
                 shot.video_prompt = prompt
+            # 第二道审计（出厂前双重审计）：结论随镜头落库，人工审阅时逐镜可见。
+            shot.prompt_audit = audit_video_prompt({"video_prompt": prompt})
             updated.append(shot)
         return updated
 
@@ -520,7 +553,10 @@ class DPAgent(CrewAgent):
             if shot.mood:
                 pieces.append(f"{shot.mood}氛围" if zh else f"{shot.mood} mood")
             pieces.append(style)
-            shot.video_prompt = _strip_spoken_quotes("。".join(p.strip().rstrip("。") for p in pieces if p) + "。")
+            shot.video_prompt = strip_spoken_quotes(
+                strip_slop("。".join(p.strip().rstrip("。") for p in pieces if p) + "。")
+            )
+            shot.prompt_audit = audit_video_prompt({"video_prompt": shot.video_prompt})
         return CrewTaskResult(data=shots, summary=f"（无模型回退）为 {len(shots)} 个镜头拼装基础提示词")
 
 

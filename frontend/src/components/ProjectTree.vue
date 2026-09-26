@@ -111,7 +111,8 @@ async function doDeleteConversation(pid, c) {
     <div class="list" @click="confirmDel = null">
       <div v-if="!filteredProjects.length && !search" class="empty">
         <p>还没有剧本</p>
-        <p class="empty-sub">创建一个开始写作</p>
+        <p class="empty-sub">创建一个开始写作，或从一份原著文档导入</p>
+        <button class="empty-cta" @click="store.showNewProject = true">新建剧本</button>
       </div>
       <div v-if="!filteredProjects.length && search" class="empty">
         <p>没有匹配的项目</p>
@@ -207,7 +208,7 @@ aside {
 
 /* 标题区 */
 .aside-head { padding: 16px 16px 4px; display: flex; align-items: baseline; gap: 6px; }
-h2 { font-size: 13px; margin: 0; font-weight: 700; color: var(--ink); letter-spacing: 0.01em; }
+h2 { font-size: 14px; margin: 0; font-weight: 700; color: var(--ink); letter-spacing: 0.01em; }
 .version { font-size: 10px; color: var(--dim); font-family: var(--mono); }
 
 /* 新建按钮 */
@@ -224,7 +225,7 @@ h2 { font-size: 13px; margin: 0; font-weight: 700; color: var(--ink); letter-spa
 .search {
   margin: 10px 12px 6px; padding: 5px 10px;
   background: transparent; border: 1px solid var(--line); border-radius: 6px;
-  font-size: 11.5px; color: var(--ink); outline: none;
+  font-size: 12.5px; color: var(--ink); outline: none;
   transition: border-color 200ms var(--ease), box-shadow 200ms var(--ease);
 }
 .search::placeholder { color: var(--dim); }
@@ -234,7 +235,8 @@ h2 { font-size: 13px; margin: 0; font-weight: 700; color: var(--ink); letter-spa
 .list { flex: 1; overflow-y: auto; padding: 4px 8px 16px; }
 .empty { color: var(--dim); font-size: 12px; padding: 20px 8px; }
 .empty p { margin: 2px 0; }
-.empty-sub { font-size: 11px; }
+.empty-sub { font-size: 12px; }
+.empty-cta { margin-top: 10px; min-height: 44px; padding: 0 18px; border-radius: 10px; font-size: 13px; font-weight: 650; }
 
 /* 项目行：父级锚点——更重、更亮，一眼和子项区分 */
 .proj-row {

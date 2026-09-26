@@ -396,6 +396,9 @@ class Shot(BaseModel):
     spatial: str = ""            # 空间关系：人物编号、人物间相对距离、离镜头/地面多高，及其在运镜中的变化
     background_action: str = ""  # 背景人物各自独立、不同步的生活化行为（允许少数人静止）
     cut_reason: str = ""               # 为什么必须在这里切镜（写不出理由就该合并）
+    # ---- 戏剧结构（先戏剧，后语法）----
+    function: str = ""           # 三工作规则：emotion(改变情绪) / action(推进动作) / pressure(施加压力)，三件不做一件的镜头是壁纸
+    final_frame: str = ""        # 最终画面：结束那一帧的可见状态——视频模型把它当情绪目的地
     # ---- 一致性计划（导演输出的符号化接力方案，运行时再解析为下面的 URL）----
     reference_group: str = ""          # 共享环境参考图分组键：同组镜头共用一张环境参考图
     chain_from: int | None = None      # 首帧接力：本镜首帧取自该 order 镜头的尾帧；None=序列起点/硬切
@@ -406,6 +409,7 @@ class Shot(BaseModel):
     last_frame_image: str | None = None   # 尾帧图（供下一镜接力）
     # ---- 视频生成状态 ----
     video_prompt: str | None = None
+    prompt_audit: list[str] = Field(default_factory=list)  # 确定性提示词审计提醒（人工审阅时逐镜可见）
     video_url: str | None = None
     video_job_id: str | None = None
 
@@ -446,6 +450,20 @@ class StyleGuide(BaseModel):
     reference_images: dict[str, str] = Field(default_factory=dict)
 
 
+class SceneAnchors(BaseModel):
+    """五锚点（One-anchor 原则）：一场戏只承诺五个锚点，不多不少。
+
+    锚点没命名的场景会「好看但空」——比堆形容词强得多的是这五个具体承诺，
+    它们能分镜、能写 prompt、能剪成有分量的东西。
+    """
+
+    emotion: str = ""      # 一个主要情绪
+    motif: str = ""        # 一个视觉母题：重复出现的感知钩子，贯穿本场多个镜头
+    object: str = ""       # 一个锚定物体
+    break_point: str = ""  # 一次破裂：击碎主角立场的那个细节
+    final_image: str = ""  # 一个最终画面：观众带走的最后一帧
+
+
 class SceneBreakdown(BaseModel):
     """场景拆解：由导演 Agent 生成，将一个 Scene 分解为多个 Shot。"""
 
@@ -454,6 +472,7 @@ class SceneBreakdown(BaseModel):
     visual_approach: str = ""
     pacing: PacingType = "medium"
     key_moments: list[str] = Field(default_factory=list)
+    anchors: SceneAnchors = Field(default_factory=SceneAnchors)
     shots: list[Shot] = Field(default_factory=list)
 
     @field_validator("scene_id", mode="before")

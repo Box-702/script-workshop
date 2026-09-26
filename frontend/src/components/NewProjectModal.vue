@@ -17,7 +17,7 @@ const ADAPT_TYPES = [
   { value: 'stage', label: '舞台剧' },
   { value: 'other', label: '自定义' },
 ]
-const ACCEPT = /\.(txt|md|markdown|docx)$/i
+const ACCEPT = /\.(txt|md|markdown|docx|pdf)$/i
 
 const title = ref('')
 const adapt = ref('short_drama')
@@ -39,7 +39,7 @@ function onKey(e) {
 watch(() => store.showNewProject, (open) => {
   if (open) {
     title.value = ''; raw.value = ''; file.value = null; err.value = ''; submitting.value = false
-    dropText.value = '点击选择或拖入 .txt / .md / .docx 文件'
+    dropText.value = '点击选择或拖入 .txt / .md / .docx / .pdf 文件'
     nextTick(() => titleInput.value?.focus())
     window.addEventListener('keydown', onKey)
   } else {
@@ -51,7 +51,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 /** 校验并记录选中的文件（点击与拖拽共用）。 */
 function pickFile(f) {
   if (!ACCEPT.test(f.name)) {
-    dropText.value = `⚠️ 不支持 ${f.name}，请选择 .txt/.md/.docx`
+    dropText.value = `⚠️ 不支持 ${f.name}，请选择 .txt/.md/.docx/.pdf`
     file.value = null
     return
   }
@@ -103,7 +103,7 @@ async function submit() {
         @dragleave="dragOver = false"
         @drop.prevent="onDrop"
       >{{ dropText }}</div>
-      <input ref="fileInput" type="file" accept=".txt,.md,.markdown,.docx" style="display: none" @change="onFileChange" />
+      <input ref="fileInput" type="file" accept=".txt,.md,.markdown,.docx,.pdf" style="display: none" @change="onFileChange" />
 
       <label>或直接粘贴原文</label>
       <textarea v-model="raw" placeholder="粘贴小说 / 剧本原文（3 段以上最佳）"></textarea>

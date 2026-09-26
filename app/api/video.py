@@ -16,6 +16,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from ..crew.dramaturgy import refresh_prompt_audits
 from ..video.base import default_resolution
 
 from . import common, deps
@@ -323,11 +324,13 @@ def review_video_prompt(
     target["prompt_review_note"] = payload.note.strip()
     if payload.reference_videos is not None:
         target["reference_videos"] = _normalize_reference_videos(payload.reference_videos)
+    # 人工改完 prompt 后重跑确定性审计，结论随新版本落库（出厂前双重审计的人工侧）。
+    refresh_prompt_audits(shots)
 
     labels = {
-        "approve": "批准视频 Prompt",
-        "needs_revision": "要求修改视频 Prompt",
-        "save": "保存视频 Prompt 草稿",
+        "approve": "批准镜头提示词",
+        "needs_revision": "要求修改镜头提示词",
+        "save": "保存镜头提示词草稿",
     }
     version = deps.store().create_video_version(
         project_id=project_id,
@@ -377,10 +380,12 @@ def bulk_review_video_prompts(
     for shot in targets:
         shot["prompt_status"] = status
         shot["prompt_review_note"] = payload.note.strip()
+    # 批量决策不改 prompt 内容，但也要把全部镜头的审计结论刷新到同一基线。
+    refresh_prompt_audits(shots)
 
     labels = {
-        "approve": "批量批准视频 Prompt",
-        "needs_revision": "批量要求修改视频 Prompt",
+        "approve": "批量批准镜头提示词",
+        "needs_revision": "批量要求修改镜头提示词",
     }
     version = deps.store().create_video_version(
         project_id=project_id,
@@ -592,6 +597,7 @@ def _job_dict(j: Any) -> dict[str, Any]:
         "video_url": j.video_url,
         "error_message": j.error_message,
         "cost_estimate": j.cost_estimate,
+        "params": j.params or {},
         "created_at": j.created_at.isoformat(),
         "finished_at": j.finished_at.isoformat() if j.finished_at else None,
     }
@@ -724,6 +730,7 @@ def _batch_submit(
     model: str,
     version_id: str | None,
     resolution: str | None = None,
+    aspect_ratio: str | None = None,
 ) -> Any:
     """构造批次提交回调，只为已批准 Prompt 的镜头创建任务。"""
     store = deps.store()
@@ -744,7 +751,10 @@ def _batch_submit(
             job = _create_and_submit_job(project_id, VideoJobCreate(
                 shot_id=shot_id, provider=provider, model=model,
                 prompt=shot.get("video_prompt") or "", version_id=version_id,
-                params=({"resolution": resolution} if resolution else {}),
+                params={
+                    **({"resolution": resolution} if resolution else {}),
+                    **({"aspect_ratio": aspect_ratio} if aspect_ratio else {}),
+                },
                 # 镜头级用户自备参考素材随镜头计划透传；
                 # 与自动接力（_auto_references）不冲突：显式给的键优先。
                 reference_videos=[u for u in shot.get("reference_videos") or [] if u],
@@ -762,11 +772,13 @@ class BatchCreateRequest(BaseModel):
     """批量生成请求。mode=auto 一次跑完；mode=approval 每镜等用户预览放行。
 
     resolution 不传时用全局默认（VIDEO_DEFAULT_RESOLUTION）；显式传入则覆盖。
+    aspect_ratio 不传时跟随全局默认（16:9）；显式传入（如 9:16）则覆盖。
     """
 
     mode: str = Field(default="auto", pattern=r"^(auto|approval)$")
     provider: str | None = None
     model: str | None = None
+    aspect_ratio: str | None = Field(default=None, max_length=10)  # 画幅：9:16 / 16:9 / 1:1 等
     version_id: str | None = None
     resolution: str | None = Field(default=None, max_length=20)
 
@@ -800,7 +812,7 @@ def generate_batch(project_id: str, payload: BatchCreateRequest) -> dict[str, An
     model = payload.model or "default"
     batch = deps.batch_manager().start(
         project_id, shot_ids, payload.mode,
-        _batch_submit(project_id, provider, model, version.id, payload.resolution),
+        _batch_submit(project_id, provider, model, version.id, payload.resolution, payload.aspect_ratio),
     )
     if batch.status == "failed":
         raise HTTPException(500, batch.error or "批次启动失败")
@@ -834,11 +846,12 @@ def batch_command(batch_id: str, payload: BatchCommandRequest) -> dict[str, Any]
     provider = prev.provider if prev else "minimax"
     model = prev.model if prev else "default"
     prev_resolution = ((prev.params or {}).get("resolution") if prev else None) or None
+    prev_aspect = ((prev.params or {}).get("aspect_ratio") if prev else None) or None
     versions = sorted(deps.store().list_video_versions(batch.project_id), key=lambda v: v.created_at)
     version_id = versions[-1].id if versions else None
 
     def _resubmit(shot_id: str) -> str | None:
-        return _batch_submit(batch.project_id, provider, model, version_id, prev_resolution)(shot_id)
+        return _batch_submit(batch.project_id, provider, model, version_id, prev_resolution, prev_aspect)(shot_id)
 
     try:
         if payload.command == "approve":

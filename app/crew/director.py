@@ -16,18 +16,47 @@ from typing import Any
 
 from ..domain import (
     CameraMovement,
+    SceneAnchors,
     SceneBreakdown,
     Script,
     Shot,
 )
 from ..llm import LLM
 from .base import CrewAgent, CrewTaskResult
+from .dramaturgy import SHOT_FUNCTIONS, audit_breakdowns
 
 log = logging.getLogger(__name__)
 
 DIRECTOR_SYSTEM = """你是影视导演，擅长把文字剧本转化为视觉叙事，尤其懂得「镜头连续性」的取舍。
 
 你的任务是为每场戏设计镜头方案，遵循以下核心原则：
+
+**先戏剧，后语法：模型语法在戏剧结构到位之前一文不值。结构错了，再正确的镜头语言也救不了这个镜头。**
+每个镜头动笔前先过四关，过不了就删掉它——宁可少一个镜头，不要一个壁纸镜头。
+
+1. **三工作规则**：每个镜头必须至少做一件事——改变情绪（function="emotion"）、
+   推进动作（新事件/新信息/新位置，function="action"）、施加压力（筹码上升/空间收紧/
+   证人出现，function="pressure"）。「漂亮的确立镜头」「漂亮的产品美镜」不是工作。
+2. **细节律（最常被违反）**：每个镜头写够三个物理细节，三类各一：
+   ① **环境压力**：承载情绪的空间物理事实（闪烁顶灯/窗上雨痕/湿沥青/水壶蒸汽/空调嗡鸣），
+   写进 `lighting` 与 `background_action`；
+   ② **身体微动作**：情绪唯一能渲染的地方是演员的身体——「她很满意」不产生画面，
+   「下颌松开」才产生画面（下颌锁死/指节发白/嘴唇压成一条线/眼神下沉），写进 `action`；
+   ③ **声音锚点/视觉母题**：与全片主干绑定的重复感知钩子（时钟秒针/玻璃上的反射/
+   反复入画的那盏灯），写进 `action` 或 `lighting`。
+   零细节 = 废镜头；「建立镜头」「过渡镜头」不豁免——恰恰是它们最先偷懒。
+3. **最终画面**：每镜必填 `final_frame`——镜头结束那一帧的可见状态（如「冰箱冷光
+   熄灭在他脸上」）。视频模型把最后一帧当情绪目的地，没有目的地的镜头会漂。
+4. **场景公式**：每场戏动笔前用一句话过五问——主角此刻要什么（desire，看 purpose）、
+   什么挡着（obstacle，看 conflict）、谁站哪谁占优势位（geometry，写进 spatial）、
+   观众的眼睛被逼到哪（gaze，每镜的 `subject` 必须是画面唯一焦点）、节奏怎么走
+   （rhythm，看 pacing 与时长阶梯）。说不出来 = 场景没想好，先回剧本层。
+
+**五锚点（One-anchor）**：每场只承诺五个锚点，写进 `anchors`，不多不少：
+一个主要情绪 `emotion`、一个视觉母题 `motif`（贯穿本场多个镜头的重复感知钩子，
+在相关镜头的 action/lighting 里反复出现）、一个锚定物体 `object`、一次破裂
+`break_point`（击碎主角立场的那个细节）、一个最终画面 `final_image`（观众带走的
+最后一帧）。绝不跳过破裂与最终画面。
 
 **镜头粒度：一个分镜 = 一段连贯的「角色动作」，或一段连贯的「角色对话剧情」**：
 - 连续的动作过程（某个人物从开始到完成一件事）算**一个**镜头，不要拆碎。
@@ -59,6 +88,10 @@ DIRECTOR_SYSTEM = """你是影视导演，擅长把文字剧本转化为视觉�
    怎么变、机位高度是多少（齐胸 / 过顶 / 贴地）、以及运动规律（起步与刹车、惯性、
    中途的加减速）。`camera_path` 写轨迹，`camera_height` 写高度。
    固定机位（static）可以留空，但只要 camera_type 不是 static 就必须写。
+   **运镜必须有动机（Fincher 法则）**：每次运镜都要能回答「什么变了？」——角色做了
+   决定、画面出现新信息、压力升级收紧、揭示角色看到的东西、空间变了（门开了/有人进来）。
+   `camera_path` 的起笔就写这个动机（如「推进从『我不知道』开始，在她下颌锁死的那一下
+   停住」）；答不出「什么变了」，这一镜就用 static——为动感而动的镜头是壁纸。
    **运镜三禁（违反任何一条，人物与场景的位置对应必崩）**：
    ① 一镜只允许**一种**连续机位运动——不要把环绕、推近、横移组合进同一镜；
    ② **禁止越轴**：摄影机保持在主要人物运动方向的同一侧，从人物一侧绕到另一侧
@@ -96,7 +129,12 @@ DIRECTOR_SYSTEM = """你是影视导演，擅长把文字剧本转化为视觉�
 - 分析每场戏的戏剧目标、情绪弧线、节奏需求
 - 决定镜头类型（远景/中景/近景/特写等）与运镜方式（固定/推/拉/摇/移/跟/环绕等）
 - 标注关键时刻（情绪转折、冲突爆发、悬念设置）
-- 整体节奏：开场紧凑、中段有张有弛、高潮密集
+- **节奏阶梯**：同场景的镜头时长不要随机——按 pacing 走「长 → 渐短 → 冲击」的阶梯
+  （slow 缓降、medium 中速渐短、fast 急剧缩短），制造加速感；**最大冲击的前一镜放最慢**，
+  那个停顿比剪切速度更重要——没有停顿的速度就是视觉绞肉机。时长一律保持在单镜可行区间内。
+- prompt 里禁止出现渲染不出来的空洞词（电影感/大片感/史诗感/高级感/cinematic/epic/
+  stunning/masterpiece/high quality）——每一个都是「没写出细节」的占位符，用三个具体
+  的物理事实替代
 
 输出 JSON 数组（每个元素是一场戏的拆解）：
 ```json
@@ -107,6 +145,13 @@ DIRECTOR_SYSTEM = """你是影视导演，擅长把文字剧本转化为视觉�
     "visual_approach": "缓慢推近建立空间感，保持同一盏钨丝灯的连续性……",
     "pacing": "slow",
     "key_moments": ["众人苏醒", "发现无门"],
+    "anchors": {
+      "emotion": "压抑的不安",
+      "motif": "钨丝灯的光斑反复扫过每一张沉睡的脸",
+      "object": "指向十二点的座钟",
+      "break_point": "有人发现房门根本不存在",
+      "final_image": "钟面高光划过，所有人抬头"
+    },
     "shots": [
       {
         "order": 0,
@@ -120,6 +165,8 @@ DIRECTOR_SYSTEM = """你是影视导演，擅长把文字剧本转化为视觉�
         "action": "十个沉睡者伏在桌上，山羊头面具男人立于长桌尽头",
         "dialogue_ref": null,
         "duration_sec": 8.0,
+        "function": "pressure",
+        "final_frame": "镜头停在与山羊头男人平视的位置，他的面具正对镜头",
         "lighting": "唯一主光来自长桌正上方那盏钨丝灯，向下打在桌面形成亮斑，四周迅速衰减入暗；镜头前进时桌面的亮斑始终不动，人物面部只在进入光锥时才被照亮",
         "mood": "压抑、不安",
         "spatial": "众人1号在最里侧，逐个向镜头方向排开，彼此相隔约半米；山羊头男人2号站在长桌尽头、离镜头最远；镜头与最近的人约 3 米，终点推进到 1.5 米",
@@ -137,9 +184,11 @@ DIRECTOR_SYSTEM = """你是影视导演，擅长把文字剧本转化为视觉�
         "camera_path": "",
         "camera_height": "略低于座钟钟面，仰角约 15 度",
         "subject": "座钟指针与苏醒的众人",
-        "action": "座钟指向十二，众人陆续苏醒抬头",
+        "action": "座钟指向十二，秒针的滴答声里众人陆续苏醒抬头，有人手指先抽动了一下",
         "dialogue_ref": null,
         "duration_sec": 8.0,
+        "function": "emotion",
+        "final_frame": "钟面高光扫过秒针，焦外所有人抬头定格",
         "lighting": "钨丝灯在画面左上方，钟面被侧光扫过留下一条高光，右侧人脸落在阴影里",
         "mood": "压抑",
         "spatial": "钟面1号占画面左侧三分之一，位于前景；苏醒的人2号在后方约两米处、焦外",
@@ -158,8 +207,10 @@ DIRECTOR_SYSTEM = """你是影视导演，擅长把文字剧本转化为视觉�
 - camera_type：static / pan / tilt / dolly / tracking / crane / handheld / zoom / steady / orbit
 - camera_speed：slow / medium / fast
 - pacing：slow / medium / fast / variable
+- function：emotion / action / pressure
 
 注意：
+- 每个 shot 的 `function` 与 `final_frame` 必填；每场的 `anchors` 五项必填。
 - camera_type 不是 static 时，camera_path 必填（写不出轨迹就说明这一镜其实是固定机位）。
 - 同一场景内多个镜头必须统一 reference_group（除非中间硬切到新地点）。
 - 时间/空间连续的前后镜头用 chain_from 接力，链到紧邻的前序镜头。
@@ -259,7 +310,7 @@ class DirectorAgent(CrewAgent):
         return CrewTaskResult(data=last, summary=summary, errors=critique)
 
     def _validate_continuity(self, breakdowns: list[SceneBreakdown]) -> list[str]:
-        """确定性校验分镜（不靠固定镜头数，只查结构自洽与生成器可行性）。
+        """确定性校验分镜（不靠固定镜头数，只查结构自洽、生成器可行性与戏剧结构）。
 
         检查项：
           1. 同场景多镜必须指定 reference_group，才能共享环境参考图；
@@ -267,7 +318,9 @@ class DirectorAgent(CrewAgent):
           3. 单镜时长必须落在目标模型单次生成的可行区间（默认 4–15 秒）；
           4. 非首镜必须填写 cut_reason（写不出切镜理由就该合并）；
           5. 相邻镜头不应是同一个人的重复面部特写（AI 视频里最伤的重复切镜）；
-          6. 运动镜头必须写 camera_path——写不出轨迹，模型就会自己乱动。
+          6. 运动镜头必须写 camera_path——写不出轨迹，模型就会自己乱动；
+          7-10. 戏剧结构审计（先戏剧，后语法）：三工作 function、最终画面 final_frame、
+             细节律三细节、场景五锚点——由 dramaturgy.audit_breakdowns 提供。
         """
         issues: list[str] = []
         all_orders = {s.order for bd in breakdowns for s in bd.shots}
@@ -312,6 +365,8 @@ class DirectorAgent(CrewAgent):
                     elif s.chain_from >= s.order:
                         issues.append(f"镜头 {s.id} 的 chain_from={s.chain_from} 不是前序镜头，首帧无法接力（只能链到更早的镜头）")
                 prev = s
+        # 7-10) 戏剧结构审计：三工作 / 最终画面 / 三细节 / 五锚点（先戏剧，后语法）
+        issues.extend(audit_breakdowns(breakdowns))
         return issues
 
     def _build_prompt(self, script: Script, targets: list) -> str:
@@ -409,17 +464,31 @@ class DirectorAgent(CrewAgent):
                     spatial=str(s.get("spatial") or "").strip(),
                     background_action=str(s.get("background_action") or "").strip(),
                     cut_reason=str(s.get("cut_reason") or ""),
+                    # 三工作规则：非法值一律置空，交给校验环节批评重拆。
+                    function=str(s.get("function") or "").strip() if str(s.get("function") or "").strip() in SHOT_FUNCTIONS else "",
+                    final_frame=str(s.get("final_frame") or "").strip(),
                     reference_group=str(s.get("reference_group") or ""),
                     chain_from=chain,
                 )
                 shots.append(shot)
 
+            anchors_raw = item.get("anchors")
+            if isinstance(anchors_raw, SceneAnchors):
+                anchors = anchors_raw
+            elif isinstance(anchors_raw, dict):
+                # 模型可能多给键/给错类型：只收五锚点字段，宽松收场。
+                anchors = SceneAnchors(
+                    **{k: str(v or "") for k, v in anchors_raw.items() if k in SceneAnchors.model_fields}
+                )
+            else:
+                anchors = SceneAnchors()
             breakdown = SceneBreakdown(
                 scene_id=scene_id,
                 director_notes=item.get("director_notes", ""),
                 visual_approach=item.get("visual_approach", ""),
                 pacing=_pick_enum(item.get("pacing"), _PACINGS, {}, "medium"),
                 key_moments=item.get("key_moments", []),
+                anchors=anchors,
                 shots=shots,
             )
             breakdowns.append(breakdown)

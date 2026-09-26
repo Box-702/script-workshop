@@ -14,18 +14,20 @@ import asyncio
 
 from app.crew.art_director import art_system
 from app.crew.director import DirectorAgent
-from app.crew.dp import DPAgent, _strip_spoken_quotes, dp_system, language_for
+from app.crew.dp import DPAgent, dp_system, language_for
 from app.domain import (
     CameraMovement,
     Character,
     Location,
     Scene,
+    SceneAnchors,
     SceneBreakdown,
     Script,
     Shot,
     Source,
     StyleGuide,
 )
+from app.crew.dramaturgy import strip_spoken_quotes
 from app.video.continuity import resolve_continuity, resolve_submission_references
 
 # ---------- 测试夹具 ----------
@@ -142,9 +144,13 @@ def test_director_validate_requires_camera_path_for_moving_shots():
     bd = SceneBreakdown(scene_id="scene_001", shots=[
         Shot(id="shot_scene_001_000", scene_id="scene_001", order=0, duration_sec=8,
              reference_group="room", cut_reason="起点",
+             function="pressure", final_frame="镜头停在他背后",
+             action="他下颌锁死，手撑在桌上", lighting="冷光从左上来",
              camera=CameraMovement(type="dolly", speed="slow")),          # 缺 path
         Shot(id="shot_scene_001_001", scene_id="scene_001", order=1, duration_sec=8,
              subject="座钟", reference_group="room", cut_reason="视点转移",
+             function="emotion", final_frame="秒针走完一格",
+             action="秒针跳动，他眼神下沉", lighting="侧光扫过钟面",
              camera=CameraMovement(type="static")),                        # 固定机位，无需 path
     ])
     issues = " ".join(_director()._validate_continuity([bd]))
@@ -153,12 +159,22 @@ def test_director_validate_requires_camera_path_for_moving_shots():
 
 
 def test_director_validate_accepts_good_plan():
-    bd = SceneBreakdown(scene_id="scene_001", shots=[
-        Shot(id="shot_scene_001_000", scene_id="scene_001", order=0, duration_sec=8,
-             reference_group="room", cut_reason="起点"),
-        Shot(id="shot_scene_001_001", scene_id="scene_001", order=1, duration_sec=8,
-             subject="对话交锋", reference_group="room", chain_from=0, cut_reason="对话单元切换"),
-    ])
+    bd = SceneBreakdown(
+        scene_id="scene_001",
+        anchors=SceneAnchors(emotion="压抑", motif="钨丝灯亮斑", object="座钟",
+                             break_point="发现无门", final_image="众人抬头"),
+        shots=[
+            Shot(id="shot_scene_001_000", scene_id="scene_001", order=0, duration_sec=8,
+                 reference_group="room", cut_reason="起点",
+                 function="pressure", final_frame="光斑停在他脸上",
+                 action="他下颌锁死，手指抠着桌沿", lighting="钨丝灯从上方打亮斑",
+                 background_action="秒针的滴答声持续"),
+            Shot(id="shot_scene_001_001", scene_id="scene_001", order=1, duration_sec=8,
+                 subject="对话交锋", reference_group="room", chain_from=0, cut_reason="对话单元切换",
+                 function="emotion", final_frame="两人隔桌对视定格",
+                 action="她嘴唇压成一条线", lighting="侧光把半张脸切进阴影"),
+        ],
+    )
     assert _director()._validate_continuity([bd]) == []
 
 
@@ -200,11 +216,13 @@ def test_dp_system_carries_the_five_prompt_rules():
     """图里那套提示词逻辑要固化成系统提示词，漏掉任何一条都会让画面失控。"""
     zh = dp_system(language="zh", provider_label="MiniMax", max_duration=10, has_anchors=True)
     for kw in ["虚拟无人机", "呼吸感", "光从哪个方向来", "编上号", "背景人物", "只写画面里看得见的东西",
-               "不越轴", "主事件", "禁止否定句", "台词不进提示词"]:
+               "不越轴", "主事件", "禁止否定句", "台词不进提示词",
+               "最终画面收尾", "情绪只写身体", "占位词"]:
         assert kw in zh
     en = dp_system(language="en", provider_label="Runway", max_duration=10, has_anchors=True)
     for kw in ["virtual drone", "lens breathing", "light direction", "Number the main characters",
-               "no axis crossing", "never negations", "Never put spoken lines"]:
+               "no axis crossing", "never negations", "Never put spoken lines",
+               "final frame", "slop words"]:
         assert kw in en
 
 
@@ -216,6 +234,18 @@ def test_director_and_art_rules_lock_adherence_budget():
         assert kw in DIRECTOR_SYSTEM
     art = art_system("zh")
     for kw in ["客观机位", "视点切换", "禁止出现身份与职业词"]:
+        assert kw in art
+
+
+def test_drama_rules_locked_into_prompts():
+    """方法论「先戏剧，后语法」要固化进剧组提示词：三工作、细节律、五锚点、最终画面、运镜动机。"""
+    from app.crew.director import DIRECTOR_SYSTEM
+
+    for kw in ["先戏剧，后语法", "三工作规则", "细节律", "最终画面", "五锚点",
+               "运镜必须有动机", "节奏阶梯", "不豁免"]:
+        assert kw in DIRECTOR_SYSTEM
+    art = art_system("zh")
+    for kw in ["写实人物公式", "环境会表演", "环境压力"]:
         assert kw in art
 
 
@@ -250,6 +280,56 @@ def test_dp_apply_backfills_missing_camera_path_once():
     assert _run("镜头从门口推进到桌前，齐夏抬头。").count("从门口推进到桌前") == 1
     # 模型用自己的话复述轨迹（真实模型就是这么干的）时不许再追加一遍
     assert _run("摄影机缓慢向前推进，齐夏抬头。").count("运镜轨迹") == 0
+
+
+def test_dp_apply_backfills_final_frame_and_audits():
+    """U11 最终画面：body 漏写结束帧时用导演方案补成最后一句；已写过不重复。"""
+    script = _script()
+
+    def _run(body: str, final_frame: str = "冷光熄灭在他脸上") -> Shot:
+        shots = [Shot(id="shot_scene_001_000", scene_id="scene_001", order=0,
+                      final_frame=final_frame, camera=CameraMovement())]
+        llm_out = {"scenes": [{"scene_id": "scene_001", "shots": [
+            {"shot_id": "shot_scene_001_000", "characters": ["齐夏"], "prompt_body": body},
+        ]}]}
+        return _dp()._apply(shots, llm_out, script, "", None)[0]
+
+    assert _run("齐夏的下颌慢慢锁死。").video_prompt.rstrip("。").endswith("冷光熄灭在他脸上")
+    assert _run("冷光熄灭在他脸上。").video_prompt.count("冷光熄灭在他脸上") == 1
+    # 拼装结果要过第二道审计；干净 prompt 不产生提醒
+    assert _run("齐夏的下颌慢慢锁死，秒针滴答。").prompt_audit == []
+
+
+def test_dp_apply_strips_slop_segments_from_body():
+    """整段占位词在拼装层机械剥掉；「最终画面」兜底在其后仍然生效。"""
+    script = _script()
+    shots = [Shot(id="shot_scene_001_000", scene_id="scene_001", order=0,
+                  final_frame="冰箱冷光熄灭在他脸上", camera=CameraMovement())]
+    llm_out = {"scenes": [{"scene_id": "scene_001", "shots": [
+        {"shot_id": "shot_scene_001_000", "characters": ["齐夏"],
+         "prompt_body": "他站在冰箱前，电影感，下颌锁死。"},
+    ]}]}
+    prompt = _dp()._apply(shots, llm_out, script, "", None)[0].video_prompt
+    assert "电影感" not in prompt
+    assert "下颌锁死" in prompt
+    assert prompt.rstrip("。").endswith("冰箱冷光熄灭在他脸上")
+
+
+def test_dp_build_prompt_carries_drama_fields():
+    """功能/最终画面/五锚点必须进入 DP 的输入，否则 body 无从对齐戏剧结构。"""
+    script = _script()
+    bd = SceneBreakdown(
+        scene_id="scene_001",
+        anchors=SceneAnchors(emotion="压抑", motif="钨丝灯亮斑", object="座钟",
+                             break_point="发现无门", final_image="众人抬头"),
+        shots=[Shot(id="shot_scene_001_000", scene_id="scene_001", order=0,
+                    function="pressure", final_frame="光斑停在山羊头面具上",
+                    camera=CameraMovement())],
+    )
+    prompt = _dp()._build_prompt(script, [bd], None, "zh", False)
+    assert "功能 pressure" in prompt
+    assert "光斑停在山羊头面具上" in prompt
+    assert "本场五锚点" in prompt and "钨丝灯亮斑" in prompt
 
 
 def test_dp_fallback_keeps_scheduling_fields():
@@ -362,15 +442,6 @@ def test_minimax_poll_maps_processing_to_generating(monkeypatch):
 
 
 # ---------- 提交时兜底：台词剥除 + 参考解析 ----------
-
-
-def test_strip_spoken_quotes_removes_dialogue_but_keeps_signs():
-    """说话动词后的引用是台词，必须剥掉（假说话问题）；招牌/字幕类引用不能误伤。"""
-    body = "小赵快步迎上，开口报告：「死者从七楼摔下。」苏砚点头。"
-    assert "死者从七楼摔下" not in _strip_spoken_quotes(body)
-    assert "苏砚点头" in _strip_spoken_quotes(body)
-    sign = "警戒带上写着「禁止入内」三个字，雨丝不断。"
-    assert _strip_spoken_quotes(sign) == sign
 
 
 def test_dp_apply_strips_quoted_dialogue_from_prompt_body():

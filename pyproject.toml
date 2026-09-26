@@ -42,6 +42,7 @@ dependencies = [
     "psycopg-pool>=3.2",                # checkpointer 连接池（FastAPI 线程池并发共享）
     "python-multipart>=0.0.9",          # FastAPI 文件上传（multipart/form-data）
     "httpx>=0.27",                       # 运行时 HTTP 客户端（TTS/成片下载）
+    "pypdf>=6.19.0",
 ]
 
 [dependency-groups]

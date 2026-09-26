@@ -20,7 +20,7 @@ const COMMANDS = [
   { id: 'generate', label: '生成初稿', hint: '为当前项目生成剧本初稿', icon: '02', category: '操作', needsProject: true },
   { id: 'adapt', label: '改编剧本', hint: '对当前项目发起改编', icon: '03', category: '操作', needsProject: true },
   { id: 'editor', label: '剧本编辑器', hint: '切换到剧本编辑面板', icon: '04', category: '面板' },
-  { id: 'agents', label: 'Agent 任务', hint: '查看后台任务', icon: '05', category: '面板' },
+  { id: 'video', label: '视频工作台', hint: '查看镜头提示词与成片', icon: '05', category: '面板' },
   { id: 'toggle-panel', label: '切换右侧面板', hint: '打开/关闭右侧 Inspector', icon: '◧', category: '面板' },
 ]
 
@@ -94,9 +94,9 @@ function runCommand(id) {
       if (!store.rightOpen) toggleRightPanel()
       showView('editor')
       break
-    case 'agents':
+    case 'video':
       if (!store.rightOpen) toggleRightPanel()
-      showView('agents')
+      showView('video')
       break
     case 'toggle-panel':
       toggleRightPanel()

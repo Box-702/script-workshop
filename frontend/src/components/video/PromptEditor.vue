@@ -3,7 +3,7 @@
     <div class="editor-header">
       <div>
         <div class="eyebrow">HUMAN REVIEW</div>
-        <h4>审阅镜头 Prompt</h4>
+        <h4>审阅镜头提示词</h4>
       </div>
       <button class="btn-ghost" aria-label="关闭 Prompt 审阅" @click="$emit('close')">关闭</button>
     </div>
@@ -15,7 +15,7 @@
     </div>
 
     <div class="editor-field">
-      <label for="prompt-review-text">视频 Prompt</label>
+      <label for="prompt-review-text">视频提示词</label>
       <textarea
         id="prompt-review-text"
         v-model="editedPrompt"
@@ -27,6 +27,15 @@
         <span>这是当前镜头的最终出片指令，批准后才会进入生成队列。</span>
         <span class="char-count">{{ editedPrompt.length }} 字</span>
       </div>
+    </div>
+
+    <div v-if="auditItems.length" class="prompt-audit">
+      <div class="audit-head">
+        <span class="audit-mark">⚠</span>
+        <span>自动审计 · {{ auditItems.length }} 项提醒</span>
+      </div>
+      <p v-for="(item, i) in auditItems" :key="i" class="audit-item">{{ item }}</p>
+      <p class="audit-foot">审计基于「先戏剧，后语法」的硬规则：占位词、否定句、台词引用、一镜多运镜。提醒不阻断批准，但建议先处理再出片。</p>
     </div>
 
     <div class="editor-field">
@@ -89,7 +98,7 @@
               <div class="diff-title">与上一版本的差异</div>
               <pre>{{ item.diff.join('\n') }}</pre>
             </div>
-            <div v-else class="history-unchanged">Prompt 与上一版本相同。</div>
+            <div v-else class="history-unchanged">提示词与上一版本相同。</div>
           </div>
         </details>
       </div>
@@ -136,6 +145,11 @@ const statusLabel = computed(() => ({
 
 const statusClass = computed(() => props.shot?.prompt_status || 'needs_review')
 
+const auditItems = computed(() => {
+  // 展示服务端落库的确定性审计结论（DP 生成时与人工保存时都会刷新）。
+  return Array.isArray(props.shot?.prompt_audit) ? props.shot.prompt_audit : []
+})
+
 function review(decision) {
   emit('review', {
     ...props.shot,
@@ -179,6 +193,17 @@ function formatTime(value) {
 .editor-field { margin-bottom: 12px; }
 .editor-field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
 .editor-field label span { color: var(--dim); font-size: 11px; }
+
+.prompt-audit {
+  margin: -4px 0 12px; padding: 9px 11px;
+  background: color-mix(in oklch, var(--warn, #eab308) 9%, transparent);
+  border: 1px solid color-mix(in oklch, var(--warn, #eab308) 35%, var(--line));
+  border-radius: 7px;
+}
+.audit-head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--warn, #eab308); margin-bottom: 5px; }
+.audit-mark { font-size: 12px; }
+.audit-item { margin: 3px 0; font-size: 11.5px; line-height: 1.5; color: var(--ink); }
+.audit-foot { margin-top: 6px; font-size: 10px; color: var(--dim); line-height: 1.4; }
 .prompt-textarea {
   width: 100%; padding: 10px; background: var(--code-bg); border: 1px solid var(--line);
   border-radius: 6px; color: var(--text, #eee); font-size: 13px; font-family: inherit;

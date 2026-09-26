@@ -316,7 +316,7 @@ def build_chat_tools(
             "project_id": p.id,
         })
         scope = f"{len(sids)} 个指定场景" if sids else "全部场景"
-        return f"已启动导演 Agent（任务 {task_id}），正在将{scope}拆解为镜头方案。可在右侧「Agent 任务」面板查看进度。"
+        return f"正在把{scope}拆解成镜头方案，完成后会出现在右侧「视频工作台」。"
 
     @tool
     def generate_style_guide(project_id: str, director_notes: str = "") -> str:
@@ -351,7 +351,7 @@ def build_chat_tools(
             "name": "美术指导",
             "project_id": p.id,
         })
-        return f"已启动美术指导 Agent（任务 {task_id}），正在生成视觉风格指南。可在右侧「Agent 任务」面板查看进度。"
+        return "正在统一全片的视觉风格（人物造型、环境光线），完成后会自动应用到每个镜头。"
 
     @tool
     def generate_video_prompts(project_id: str) -> str:
@@ -411,7 +411,7 @@ def build_chat_tools(
                     project_id=p.id,
                     shots=shots_data,
                     source_type="agent",
-                    label="视频 Prompt 待审阅",
+                    label="视频提示词待审阅",
                     notes=f"{result.summary}；生成后需逐镜人工批准，才能提交视频任务。",
                     parent_version_id=previous.id if previous else None,
                 )
@@ -425,8 +425,8 @@ def build_chat_tools(
             "project_id": p.id,
         })
         return (
-            f"已启动摄影指导 Agent（任务 {task_id}），正在生成待审阅的视频 Prompt。"
-            "完成后请在右侧视频工作台逐镜编辑并批准，批准前不会提交视频任务。"
+            "正在为每个镜头撰写视频提示词，完成后请在右侧「视频工作台」逐镜确认，"
+            "确认后才会开始出片。"
         )
 
     @tool
@@ -465,8 +465,8 @@ def build_chat_tools(
             "project_id": p.id,
         })
         return (
-            f"已启动参考资产流水线（任务 {task_id}）：为角色与场景生成定妆图并做视觉质检。"
-            "可在右侧「Agent 任务」面板查看进度。完成后镜头会自动带上这些参考图。"
+            "正在为角色与场景生成定妆图（会自动做质量把关）。"
+            "完成后镜头会自动带上这些参考图，用于锁住跨镜头的角色与场景一致。"
         )
 
     return [

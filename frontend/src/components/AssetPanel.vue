@@ -165,7 +165,7 @@ watch(() => store.pid, refresh)
   display: flex; justify-content: space-between; align-items: center;
   padding: 12px 12px 10px; border-bottom: 1px solid var(--line);
 }
-.asset-title { font-size: 12.5px; font-weight: 650; color: var(--ink); }
+.asset-title { font-size: 13.5px; font-weight: 650; color: var(--ink); }
 .proj-select {
   flex: 1; min-width: 0; padding: 5px 8px;
   background: var(--code-bg); border: 1px solid var(--line); border-radius: 7px;
@@ -189,7 +189,7 @@ watch(() => store.pid, refresh)
 .url-input {
   flex: 1; min-width: 0; padding: 6px 9px;
   background: var(--code-bg); border: 1px solid var(--line); border-radius: 7px;
-  color: var(--text, #eee); font-size: 11.5px; outline: none;
+  color: var(--text, #eee); font-size: 12.5px; outline: none;
 }
 .url-input:focus { border-color: color-mix(in oklch, var(--gold) 40%, var(--line)); }
 .url-add {
@@ -225,7 +225,7 @@ watch(() => store.pid, refresh)
 .play svg { width: 10px; height: 10px; }
 .play:hover { color: var(--gold); border-color: color-mix(in oklch, var(--gold) 40%, var(--line)); background: var(--gold-soft); }
 .info { flex: 1; min-width: 0; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
-.name { font-size: 12px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.name { font-size: 12.5px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sub { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--dim); }
 .src { padding: 0 5px; border-radius: 3px; font-weight: 600; }
 .src.upload { color: var(--cyan, #7dd3fc); background: color-mix(in oklch, var(--cyan, #7dd3fc) 12%, transparent); }

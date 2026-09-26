@@ -13,9 +13,18 @@ import PromptEditor from './PromptEditor.vue'
 import {
   store, loadShots, loadVideoJobs, submitVideoJob, playVideo, closeVideo, openPromptEditor,
   closePromptEditor, loadPromptHistory, saveShotPrompt, bulkReviewPrompts,
-  setVideoMode, setVideoResolution, startVideoBatch,
+  setVideoMode, setVideoResolution, setVideoAspect, startVideoBatch,
   pollVideoBatch, ensureBatchPolling, batchCommand,
 } from '../../stores/app'
+
+// 画幅：短剧产品默认竖屏 9:16
+const ASPECTS = [
+  { value: '9:16', label: '9:16 竖屏 · 短剧' },
+  { value: '16:9', label: '16:9 横屏' },
+  { value: '1:1', label: '1:1 方形' },
+  { value: '4:3', label: '4:3 传统' },
+  { value: '21:9', label: '21:9 宽银幕' },
+]
 
 const RESOLUTIONS = [
   { value: '', label: '默认（768P）' },
@@ -41,7 +50,7 @@ const promptCount = computed(() => {
   }
 })
 const versionStatusLabels = {
-  empty: '无 Prompt',
+  empty: '无提示词',
   approved: '全部已批准',
   needs_review: '待审阅',
   needs_revision: '需修改',
@@ -106,7 +115,7 @@ function formatVersionTime(value) {
         <div class="seg">
           <button
             :class="['seg-btn', { active: store.videoMode === 'auto' }]"
-            title="Prompt 批准后一次跑完全部镜头"
+            title="提示词批准后一次跑完全部镜头"
             @click="setVideoMode('auto')"
           >自动出片</button>
           <button
@@ -115,6 +124,17 @@ function formatVersionTime(value) {
             @click="setVideoMode('approval')"
           >逐镜审批</button>
         </div>
+      </div>
+
+      <div class="ctrl-group">
+        <span class="ctrl-label">画幅</span>
+        <select
+          class="res-select"
+          :value="store.videoAspect"
+          @change="setVideoAspect($event.target.value)"
+        >
+          <option v-for="a in ASPECTS" :key="a.value" :value="a.value">{{ a.label }}</option>
+        </select>
       </div>
 
       <div class="ctrl-group">
@@ -139,7 +159,7 @@ function formatVersionTime(value) {
 
     <div class="prompt-gate">
       <div>
-        <strong>Prompt 人工审阅</strong>
+        <strong>提示词人工审阅</strong>
         <span>摄影指导只提供草稿，批准后才会产生视频费用。</span>
       </div>
       <div class="prompt-count">
@@ -151,7 +171,7 @@ function formatVersionTime(value) {
 
     <div v-if="store.videoVersions.length" class="version-strip">
       <div class="version-strip-head">
-        <strong>Prompt 版本</strong>
+        <strong>提示词版本</strong>
         <span>{{ store.videoVersions.length }} 个快照</span>
       </div>
       <div class="version-list">
