@@ -38,7 +38,6 @@ class MiniMaxProvider(VideoProvider):
         super().__init__(api_key, base_url, **kwargs)
         if not self.base_url:
             self.base_url = "https://api.minimax.cn"
-        self._model = kwargs.get("model", "MiniMax-H3")
 
     # ---- 多模态 content 组装（V2 接口：文本 / 图片 / 视频 / 音频） ----
 
@@ -96,7 +95,8 @@ class MiniMaxProvider(VideoProvider):
             or (default_resolution() if default_resolution() in self.supported_resolutions else "768P")
         )
         body: dict[str, Any] = {
-            "model": self._model,
+            # 模型名：用户设置里显式选的优先，缺省 H3。
+            "model": self.model or "MiniMax-H3",
             "content": content,
             # H3 支持 4-15 秒，夹到合法区间，缺省 6 秒。
             "duration": max(4, min(15, int(params.duration_sec or 6))),

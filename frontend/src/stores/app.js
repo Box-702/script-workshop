@@ -520,6 +520,12 @@ export const STAGE_LABELS = {
   get_author_style: '分析作者文风',
   list_versions: '整理版本历史',
   validate_tool: '检查剧本一致性',
+  list_video_shots: '盘点镜头与出片进度',
+  approve_video_prompts: '批准镜头提示词',
+  submit_videos: '提交视频生成',
+  get_video_jobs: '查询视频任务状态',
+  rerun_video: '重新生成镜头',
+  check_background_tasks: '查看后台任务进度',
 }
 
 /** 聚焦底部输入框（开始页主按钮等调用）。 */
@@ -566,6 +572,9 @@ function handleStreamEvent(ev, reply) {
     }
   } else if (ev.event === 'token') {
     reply.content += ev.data.delta
+  } else if (ev.event === 'thinking') {
+    // 推理模型的思考增量：实时展示，流结束后折叠；不进正文。
+    reply.thinking = (reply.thinking || '') + ev.data.delta
   } else if (ev.event === 'done') {
     reply.content = ev.data.reply || reply.content
     reply.payloads = ev.data.payloads || []
@@ -726,15 +735,16 @@ export async function submitVideoJob(shot) {
     openPromptEditor(shot)
     return
   }
-  // 从已配置的 video providers 中选第一个
-  let provider = 'kling'
-  let model = 'kling-v3'
+  // 视频生成固定走 MiniMax；模型名取设置里配置的，缺省 H3
+  let provider = 'minimax'
+  let model = 'MiniMax-H3'
   try {
     const providers = await api('/providers?kind=video')
-    const configured = providers.find(p => p.configured && p.enabled)
-    if (configured) {
-      provider = configured.name
-      model = configured.config?.model || model
+    const minimax = providers.find(p => p.name === 'minimax' && p.configured && p.enabled)
+      || providers.find(p => p.configured && p.enabled)
+    if (minimax) {
+      provider = minimax.name
+      model = minimax.config?.model || model
     }
   } catch {}
 

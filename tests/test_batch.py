@@ -110,3 +110,14 @@ def test_start_rejects_bad_mode_and_empty_shots():
         mgr.start("p1", ["s0"], "manual", lambda sid: "job")
     with pytest.raises(ValueError):
         mgr.start("p1", [], "auto", lambda sid: "job")
+
+
+def test_find_ffmpeg_always_resolves():
+    """新机器没装 FFmpeg 也能拿到可用的二进制（imageio-ffmpeg 兜底）。"""
+    from pathlib import Path
+
+    from app.video.assemble import find_ffmpeg
+
+    path = find_ffmpeg()
+    assert path, "PATH 和 imageio-ffmpeg 都没有 ffmpeg"
+    assert Path(path).exists()

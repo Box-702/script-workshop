@@ -134,3 +134,235 @@ def test_chat_resume_via_meta(store, llm, settings, sample_text):
     assert "已接受" in out["reply"]
     hist = load_history(store, conv.id)
     assert any(m["role"] == "user" and "接受" in m["content"] for m in hist)
+
+
+# ---------- 视频侧对话工具 + 后台任务查询 ----------
+
+
+def _make_video_project(store, llm, sample_text):
+    """造一个带镜头方案的项目：两个镜头，提示词一待审一已批准。"""
+    tools, collector = _make_tools(store, llm)
+    tools["create_project"].invoke({"title": "雨夜", "adaptation_type": "short_drama", "raw_text": sample_text})
+    pid = collector["project_id"]
+    store.create_video_version(project_id=pid, shots=[
+        {"id": "shot_scene001_000", "subject": "林然进屋", "video_prompt": "A man enters.", "prompt_status": "draft"},
+        {"id": "shot_scene001_001", "subject": "红雨衣男人", "video_prompt": "A man in red raincoat.", "prompt_status": "approved"},
+    ], source_type="agent", label="导演拆解")
+    return tools, collector, pid
+
+
+def test_list_video_shots_reports_status(store, llm, sample_text):
+    tools, _, pid = _make_video_project(store, llm, sample_text)
+    r = tools["list_video_shots"].invoke({"project_id": pid})
+    assert "shot_scene001_000" in r and "待审" in r
+    assert "已批准 1 个" in r
+
+
+def test_approve_video_prompts_creates_version(store, llm, sample_text):
+    tools, _, pid = _make_video_project(store, llm, sample_text)
+    r = tools["approve_video_prompts"].invoke({"project_id": pid, "shot_ids": "shot_scene001_000"})
+    assert "已批准 1 个" in r
+    versions = sorted(store.list_video_versions(pid), key=lambda v: v.created_at)
+    shot = next(s for s in versions[-1].shots if s["id"] == "shot_scene001_000")
+    assert shot["prompt_status"] == "approved"
+    # 已批准的再批一次：无可批准
+    r2 = tools["approve_video_prompts"].invoke({"project_id": pid, "shot_ids": "shot_scene001_000"})
+    assert "没有可批准" in r2
+
+
+def test_get_video_jobs_empty_and_rerun_unknown(store, llm, sample_text):
+    tools, _, pid = _make_video_project(store, llm, sample_text)
+    assert "还没有提交过" in tools["get_video_jobs"].invoke({"project_id": pid})
+    assert "没有找到镜头" in tools["rerun_video"].invoke({"project_id": pid, "shot_id": "shot_x"})
+
+
+def test_submit_videos_requires_approval(store, llm, sample_text):
+    tools, collector = _make_tools(store, llm)
+    tools["create_project"].invoke({"title": "雨夜", "adaptation_type": "short_drama", "raw_text": sample_text})
+    pid = collector["project_id"]
+    store.create_video_version(project_id=pid, shots=[
+        {"id": "shot_scene001_000", "video_prompt": "A man.", "prompt_status": "draft"},
+    ], source_type="agent")
+    r = tools["submit_videos"].invoke({"project_id": pid})
+    assert "需要先经过人工批准" in r
+
+
+def test_check_background_tasks_reports_status(store, llm, sample_text):
+    from app.agent.skills import SubAgentRunner, SubAgentTask
+    from app.chat import build_chat_tools
+
+    runner = SubAgentRunner()
+    collector = {"project_id": None, "payloads": []}
+    tools = {t.name: t for t in build_chat_tools(store, llm, collector, runner=runner)}
+    runner._tasks["task_x"] = SubAgentTask(id="task_x", name="导演场景拆解", status="done", result="已拆出 4 个镜头")
+    r = tools["check_background_tasks"].invoke({})
+    assert "导演场景拆解" in r and "已完成" in r and "4 个镜头" in r
+
+
+def test_trajectory_note_compacts_events():
+    from app.chat.conductor import _trajectory_note
+
+    events = [
+        {"type": "tool_call", "name": "breakdown_scenes"},
+        {"type": "tool_result", "name": "breakdown_scenes", "summary": "已拆出 4 个镜头"},
+    ]
+    note = _trajectory_note(events)
+    assert note.startswith("［本轮动作］")
+    assert "拆解镜头：已拆出 4 个镜头" in note
+    assert "（未返回）" not in note
+    # 只有调用没有结果 → 标未返回，让模型知道上轮没拿到结果
+    assert "（未返回）" in _trajectory_note([{"type": "tool_call", "name": "ask"}])
+
+
+def test_reasoning_delta_reads_additional_kwargs():
+    from types import SimpleNamespace
+    from app.chat.conductor import _reasoning_delta
+
+    assert _reasoning_delta(SimpleNamespace(additional_kwargs={"reasoning_content": "想"})) == "想"
+    assert _reasoning_delta(SimpleNamespace(additional_kwargs={})) == ""
+
+
+# ---------- 三层记忆 + 会话滚动摘要 ----------
+
+
+def test_memory_scope_visibility(store):
+    """global 全可见；project/conversation 只对归属上下文可见，按 global→project→conversation 排序。"""
+    from app.store import Memory
+
+    store.add_memory(kind="preference", scope="global", content="喜欢克制结尾")
+    store.add_memory(kind="decision", scope="project", project_id="p1", content="城市定为赛博朋克")
+    store.add_memory(kind="decision", scope="project", project_id="p2", content="别的项目")
+    store.add_memory(kind="feedback", scope="conversation", project_id="p1", conversation_id="c1", content="别用倒叙")
+
+    rows_p1 = store.list_memories(project_id="p1", conversation_id="c1")
+    assert [m.scope for m in rows_p1] == ["global", "project", "conversation"]
+    assert "别的项目" not in [m.content for m in rows_p1]
+    # 无项目上下文：只剩全局
+    assert [m.content for m in store.list_memories()] == ["喜欢克制结尾"]
+
+
+def test_learn_from_decision(store):
+    from app.memory import learn_from_decision
+
+    learn_from_decision(store, project_id="p1", conversation_id="c1",
+                        action="accept", instruction="改口语化", patch_count=3)
+    learn_from_decision(store, project_id="p1", conversation_id="c1",
+                        action="regenerate", instruction="改节奏", feedback="太拖了")
+    rows = store.list_memories(project_id="p1", conversation_id="c1")
+    kinds = {m.kind: m.content for m in rows}
+    assert "改口语化" in kinds["decision"] and "3 处" in kinds["decision"]
+    assert "太拖了" in kinds["feedback"]
+    # 无反馈的拒绝不产生记忆
+    learn_from_decision(store, project_id="p1", conversation_id="c1", action="reject", instruction="x")
+    assert len(store.list_memories(project_id="p1", conversation_id="c1")) == 2
+
+
+def test_format_memory_note(store):
+    from app.memory import format_memory_note
+
+    assert format_memory_note(store, project_id=None, conversation_id=None) == ""
+    store.add_memory(kind="preference", scope="global", content="喜欢短句")
+    note = format_memory_note(store, project_id="p1", conversation_id="c1")
+    assert "[用户记忆]" in note and "喜欢短句" in note
+
+
+def test_compress_history_truncates_without_llm(store):
+    """无模型（available=False）：超过窗口回落为保留最近 N 条，不写摘要。"""
+    from app.memory import RECENT_KEEP, compress_history_if_needed
+
+    for i in range(RECENT_KEEP + 5):
+        store.save_chat_message(thread_id="t1", role="user", content=f"消息{i}", payload=[], events=[])
+    summary, recent = compress_history_if_needed(store, type("L", (), {"available": False})(), "t1")
+    assert summary == ""
+    assert len(recent) == RECENT_KEEP
+    assert recent[-1].content == f"消息{RECENT_KEEP + 4}"
+    assert store.get_conversation("t1") is None or not (store.get_conversation("t1").summary or {})
+
+
+def test_compress_history_rolls_summary(store):
+    """假 LLM：达到阈值时压缩旧消息，摘要落库，covered_count 正确。"""
+    from app.memory import RECENT_KEEP, compress_history_if_needed
+
+    class _FakeLLM:
+        available = True
+
+        class _Chat:
+            def invoke(self, msgs):
+                return type("R", (), {"content": "事实清单：用户在改剧本"})()
+
+        def chat(self):
+            return self._Chat()
+
+    conv = store.create_conversation(project_id=None, title="长对话")
+    total = RECENT_KEEP + 12  # 超过触发线
+    for i in range(total):
+        store.save_chat_message(thread_id=conv.id, role="user", content=f"消息{i}", payload=[], events=[])
+    summary, recent = compress_history_if_needed(store, _FakeLLM(), conv.id)
+    assert "事实清单" in summary
+    assert len(recent) == RECENT_KEEP
+    conv = store.get_conversation(conv.id)
+    assert conv.summary["covered_count"] == total - RECENT_KEEP
+    # 攒不够新内容时沿用旧摘要，不再调 LLM
+    summary2, _ = compress_history_if_needed(store, _FakeLLM(), conv.id)
+    assert summary2 == summary
+
+
+def test_compress_survives_llm_failure(store, caplog):
+    """摘要 LLM 抛错：回落截断，不抛异常、不写坏摘要。"""
+    import pytest
+    from app.memory import RECENT_KEEP, compress_history_if_needed
+
+    class _BadLLM:
+        available = True
+
+        class _Chat:
+            def invoke(self, msgs):
+                raise RuntimeError("boom")
+
+        def chat(self):
+            return self._Chat()
+
+    for i in range(RECENT_KEEP + 12):
+        store.save_chat_message(thread_id="t3", role="user", content=f"m{i}", payload=[], events=[])
+    summary, recent = compress_history_if_needed(store, _BadLLM(), "t3")
+    assert summary == "" and len(recent) == RECENT_KEEP
+
+
+def test_remember_and_recall_tools(store, llm, sample_text):
+    tools, collector = _make_tools(store, llm)
+    tools["create_project"].invoke({"title": "雨夜", "adaptation_type": "short_drama", "raw_text": sample_text})
+    pid = collector["project_id"]
+    collector["conversation_id"] = "conv1"
+
+    r = tools["remember"].invoke({"content": "结尾要克制", "kind": "preference"})
+    assert "已记住" in r
+    r2 = tools["remember"].invoke({"content": "城市是赛博朋克", "kind": "decision"})
+    assert "已记住" in r2
+    r3 = tools["recall"].invoke({})
+    assert "结尾要克制" in r3 and "赛博朋克" in r3
+    # decision 落在项目作用域，别的项目看不见
+    assert any(m.scope == "project" and m.project_id == pid
+               for m in store.list_memories(project_id=pid, conversation_id="conv1"))
+    # 无项目时 decision 拒绝
+    collector2 = {"project_id": None, "payloads": [], "conversation_id": None}
+    tools2 = {t.name: t for t in build_chat_tools(store, llm, collector2)}
+    assert "需要先有项目" in tools2["remember"].invoke({"content": "x", "kind": "decision"})
+
+
+def test_prepare_turn_injects_memory_and_summary(store, llm, settings, sample_text):
+    """一轮对话的上下文要包含记忆小节与项目注记（无 key 环境走 resume 路径验证不到 LLM，直接查 _prepare_turn）。"""
+    from app.chat.conductor import _prepare_turn
+
+    tools, collector = _make_tools(store, llm)
+    tools["create_project"].invoke({"title": "雨夜", "adaptation_type": "short_drama", "raw_text": sample_text})
+    pid = collector["project_id"]
+    conv = store.ensure_default_conversation(pid)
+    store.add_memory(kind="decision", scope="project", project_id=pid, content="风格锁定：雨夜霓虹")
+    store.save_chat_message(thread_id=conv.id, role="assistant", content="好的", payload=[], events=[])
+
+    _, _, input_state = _prepare_turn(store, llm, None, conv.id, pid, "继续", None)
+    system_text = input_state["messages"][0].content
+    assert "雨夜霓虹" in system_text
+    assert "[此前对话摘要]" not in system_text  # 历史很短，不产生摘要
+    roles = [type(m).__name__ for m in input_state["messages"]]
+    assert roles[0] == "SystemMessage" and roles[-1] == "HumanMessage"

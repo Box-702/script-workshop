@@ -8,7 +8,7 @@
 - 后端 FastAPI（REST + 流式对话），前端 Vue 3 + Vite
 - 可选 Postgres（业务库 + checkpointer）
 - 模型接入：统一门面 `app/llm/`，一套 OpenAI 兼容协议覆盖 OpenAI / DeepSeek / 智谱 GLM / Kimi / Qwen / Ollama；对话、视觉质检、文生图三维度可分别用不同厂商
-- 视频生成：MiniMax 海螺 / Runway / Kling / CogVideoX / Sora
+- 视频生成：MiniMax 海螺（用户自带 Key 与模型名，在「设置 → 视频生成」里配置）
 
 ## 为什么做这个项目
 
@@ -37,7 +37,7 @@
 - **剧组 Agent 系统**：导演 / 美术指导 / 摄影指导三个 Agent 各司其职（美术指导产出的角色造型与环境描述是全片视觉锚的唯一来源，下游逐字复用）。
 - **参考资产流水线（图像级一致性）**：为角色与场景生成定妆图 → 视觉模型质检 → 注册为全局参考 → 回填到镜头，让视频模型「看见」同一个角色，而不是只靠文字描述。
 - **镜头级视频生成**：镜头数由导演按剧情内容决定（分镜 = 一段连贯的角色动作或一段连贯的角色对话剧情）。摄影指导只提出 Prompt 草稿，用户可逐镜编辑、保存、标记需修改或批准；只有批准后的 Prompt 才能提交视频任务。首尾帧接力 + 参考图/参考视频锁一致性，最后 FFmpeg 拼接。
-- **视频 Provider 抽象层**：统一接口适配 Runway / Kling / CogVideoX / Sora / MiniMax，用户自由切换。
+- **视频 Provider 抽象层**：产品统一走 MiniMax（自带 Key，模型名可换）；底层保留统一接口的多厂商适配（Runway / Kling / CogVideoX / Sora），需要时可扩展启用。
 - **人审环节**：剧本改编走 `interrupt` 暂停 / `Command.resume` 恢复的四决策闭环（接受 / 编辑 / 重新生成 / 拒绝）；视频侧先审 Prompt，再审成片，所有决定都进入「分镜版本 → 提示词版本 → 成片版本」的链式快照。
 - **版本迭代**：视频版本链式快照，支持回溯/分叉/里程碑标记。
 
@@ -46,7 +46,9 @@
 
 ### 工具集
 
-**对话 Conductor 工具（9 个）**：`create_project` / `generate_script` / `run_adaptation` / `get_script_overview` / `ask` / `breakdown_scenes` / `generate_style_guide` / `generate_video_prompts` / `generate_reference_assets`。
+**对话 Conductor 工具（17 个）**：剧本侧 `create_project` / `generate_script` / `run_adaptation` / `get_script_overview` / `ask`；剧组 `breakdown_scenes` / `generate_style_guide` / `generate_video_prompts` / `generate_reference_assets`；视频侧 `list_video_shots` / `approve_video_prompts` / `submit_videos` / `get_video_jobs` / `rerun_video`；运维 `check_background_tasks`；记忆 `remember` / `recall`。从导入小说到出片的全流程都能在对话里完成；每轮的工具轨迹压缩后进入历史上下文，多轮不丢事实。
+
+**三层用户记忆 + 会话滚动摘要**（`app/memory.py`）：结构化记忆替代 RAG——preference（全局偏好）/ decision（项目决定）/ feedback（对话反馈）存 `memories` 表，按作用域注入系统提示；接受 / 拒绝审阅时自动沉淀（`learn_from_decision`）。长对话不再掐头：超过保留窗口的旧消息会被 LLM 压缩成事实清单（存 `conversations.summary_json`），上下文 = 摘要 + 最近消息，摘要失败自动回落为截断。
 
 **改编图 ReAct 工具（7 个）**：
 
@@ -105,7 +107,13 @@ START → context → plan ──(有工具调用)──> tools → plan   (ReAc
 
 ## 快速开始
 
-### 方式一：本机运行（零基础设施）
+### 方式零：一键启动（Windows）
+
+双击 [`start.bat`](start.bat) 即可。它会自动：生成零依赖配置（SQLite + 进程内 checkpoint，无需 Postgres）→ 同步 Python 依赖 → 首次运行构建前端 → 单进程同时服务后端与前端 → 打开浏览器 `http://127.0.0.1:8000`。
+
+要启用完整 AI 能力，编辑生成的 `.env` 填入模型 key（完整可配项见 `.env.example`）；不填也能跑通全链路演示（本地规则回退）。改了前端代码后删掉 `frontend/dist` 再跑一次即可重新构建。
+
+### 方式一：本机开发（前后端分离，热更新）
 
 ```bash
 # 0. 安装 uv（一次性，包与解释器管理工具；详见 https://docs.astral.sh/uv/）
@@ -129,7 +137,7 @@ cd frontend && npm install && npm run dev
 # 打开 http://localhost:5173
 ```
 
-不配模型 key 时，全部走本地回退，链路依然闭环。
+不配模型 key 时，全部走本地回退，链路依然闭环。CI 在每次 push / PR 时自动跑后端测试与前端构建（见 `.github/workflows/ci.yml`）。
 
 ### 视频 Prompt 审阅
 

@@ -441,6 +441,44 @@ def test_minimax_poll_maps_processing_to_generating(monkeypatch):
     assert st.video_url is None
 
 
+def test_minimax_create_job_uses_user_model(monkeypatch):
+    """用户在设置里选的模型必须进请求体；未配置时回落默认 H3。"""
+    import app.video.providers.minimax as mm
+
+    bodies = []
+
+    class _CaptureClient:
+        def __init__(self, *a, **k) -> None: ...
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a) -> bool:
+            return False
+
+        async def post(self, url: str, **k):
+            bodies.append(k.get("json"))
+            return _FakeResp({"task_id": "t9"})
+
+    monkeypatch.setattr(mm.httpx, "AsyncClient", _CaptureClient)
+    asyncio.run(mm.MiniMaxProvider(api_key="k", model="MiniMax-H3-Pro").create_job("p"))
+    asyncio.run(mm.MiniMaxProvider(api_key="k").create_job("p"))
+    assert bodies[0]["model"] == "MiniMax-H3-Pro"
+    assert bodies[1]["model"] == "MiniMax-H3"
+
+
+def test_registry_refreshes_cached_provider_model():
+    """设置里改模型后，注册表缓存的实例要就地热更新（改配置无需重启）。"""
+    from app.video.registry import ProviderRegistry
+    from app.video.providers.minimax import MiniMaxProvider
+
+    reg = ProviderRegistry()
+    reg.register_class(MiniMaxProvider)
+    p1 = reg.get_provider("minimax", api_key="k")
+    p2 = reg.get_provider("minimax", api_key="k", model="MiniMax-H3-Pro")
+    assert p1 is p2
+    assert p2.model == "MiniMax-H3-Pro"
+
+
 # ---------- 提交时兜底：台词剥除 + 参考解析 ----------
 
 

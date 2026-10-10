@@ -107,6 +107,9 @@ class VideoProvider(ABC):
     def __init__(self, api_key: str = "", base_url: str = "", **kwargs: Any) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/") if base_url else ""
+        # 用户在设置里选的模型名（api_providers.config_json 的 model 字段），
+        # 空 = 由各 provider 用自己的默认模型。
+        self.model: str = kwargs.get("model") or ""
         self._config = kwargs
 
     @abstractmethod

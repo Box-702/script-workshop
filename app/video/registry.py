@@ -54,6 +54,9 @@ class ProviderRegistry:
                 base_url = kwargs.get("base_url") or ""
                 if base_url:
                     inst.base_url = base_url.rstrip("/")
+            model = kwargs.get("model") or ""
+            if model:
+                inst.model = model
             return inst
         cls = self._classes.get(name)
         if cls is None:

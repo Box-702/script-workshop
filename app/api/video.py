@@ -515,7 +515,12 @@ def _resolve_video_provider(name: str) -> Any:
         (r for r in deps.store().list_api_providers(kind="video") if r.name == name),
         None,
     )
-    kwargs = {"api_key": row.api_key, "base_url": row.base_url} if row else {}
+    kwargs: dict[str, Any] = {}
+    if row:
+        kwargs = {"api_key": row.api_key, "base_url": row.base_url}
+        # 用户自选模型存在 config_json 里；不配则由 provider 用默认模型。
+        if row.config.get("model"):
+            kwargs["model"] = row.config["model"]
     return get_registry().get_provider(name, **kwargs)
 
 
@@ -717,11 +722,12 @@ def retry_video_job(job_id: str) -> dict[str, Any]:
 
 
 def _pick_video_provider() -> tuple[str, str]:
-    """选第一个已配置且启用的视频 provider（与前端 submitVideoJob 的兜底一致）。"""
-    for row in deps.store().list_api_providers(kind="video"):
-        if getattr(row, "enabled", True):
+    """选视频 provider：优先 MiniMax（本产品视频链路唯一切入点），否则第一个已配置的。"""
+    rows = [r for r in deps.store().list_api_providers(kind="video") if getattr(r, "enabled", True)]
+    for row in rows:
+        if row.name == "minimax":
             return row.name, "default"
-    return "minimax", "default"
+    return (rows[0].name, "default") if rows else ("minimax", "default")
 
 
 def _batch_submit(

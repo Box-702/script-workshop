@@ -194,9 +194,16 @@ class Conversation(Base):
     id: Mapped[str] = mapped_column(primary_key=True)
     project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), index=True, default=None)
     title: Mapped[str] = mapped_column(default="新对话")
+    # 滚动摘要（JSON）：{"summary": 文本, "covered_count": 已压缩进摘要的消息条数}。
+    # 长对话只把摘要 + 最近消息喂给模型，避免掐头丢事实。
+    summary_json: Mapped[str] = mapped_column(default="{}")
     created_at: Mapped[datetime] = mapped_column(default=_now)
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
     project: Mapped[Project | None] = relationship(back_populates="conversations")
+
+    @property
+    def summary(self) -> dict[str, Any]:
+        return _json_load(self.summary_json, {})
 
 
 class MediaAsset(Base):
@@ -244,6 +251,27 @@ class ChatMessage(Base):
     @property
     def events(self) -> list[dict[str, Any]]:
         return _json_load(self.events_json, [])
+
+
+class Memory(Base):
+    """用户级三层记忆（替代 RAG 的结构化记忆）。
+
+    kind 决定活多久：preference（长期偏好）> decision（项目内决定）> feedback（对话内反馈）；
+    scope 决定谁能看到：global > project > conversation。注入系统提示时按
+    全局 → 项目 → 对话的顺序合并，具体决定天然覆盖一般偏好。
+    """
+
+    __tablename__ = "memories"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(default="preference")  # preference | decision | feedback
+    scope: Mapped[str] = mapped_column(default="global")  # global | project | conversation
+    project_id: Mapped[str | None] = mapped_column(index=True, default=None)
+    conversation_id: Mapped[str | None] = mapped_column(index=True, default=None)
+    content: Mapped[str] = mapped_column(default="")
+    source: Mapped[str] = mapped_column(default="user")  # user | auto（从审阅决策学到的）
+    active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(default=_now)
 
 
 # =====================================================================
@@ -428,6 +456,13 @@ class Store:
                     conn.execute(text("ALTER TABLE script_versions ADD COLUMN milestone VARCHAR"))
                 if "breakdown_json" not in cols_ver:
                     conn.execute(text("ALTER TABLE script_versions ADD COLUMN breakdown_json VARCHAR DEFAULT '{}'"))
+
+            # ---- conversations 表：滚动摘要列（老库补列）----
+            if "conversations" in tables:
+                cols_conv = {c["name"] for c in insp.get_columns("conversations")}
+                if "summary_json" not in cols_conv:
+                    with self.engine.begin() as conn:
+                        conn.execute(text("ALTER TABLE conversations ADD COLUMN summary_json VARCHAR DEFAULT '{}'"))
 
             # ---- conversations 表：project_id 需可空（全局对话）----
             # 「聊天与项目解耦」只在新库里生效；老 Postgres 库的列仍是 NOT NULL，
@@ -889,6 +924,77 @@ class Store:
                 return False
             s.query(ChatMessage).filter_by(thread_id=conversation_id).delete()
             s.delete(c)
+            s.commit()
+            return True
+
+    def set_conversation_summary(self, conversation_id: str, summary: dict[str, Any]) -> None:
+        """保存滚动摘要（压缩历史时更新）。对话不存在时静默跳过。"""
+        with self.session() as s:
+            c = s.get(Conversation, conversation_id)
+            if not c:
+                return
+            c.summary_json = json.dumps(summary, ensure_ascii=False)
+            s.commit()
+
+    # ---- Memory（三层用户记忆）----
+
+    def add_memory(
+        self,
+        *,
+        kind: str,
+        scope: str,
+        content: str,
+        project_id: str | None = None,
+        conversation_id: str | None = None,
+        source: str = "user",
+    ) -> Memory:
+        with self.session() as s:
+            m = Memory(
+                id=gen_id("mem"),
+                kind=kind,
+                scope=scope,
+                project_id=project_id,
+                conversation_id=conversation_id,
+                content=content,
+                source=source,
+            )
+            s.add(m)
+            s.commit()
+            s.refresh(m)
+            return m
+
+    def list_memories(
+        self,
+        *,
+        project_id: str | None = None,
+        conversation_id: str | None = None,
+        kinds: list[str] | None = None,
+    ) -> list[Memory]:
+        """列出对当前上下文可见的记忆：全局全给；项目/对话记忆按归属过滤。
+
+        顺序（注入提示词时的优先级）：global → project → conversation，
+        同层内新的在前。
+        """
+        with self.session() as s:
+            q = s.query(Memory).filter(Memory.active.is_(True))
+            if kinds:
+                q = q.filter(Memory.kind.in_(kinds))
+            rows = q.order_by(Memory.created_at.desc()).all()
+            scope_order = {"global": 0, "project": 1, "conversation": 2}
+            visible = [
+                m for m in rows
+                if m.scope == "global"
+                or (m.scope == "project" and m.project_id and m.project_id == project_id)
+                or (m.scope == "conversation" and m.conversation_id and m.conversation_id == conversation_id)
+            ]
+            return sorted(visible, key=lambda m: (scope_order[m.scope], m.created_at), reverse=False)
+
+    def delete_memory(self, memory_id: str) -> bool:
+        with self.session() as s:
+            m = s.get(Memory, memory_id)
+            if not m:
+                return False
+            s.delete(m)
             s.commit()
             return True
 

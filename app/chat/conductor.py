@@ -34,6 +34,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from ..agent import runner as agent_svc
 from ..config import Settings
 from ..domain import normalize_adaptation_type
+from .. import memory
 from ..pipeline.generation import generate_script as run_generation
 from ..pipeline.knowledge import detect_genres, format_author_style
 from ..llm import LLM
@@ -64,6 +65,7 @@ class _Collector(TypedDict, total=False):
     """工具通过闭包写入的运行期收集器（图状态保持干净可序列化）。"""
 
     project_id: str | None
+    conversation_id: str | None
     payloads: list[dict[str, Any]]
 
 
@@ -83,9 +85,19 @@ SYSTEM_PROMPT = (
     "先生成待人工审阅的 Prompt 草稿，不直接出片。\n"
     "8. 参考资产：用户要求「定妆图 / 参考图 / 人物形象图 / 视觉参考」时调用 generate_reference_assets，"
     "为角色与场景生成定妆图并质检注册，锁跨镜一致性。\n"
+    "9. 镜头盘点：用户问「进度 / 哪些镜头还没批准 / 出片了吗」时调用 list_video_shots 或 get_video_jobs，"
+    "用事实回答，不要凭记忆猜。\n"
+    "10. 批准提示词：用户明确说「批准」时调用 approve_video_prompts。这是用户的正式决定，"
+    "只在其明确表态时执行，绝不代替用户批准。\n"
+    "11. 出片：用户说「出片 / 生成视频 / 提交视频」时调用 submit_videos；"
+    "用户要求「重试 / 重roll 某个镜头」时调用 rerun_video。\n"
+    "12. 后台任务：用户问「拆好了吗 / 好了没」时调用 check_background_tasks 查询真实状态，不要凭记忆回答。\n"
+    "13. 记忆：系统提示里的「用户记忆」要主动遵循；用户说「记住… / 以后都…」时调用 remember；"
+    "用户问「你记得什么」时调用 recall。用户的长期习惯值得记下来时也可以主动建议保存。\n"
     "行为准则：回复简洁、口语化、用简体中文；不确定时先问；不要虚构剧本内容；"
     "不要替用户做最终决定，审阅与落版决定永远交给用户。"
-    "剧组任务（5-8）会在后台运行，启动后告知用户可在右栏查看进度。"
+    "剧组任务（5-8）会在后台运行，启动后告知用户可在右栏查看进度；"
+    "出片（11）走 MiniMax，需要用户先配置自己的 API Key。"
 )
 
 # 改编类型 -> 中文名，用于提示模型填参数。
@@ -96,6 +108,9 @@ _ADAPT_TYPE_LABELS = {
     "stage": "舞台剧",
     "other": "自定义",
 }
+
+# 记忆类型 -> 中文名（recall 工具的展示与 remember 的确认共用）。
+_MEMORY_KIND_LABELS = {"preference": "用户偏好", "decision": "项目决定", "feedback": "对话反馈"}
 
 
 # ---------- 工具集 ----------
@@ -469,6 +484,226 @@ def build_chat_tools(
             "完成后镜头会自动带上这些参考图，用于锁住跨镜头的角色与场景一致。"
         )
 
+    # ---- 视频侧：让「批准 → 出片 → 查进度 → 重roll」也能在对话里完成 ----
+
+    def _latest_video_version(p: Project):
+        versions = sorted(store.list_video_versions(p.id), key=lambda v: v.created_at)
+        return versions[-1] if versions else None
+
+    _PROMPT_STATUS_LABELS = {"draft": "待审", "needs_revision": "需修改", "approved": "已批准"}
+    _JOB_STATUS_LABELS = {
+        "pending": "排队中", "queued": "排队中", "generating": "生成中",
+        "succeeded": "已出片", "failed": "失败", "cancelled": "已取消",
+    }
+
+    def _latest_job_by_shot(project_id: str) -> dict[str, Any]:
+        latest: dict[str, Any] = {}
+        for j in sorted(store.list_video_jobs(project_id), key=lambda x: x.created_at):
+            latest[j.shot_id] = j  # 后写的覆盖先写的，留下每个镜头最新一次任务
+        return latest
+
+    @tool
+    def list_video_shots(project_id: str) -> str:
+        """盘点镜头与出片进度：列出每个镜头的提示词审阅状态（待审/需修改/已批准）和成片状态。用户问「镜头进度 / 哪些还没批准 / 出片了吗」时先调用这个。参数：project_id=项目 id。"""
+        p = _project(project_id)
+        v = _latest_video_version(p)
+        if v is None or not v.shots:
+            return "还没有镜头方案——需要先「拆解镜头」。"
+        jobs = _latest_job_by_shot(p.id)
+        lines = []
+        for s in v.shots:
+            if not isinstance(s, dict) or not s.get("id"):
+                continue
+            sid = s["id"]
+            prompt = _PROMPT_STATUS_LABELS.get(s.get("prompt_status") or "draft", "待审")
+            job = jobs.get(sid)
+            video = _JOB_STATUS_LABELS.get(job.status, "") if job else ""
+            if job is not None and job.status == "failed" and getattr(job, "error_message", None):
+                video += f"（{job.error_message}）"
+            subject = s.get("subject") or ""
+            lines.append(f"- {sid}{'（' + subject + '）' if subject else ''}：提示词{prompt}"
+                         + (f"，视频{video}" if video else ""))
+        n_approved = sum(1 for s in v.shots if isinstance(s, dict) and s.get("prompt_status") == "approved")
+        head = f"共 {len(lines)} 个镜头，已批准 {n_approved} 个：\n"
+        return head + "\n".join(lines)
+
+    @tool
+    def approve_video_prompts(project_id: str, shot_ids: str = "") -> str:
+        """批准镜头的提示词，使其可以提交视频生成（批准后生成新的镜头版本，可回滚）。注意：这是用户的正式决定，只在用户明确说「批准」时才调用。参数：project_id=项目 id；shot_ids=镜头 id 列表（逗号分隔），留空=批准全部有待审提示词的镜头。"""
+        p = _project(project_id)
+        current = _latest_video_version(p)
+        if current is None or not current.shots:
+            return "还没有镜头方案——需要先「拆解镜头」再「撰写镜头提示词」。"
+        from ..crew.dramaturgy import refresh_prompt_audits
+
+        wanted = {s.strip() for s in shot_ids.split(",") if s.strip()}
+        shots = [dict(s) for s in current.shots if isinstance(s, dict)]
+        targets = [
+            s for s in shots
+            if s.get("id") and s.get("video_prompt")
+            and (not wanted or s["id"] in wanted)
+            and s.get("prompt_status") != "approved"
+        ]
+        if not targets:
+            return "没有可批准的镜头（可能都已批准，或选中镜头没有提示词）。"
+        for s in targets:
+            s["prompt_status"] = "approved"
+            s["prompt_review_note"] = "对话中批准"
+        refresh_prompt_audits(shots)
+        version = store.create_video_version(
+            project_id=p.id, shots=shots, style_guide=current.style_guide,
+            source_type="manual", label="对话中批准镜头提示词",
+            notes=None, parent_version_id=current.id,
+        )
+        names = "、".join(s["id"] for s in targets)
+        return f"已批准 {len(targets)} 个镜头的提示词（{names}），新镜头版本 {version.id}。现在可以说「出片」来提交视频生成。"
+
+    @tool
+    def submit_videos(project_id: str, shot_ids: str = "") -> str:
+        """提交视频生成：为提示词已批准的镜头启动批量出片（串行推进，前一镜成片自动作为后一镜的接力参考）。参数：project_id=项目 id；shot_ids 可选（逗号分隔只出指定镜头），留空=全部已批准的镜头。"""
+        p = _project(project_id)
+        v = _latest_video_version(p)
+        if v is None or not v.shots:
+            return "还没有镜头方案：请先「拆解镜头」「撰写镜头提示词」并批准。"
+        wanted = {s.strip() for s in shot_ids.split(",") if s.strip()}
+        approved = [
+            s["id"] for s in v.shots
+            if isinstance(s, dict) and s.get("id") and s.get("video_prompt")
+            and s.get("prompt_status") == "approved" and (not wanted or s["id"] in wanted)
+        ]
+        if not approved:
+            return "没有可提交的镜头：提示词需要先经过人工批准。可以说「批准全部提示词」，或先看看镜头清单。"
+        from ..api.video import _create_and_submit_job, generate_batch
+        from ..api.schemas import VideoJobCreate
+
+        try:
+            if wanted:
+                # 指定镜头：逐镜直接提交（接力链主要服务整片连拍，这里不强求）。
+                for sid in approved:
+                    shot = next(s for s in v.shots if isinstance(s, dict) and s.get("id") == sid)
+                    _create_and_submit_job(p.id, VideoJobCreate(
+                        shot_id=sid, provider="minimax", model="default",
+                        prompt=shot.get("video_prompt") or "", version_id=v.id,
+                    ))
+                return f"已提交 {len(approved)} 个指定镜头的视频生成，稍后可问我进度。"
+            # 整片：走批次（串行推进，前一镜成片自动作为后一镜接力参考）。
+            from ..api.video import BatchCreateRequest
+            batch = generate_batch(p.id, BatchCreateRequest(version_id=v.id))
+        except Exception as e:  # noqa: BLE001  FastAPI HTTPException 也走这里，转成用户可读文本
+            detail = getattr(e, "detail", None) or str(e)
+            return f"提交视频生成失败：{detail}"
+        if batch.get("status") == "failed":
+            return f"批次启动失败：{batch.get('error') or '未知原因'}"
+        collector["payloads"].append({
+            "type": "batch_started", "batch_id": batch.get("id"), "project_id": p.id,
+        })
+        total = batch.get("total") or len(approved)
+        return f"已开始出片：共 {total} 个镜头会按顺序生成，前一镜完成后自动作为后一镜的参考以保持连贯。可以随时问我「出片进度」。"
+
+    @tool
+    def get_video_jobs(project_id: str) -> str:
+        """查询视频生成任务的最新状态（排队/生成中/已出片/失败原因）。用户问「出片了吗 / 生成得怎么样」时调用。参数：project_id=项目 id。"""
+        p = _project(project_id)
+        jobs = store.list_video_jobs(p.id)
+        if not jobs:
+            return "还没有提交过视频生成任务。"
+        latest = _latest_job_by_shot(p.id)
+        lines = []
+        for sid, j in latest.items():
+            label = _JOB_STATUS_LABELS.get(j.status, j.status)
+            suffix = f"（{j.error_message}）" if j.status == "failed" and getattr(j, "error_message", None) else ""
+            lines.append(f"- {sid}：{label}{suffix}")
+        done = sum(1 for j in latest.values() if j.status == "succeeded")
+        failed = sum(1 for j in latest.values() if j.status == "failed")
+        head = f"各镜头最新状态（{done} 个已出片，{failed} 个失败）：\n"
+        return head + "\n".join(lines)
+
+    @tool
+    def rerun_video(project_id: str, shot_id: str) -> str:
+        """重新生成某个镜头的视频：任务失败时重试；对成片不满意时重新出一版。参数：project_id=项目 id；shot_id=镜头 id（形如 shot_scene001_001）。"""
+        p = _project(project_id)
+        shot_id = shot_id.strip()
+        v = _latest_video_version(p)
+        shot = next(
+            (s for s in (v.shots if v else []) if isinstance(s, dict) and s.get("id") == shot_id),
+            None,
+        )
+        if shot is None:
+            return f"没有找到镜头 {shot_id}，可以先查镜头清单确认 id。"
+        job = _latest_job_by_shot(p.id).get(shot_id)
+        from ..api.schemas import VideoJobCreate
+        from ..api.video import _create_and_submit_job, retry_video_job
+
+        try:
+            if job is not None and job.status in ("failed", "cancelled"):
+                retry_video_job(job.id)
+                return f"已重新排队镜头 {shot_id}（之前失败/取消的任务重试）。"
+            if not shot.get("video_prompt") or shot.get("prompt_status") != "approved":
+                return "该镜头的提示词还没批准，重跑前需要先批准。"
+            _create_and_submit_job(p.id, VideoJobCreate(
+                shot_id=shot_id, provider="minimax", model="default",
+                prompt=shot.get("video_prompt") or "", version_id=v.id,
+            ))
+            return f"已提交镜头 {shot_id} 的重新生成，稍后可问我进度。"
+        except Exception as e:  # noqa: BLE001
+            detail = getattr(e, "detail", None) or str(e)
+            return f"重跑失败：{detail}"
+
+    @tool
+    def check_background_tasks() -> str:
+        """查询后台任务（导演拆解 / 美术 / 摄影 / 定妆图）的状态和结果。用户问「拆好了吗 / 好了没 / 进度如何」时调用，不要凭记忆回答。无需参数。"""
+        if runner is None:
+            return "后台任务系统未启用，剧组任务会同步执行完成。"
+        tasks = runner.list_tasks()[:8]
+        if not tasks:
+            return "当前没有后台任务记录。"
+        lines = []
+        for t in tasks:
+            status = {"pending": "排队中", "running": "进行中", "done": "已完成", "failed": "失败"}.get(t.status, t.status)
+            line = f"- {t.name}：{status}"
+            if t.status == "running" and t.steps:
+                line += f"，当前：{t.steps[-1].label}"
+            if t.status == "done" and t.result:
+                line += f"——{_short(t.result, 120)}"
+            if t.status == "failed":
+                line += "——可以让我重新发起这一步"
+            lines.append(line)
+        return "\n".join(lines)
+
+    @tool
+    def remember(content: str, kind: str = "preference") -> str:
+        """记住用户的长期偏好或本项目的决定，之后每轮对话都会自动遵循。kind=preference（用户偏好，跨项目生效）/ decision（项目决定，只在本项目生效）/ feedback（对话内反馈，只在本对话生效）。用户说「记住我喜欢… / 以后都… / 这个项目定下来…」时主动调用。参数：content=要记住的内容（一句话）；kind=记忆类型。"""
+        text = (content or "").strip()
+        if not text:
+            return "要记住的内容不能为空。"
+        kind = kind if kind in ("preference", "decision", "feedback") else "preference"
+        pid = collector.get("project_id")
+        tid = collector.get("conversation_id")
+        scope = {"preference": "global", "decision": "project", "feedback": "conversation"}[kind]
+        if kind == "decision" and not pid:
+            return "项目级决定需要先有项目上下文，请改用 preference 或先创建项目。"
+        store.add_memory(
+            kind=kind, scope=scope, content=text,
+            project_id=pid if scope in ("project", "conversation") else None,
+            conversation_id=tid if scope == "conversation" else None,
+        )
+        return f"已记住（{_MEMORY_KIND_LABELS[kind]}）：{text}"
+
+    @tool
+    def recall() -> str:
+        """列出当前生效的全部记忆（全局偏好 + 本项目决定 + 本对话反馈），用于回答「你记得什么 / 我之前说过什么」。无需参数。"""
+        rows = store.list_memories(
+            project_id=collector.get("project_id"),
+            conversation_id=collector.get("conversation_id"),
+        )
+        if not rows:
+            return "还没有任何记忆。用户明确说「记住…」时可以用 remember 保存。"
+        lines = [
+            f"- （{_MEMORY_KIND_LABELS.get(m.kind, m.kind)}）{m.content.strip()}"
+            for m in rows[:20] if m.content.strip()
+        ]
+        return "当前生效的记忆：\n" + "\n".join(lines)
+
     return [
         create_project,
         generate_script,
@@ -479,6 +714,14 @@ def build_chat_tools(
         generate_style_guide,
         generate_reference_assets,
         generate_video_prompts,
+        list_video_shots,
+        approve_video_prompts,
+        submit_videos,
+        get_video_jobs,
+        rerun_video,
+        check_background_tasks,
+        remember,
+        recall,
     ]
 
 
@@ -549,16 +792,64 @@ def load_history(store: Store, conversation_id: str | None) -> list[dict[str, An
     ]
 
 
-def _history_lc_messages(store: Store, conversation_id: str | None, limit: int = 60) -> list[AnyMessage]:
-    """把 DB 里的对话历史转成 LangChain 消息（user/assistant），供本轮 LLM 参考。"""
-    thread = conversation_id or GLOBAL_THREAD
-    messages: list[AnyMessage] = []
-    for m in store.list_chat_messages(thread, limit=limit):
+def _history_lc_messages(
+    store: Store,
+    conversation_id: str | None,
+    messages: list[Any] | None = None,
+) -> list[AnyMessage]:
+    """把对话历史转成 LangChain 消息（user/assistant），供本轮 LLM 参考。
+
+    传 messages（memory.compress_history_if_needed 的最近窗口）用之；否则直接读库。
+    assistant 消息会附上压缩的工具轨迹（来自落库 events）：模型对「我上一轮做了
+    什么」的记忆不再只靠自己当时的总结，多轮协作不会丢事实。
+    """
+    if messages is None:
+        messages = store.list_chat_messages(conversation_id or GLOBAL_THREAD, limit=60)
+    result: list[AnyMessage] = []
+    for m in messages:
         if m.role == "user":
-            messages.append(HumanMessage(content=m.content))
+            result.append(HumanMessage(content=m.content))
         elif m.role == "assistant" and m.content:
-            messages.append(AIMessage(content=m.content))
-    return messages
+            content = m.content
+            traj = _trajectory_note(m.events or [])
+            if traj:
+                content = f"{traj}\n\n{content}"
+            result.append(AIMessage(content=content))
+    return result
+
+
+_TOOL_ACTION_LABELS = {
+    "create_project": "新建项目", "generate_script": "生成初稿", "run_adaptation": "发起改编",
+    "get_script_overview": "通读剧本", "ask": "查阅剧本内容",
+    "breakdown_scenes": "拆解镜头", "generate_style_guide": "生成视觉风格",
+    "generate_video_prompts": "撰写镜头提示词", "generate_reference_assets": "生成定妆图",
+    "list_video_shots": "盘点镜头", "approve_video_prompts": "批准提示词",
+    "submit_videos": "提交出片", "get_video_jobs": "查询出片状态",
+    "rerun_video": "重roll镜头", "check_background_tasks": "查询后台任务",
+}
+
+
+def _trajectory_note(events: list[dict[str, Any]]) -> str:
+    """把一轮的工具轨迹压缩成一行事实记录（仅进 LLM 上下文，不展示给用户）。"""
+    result_names = {ev.get("name") for ev in events if ev.get("type") == "tool_result"}
+    parts: list[str] = []
+    for ev in events:
+        name = ev.get("name") or ""
+        if not name:
+            continue
+        label = _TOOL_ACTION_LABELS.get(name, name)
+        if ev.get("type") == "tool_result":
+            summary = _short(ev.get("summary") or "", 80)
+            parts.append(f"{label}：{summary}" if summary else label)
+        elif ev.get("type") == "tool_call" and name not in result_names:
+            parts.append(f"{label}（未返回）")
+    if not parts:
+        return ""
+    deduped: list[str] = []
+    for part in parts:
+        if part not in deduped:
+            deduped.append(part)
+    return "［本轮动作］" + "；".join(deduped[:8])
 
 
 # ---------- 对话服务 ----------
@@ -568,15 +859,26 @@ def _prepare_turn(
     store: Store, llm: LLM, runner: SubAgentRunner | None, conversation_id: str | None,
     project_id: str | None, message: str, meta: dict[str, Any] | None,
 ) -> tuple[_Collector, Any, dict[str, Any]]:
-    """准备一轮对话的 collector, graph, input_state。"""
+    """准备一轮对话的 collector, graph, input_state。
+
+    上下文组成：系统提示 + 项目概况 + 用户记忆 + [历史滚动摘要] + 最近消息 + 本轮输入。
+    长对话由 memory.compress_history_if_needed 压缩旧消息，掐头不再丢事实。
+    """
     collector: _Collector = {"project_id": project_id, "payloads": []}
+    thread = conversation_id or GLOBAL_THREAD
+    collector["conversation_id"] = thread if conversation_id else None
     graph = build_chat_graph(store, llm, collector, runner=runner)
     note = _current_project_note(store, project_id)
+    memory_note = memory.format_memory_note(store, project_id=project_id, conversation_id=thread)
+    summary, recent = memory.compress_history_if_needed(store, llm, thread)
+    history = _history_lc_messages(store, thread, messages=recent)
+    if summary:
+        history = [SystemMessage(content=f"[此前对话摘要]\n{summary}")] + history
     input_state: dict[str, Any] = {
         "project_id": project_id,
         "messages": [
-            SystemMessage(content=SYSTEM_PROMPT + "\n\n" + note),
-            *_history_lc_messages(store, conversation_id),
+            SystemMessage(content=SYSTEM_PROMPT + "\n" + note + memory_note),
+            *history,
             HumanMessage(content=message),
         ],
     }
@@ -710,6 +1012,7 @@ def _handle_resume(
     patch_indexes: list[int] | None,
     feedback: str | None,
     patch: list[dict[str, Any]] | None,
+    conversation_id: str | None = None,
 ) -> dict[str, Any]:
     """确定性处理审阅动作（不经过 LLM），复用底层 resume_agent_run。"""
     run = store.get_agent_run(run_id)
@@ -730,6 +1033,16 @@ def _handle_resume(
         patch_indexes=patch_indexes,
         patch=patch,
         feedback=feedback,
+    )
+    # 审阅动作沉淀为记忆：接受 → 项目决定；拒绝/重生成带反馈 → 对话反馈。
+    memory.learn_from_decision(
+        store,
+        project_id=run.project_id,
+        conversation_id=conversation_id,
+        action=action,
+        instruction=run.user_prompt,
+        feedback=feedback,
+        patch_count=len(run.patch) if action == "accept" else 0,
     )
     reply, payloads = _resume_reply(store, result)
     return {"reply": reply, "payloads": payloads, "result": result}
@@ -756,6 +1069,7 @@ def _run_turn(
             patch_indexes=meta.get("patch_indexes"),
             feedback=meta.get("feedback"),
             patch=meta.get("patch"),
+            conversation_id=conversation_id,
         )
         thread = conversation_id or GLOBAL_THREAD
         store.save_chat_message(thread_id=thread, role="user", content=_humanized_user_message(meta, message), payload=[meta])
@@ -833,6 +1147,7 @@ def chat_stream(
             patch_indexes=meta.get("patch_indexes"),
             feedback=meta.get("feedback"),
             patch=meta.get("patch"),
+            conversation_id=conversation_id,
         )
         thread = conversation_id or GLOBAL_THREAD
         store.save_chat_message(thread_id=thread, role="user", content=_humanized_user_message(meta, message), payload=[meta])
@@ -879,6 +1194,11 @@ def chat_stream(
                     msg_chunk = pair[0] if isinstance(pair, (tuple, list)) else pair
                     if getattr(msg_chunk, "type", "") != "ai":
                         continue
+                    # 推理模型的思考增量（DeepSeek/GLM 风格 reasoning_content）：
+                    # 只实时展示给用户看，不进入回复正文。
+                    reasoning = _reasoning_delta(msg_chunk)
+                    if reasoning:
+                        yield {"event": "thinking", "data": {"delta": reasoning}}
                     delta = _msg_text(getattr(msg_chunk, "content", None))
                     if delta:
                         final_text += delta
@@ -909,6 +1229,13 @@ def _short(text: str, limit: int) -> str:
     """截断工具轨迹展示文本。"""
     text = " ".join((text or "").split())
     return text if len(text) <= limit else text[:limit] + "…"
+
+
+def _reasoning_delta(msg_chunk: Any) -> str:
+    """从流式 AIMessageChunk 中提取思考增量（reasoning_content）。"""
+    kw = getattr(msg_chunk, "additional_kwargs", None) or {}
+    value = kw.get("reasoning_content") or getattr(msg_chunk, "reasoning_content", None)
+    return value if isinstance(value, str) else ""
 
 
 def _msg_text(content: Any) -> str:

@@ -101,7 +101,7 @@ ProviderSpec(
 | Moonshot Kimi | ✅ | — | — | 用真实环境变量 `MOONSHOT_API_KEY` 配置 |
 | 通义千问 Qwen | ✅ | ✅ | — | 走 DashScope 兼容模式 |
 | Ollama（本地） | ✅ | ✅ | — | 无需 key；仅在 `CHAT_PROVIDER=ollama` 时启用 |
-| 视频（独立体系） | — | — | — | MiniMax / Runway / Kling / CogVideoX / Sora，见 `app/video/` |
+| 视频（独立体系） | — | — | — | 产品统一 MiniMax（用户自带 Key + 模型名，存 `api_providers.config_json.model`）；抽象层另适配 Runway / Kling / CogVideoX / Sora，见 `app/video/` |
 
 > 非 OpenAI 兼容的厂商（如 Anthropic Messages API）目前**没有**适配：需要为它单独实现
 > 协议客户端，而不是加一条 `ProviderSpec`。这是有意的取舍——主流可选厂商里它不占多数，

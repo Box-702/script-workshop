@@ -9,7 +9,7 @@
 // - 载荷卡片：审阅建议 / 版本通知
 // =====================================================================
 
-import { computed, ref, onUnmounted } from 'vue'
+import { computed, ref, watch, onUnmounted } from 'vue'
 import PatchSummaryCard from './PatchSummaryCard.vue'
 import VersionCard from './VersionCard.vue'
 import { mdToHtml, esc } from '../utils/markdown'
@@ -29,6 +29,15 @@ const showCopy = computed(() =>
 // ---- 工作步骤面板（替代 chips）----
 const stepsExpanded = ref(false)
 const STEP_COLLAPSE = 3
+
+// ---- 思考过程（推理模型 reasoning 增量，流式实时展示）----
+const thinkingExpanded = ref(false)
+const thinkingBody = ref(null)
+// 流式期间自动滚到最新一行；结束后交还滚动位置给用户。
+watch(() => props.message.thinking, () => {
+  const el = thinkingBody.value
+  if (el && props.message.streaming) el.scrollTop = el.scrollHeight
+})
 
 // 工具名 → 用户能看懂的创作动作（唯一来源在 stores/app.js 的 STAGE_LABELS，
 // 与输入区的阶段状态条共用同一张表）；未登记的工具一律显示「正在处理」。
@@ -83,6 +92,25 @@ onUnmounted(() => clearTimeout(copiedTimer))
 
     <!-- Agent：行内注释风格 -->
     <template v-else>
+      <!-- 思考过程：流式实时展示，结束后折叠可回看 -->
+      <div v-if="message.thinking" class="thinking-panel">
+        <div
+          v-if="!message.streaming"
+          class="thinking-header"
+          @click="thinkingExpanded = !thinkingExpanded"
+        >
+          <span class="thinking-icon">✻</span>
+          <span class="thinking-title">思考过程</span>
+          <span class="steps-toggle">{{ thinkingExpanded ? '收起' : '展开' }}</span>
+        </div>
+        <div
+          v-if="message.streaming || thinkingExpanded"
+          class="thinking-body"
+          :class="{ live: message.streaming }"
+          ref="thinkingBody"
+        >{{ message.thinking }}</div>
+      </div>
+
       <!-- 工作步骤面板 -->
       <div v-if="(message.events || []).length" class="steps-panel">
         <div class="steps-header" @click="stepsExpanded = !stepsExpanded">
@@ -161,6 +189,24 @@ onUnmounted(() => clearTimeout(copiedTimer))
 .step-call .step-label { color: var(--ink); }
 .step-progress .step-label { color: var(--warn); }
 .step-done .step-label { color: var(--ok); }
+
+/* 思考过程（推理模型 reasoning 实时流） */
+.thinking-panel { margin-bottom: 8px; }
+.thinking-header {
+  display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px;
+  cursor: pointer; user-select: none; font-size: 12px;
+  color: var(--dim); border-radius: 8px;
+}
+.thinking-header:hover { background: color-mix(in oklch, var(--ink) 3%, transparent); }
+.thinking-icon { flex: none; }
+.thinking-title { color: var(--muted); }
+.thinking-body {
+  white-space: pre-wrap; word-break: break-word;
+  font-size: 12.5px; line-height: 1.7; color: var(--dim);
+  border-left: 2px solid var(--line);
+  padding: 2px 0 2px 12px; margin-left: 2px;
+}
+.thinking-body.live { max-height: 150px; overflow-y: auto; }
 
 /* Agent 正文 */
 .agent-body { display: flex; flex-direction: column; min-width: 0; max-width: 100%; position: relative; }

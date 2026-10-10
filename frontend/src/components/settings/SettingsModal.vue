@@ -115,64 +115,43 @@
 
           <!-- 视频生成 -->
           <div v-if="tab === 'video'" class="section">
-            <h4>视频生成 Provider</h4>
-            <div class="provider-list">
-              <div
-                v-for="p in videoProviders"
-                :key="p.id"
-                class="provider-card"
-              >
-                <div class="provider-header">
-                  <span class="provider-icon">{{ providerIcon(p.name) }}</span>
-                  <span class="provider-name">{{ p.label }}</span>
-                  <span :class="['status-dot', p.configured ? 'on' : 'off']"></span>
-                  <span class="provider-price" v-if="providerPrice(p.name)">{{ providerPrice(p.name) }}</span>
-                </div>
-                <div class="provider-meta">
-                  <span v-if="providerChinese(p.name)" class="badge-cn">中文</span>
-                  <span class="badge">{{ providerDuration(p.name) }}</span>
-                </div>
-                <div class="provider-actions">
-                  <button class="btn-small" @click="editProvider(p)">配置</button>
-                  <button class="btn-small danger" @click="deleteProvider(p)" v-if="p.configured">删除</button>
-                </div>
-              </div>
-              <div class="provider-card add" @click="showAddProvider = true">
-                <span>+ 添加 Provider</span>
-              </div>
+            <h4>视频生成（MiniMax 海螺）</h4>
+            <div class="active-line">
+              <template v-if="minimaxRow">
+                <span :class="['status-dot', minimaxRow.configured ? 'on' : 'off']"></span>
+                已配置 <strong>MiniMax</strong>
+                · 模型 <strong>{{ minimaxModelLabel }}</strong>
+                <span class="active-src">用自己的 Key，费用直接走你的 MiniMax 账户</span>
+              </template>
+              <template v-else>
+                填入你的 MiniMax API Key 后即可生成视频
+              </template>
             </div>
-
-            <!-- 添加/编辑 Provider 弹窗 -->
-            <div v-if="showAddProvider || editingProvider" class="sub-modal">
-              <h5>{{ editingProvider ? '编辑' : '添加' }} Video Provider</h5>
-              <div class="form-row">
-                <label>Provider</label>
-                <select v-model="providerForm.name" class="input" :disabled="!!editingProvider">
-                  <option value="runway">Runway Gen-4</option>
-                  <option value="kling">Kling AI (快手)</option>
-                  <option value="cogvideo">CogVideoX (智谱)</option>
-                  <option value="sora">Sora 2 (OpenAI)</option>
-                  <option value="minimax">MiniMax 海螺</option>
-                </select>
-              </div>
-              <div class="form-row">
-                <label>API Key</label>
+            <div class="form-row">
+              <label>API Key</label>
+              <div class="key-row">
                 <input
                   :type="showVideoKey ? 'text' : 'password'"
-                  v-model="providerForm.apiKey"
+                  v-model="videoForm.apiKey"
                   class="input"
-                  placeholder="输入 API Key"
+                  :placeholder="minimaxRow?.configured ? '留空 = 保持不变' : 'MiniMax 开放平台 API Key'"
                 />
                 <button class="btn-small" @click="showVideoKey = !showVideoKey">{{ showVideoKey ? '隐藏' : '显示' }}</button>
               </div>
-              <div class="form-row">
-                <label>Base URL（可选）</label>
-                <input v-model="providerForm.baseUrl" class="input" placeholder="默认" />
-              </div>
-              <div class="form-actions">
-                <button class="btn ok" @click="saveProvider">保存</button>
-                <button class="btn-ghost" @click="cancelEdit">取消</button>
-              </div>
+            </div>
+            <div class="form-row">
+              <label>模型</label>
+              <input v-model.trim="videoForm.model" class="input" placeholder="MiniMax-H3" />
+            </div>
+            <div class="form-row">
+              <label>Base URL（可选）</label>
+              <input v-model.trim="videoForm.baseUrl" class="input" placeholder="默认 https://api.minimax.cn" />
+            </div>
+            <p class="pref-hint">
+              海外账户填 https://api.minimaxi.com；Key 与模型只存在本机数据库，不经过任何第三方。
+            </p>
+            <div class="form-actions">
+              <button class="btn ok" @click="saveMinimax">保存</button>
             </div>
           </div>
 
@@ -380,21 +359,15 @@ async function deleteLlm(p) {
   }
 }
 
-// ---- 视频 Provider ----
+// ---- 视频 Provider（MiniMax，用户自带 Key 与模型）----
 const videoProviders = ref([])
-const showAddProvider = ref(false)
-const editingProvider = ref(null)
 const showVideoKey = ref(false)
-const providerForm = reactive({ name: 'kling', apiKey: '', baseUrl: '' })
+const videoForm = reactive({ apiKey: '', model: '', baseUrl: '' })
+const minimaxRow = computed(() => videoProviders.value.find(p => p.name === 'minimax'))
+const minimaxModelLabel = computed(() => minimaxRow.value?.config?.model || 'MiniMax-H3')
 
 // ---- 模型偏好 ----
 
-const providerIcons = { runway: 'RW', kling: 'KL', cogvideo: 'CG', sora: 'SO', minimax: 'MX' }
-const providerPrices = { runway: '$0.05-0.12/s', kling: '$0.10-0.20/s', cogvideo: '按量', sora: '$0.10-0.50/s', minimax: '$0.045/s' }
-const providerChinese = (n) => ['kling', 'cogvideo', 'minimax'].includes(n)
-const providerIcon = (n) => providerIcons[n] || 'AI'
-const providerPrice = (n) => providerPrices[n] || ''
-const providerDuration = (n) => ({ runway: '10s', kling: '10s', cogvideo: '6s', sora: '20s', minimax: '10s' }[n] || '')
 const taskLabels = { screenplay: '剧本生成', shot_design: '镜头设计', video_gen: '视频生成', image_gen: '图片生成', tts: '语音合成' }
 const taskLabel = (t) => taskLabels[t] || t
 
@@ -404,54 +377,44 @@ async function loadProviders() {
     videoProviders.value = all.filter(p => p.kind === 'video')
     llmProviders.value = all.filter(p => p.kind === 'llm').map(p => ({ ...p, testing: false, testResult: null }))
   } catch {}
+  syncVideoForm()
   if (showAddLlm.value && !editingLlmRow.value && !llmForm.label) applyPreset()
 }
 
-function editProvider(p) {
-  editingProvider.value = p
-  providerForm.name = p.name
-  providerForm.apiKey = ''
-  providerForm.baseUrl = p.base_url || ''
+/** 用已保存的 MiniMax 配置回填表单（Key 永远留空，表示「保持不变」）。 */
+function syncVideoForm() {
+  videoForm.apiKey = ''
+  videoForm.model = minimaxRow.value?.config?.model || 'MiniMax-H3'
+  videoForm.baseUrl = minimaxRow.value?.base_url || ''
 }
 
-function cancelEdit() {
-  showAddProvider.value = false
-  editingProvider.value = null
-  providerForm.apiKey = ''
-  providerForm.baseUrl = ''
-}
-
-async function saveProvider() {
+async function saveMinimax() {
+  const key = videoForm.apiKey.trim()
+  if (!minimaxRow.value && !key) {
+    alert('请先填入 MiniMax API Key')
+    return
+  }
   try {
-    if (editingProvider.value) {
-      await api(`/providers/${editingProvider.value.id}`, 'PATCH', {
-        api_key: providerForm.apiKey || undefined,
-        base_url: providerForm.baseUrl || undefined,
+    const config = videoForm.model ? { model: videoForm.model } : {}
+    if (minimaxRow.value) {
+      await api(`/providers/${minimaxRow.value.id}`, 'PATCH', {
+        api_key: key || undefined,
+        base_url: videoForm.baseUrl,
+        config,
       })
     } else {
-      const labelMap = { runway: 'Runway Gen-4', kling: 'Kling AI', cogvideo: 'CogVideoX', sora: 'Sora 2', minimax: 'MiniMax 海螺' }
       await api('/providers', 'POST', {
         kind: 'video',
-        name: providerForm.name,
-        label: labelMap[providerForm.name] || providerForm.name,
-        api_key: providerForm.apiKey,
-        base_url: providerForm.baseUrl,
+        name: 'minimax',
+        label: 'MiniMax 海螺',
+        api_key: key,
+        base_url: videoForm.baseUrl,
+        config,
       })
     }
-    cancelEdit()
     await loadProviders()
   } catch (e) {
     alert(`保存失败：${e.message}`)
-  }
-}
-
-async function deleteProvider(p) {
-  if (!confirm(`确定删除 ${p.label}？`)) return
-  try {
-    await api(`/providers/${p.id}`, 'DELETE')
-    await loadProviders()
-  } catch (e) {
-    alert(`删除失败：${e.message}`)
   }
 }
 

@@ -19,8 +19,17 @@ log = logging.getLogger(__name__)
 
 
 def find_ffmpeg() -> str | None:
-    """查找 FFmpeg 可执行文件路径。"""
-    return shutil.which("ffmpeg")
+    """查找 FFmpeg：PATH 优先；都没有时用 imageio-ffmpeg 自带的二进制兜底，
+    保证没装 FFmpeg 的新机器拼接/抽帧也能直接跑。"""
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:  # noqa: BLE001  依赖未安装或平台不支持
+        return None
 
 
 def find_ffprobe() -> str | None:
