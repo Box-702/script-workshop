@@ -428,6 +428,11 @@ def test_map_novel_tool_builds_map_inline(store):
     assert "5" in r and "章" in r
     m = store.get_project(pid).novel_map
     assert len(m["chapters"]) == 5 and m["chapters"][0]["summary"] == "林然交出情报。"
+    # 已有地图时拒绝重复建图（防止同一请求反复触发全书逐章摘要），rebuild=true 才重建
+    r2 = tools["map_novel"].invoke({"project_id": pid})
+    assert "已经有章节地图" in r2
+    r3 = tools["map_novel"].invoke({"project_id": pid, "rebuild": "true"})
+    assert "5" in r3
 
 
 def test_generate_script_with_span_sets_progress(store, llm, settings, sample_text):

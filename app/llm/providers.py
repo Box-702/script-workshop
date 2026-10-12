@@ -57,6 +57,9 @@ def build_chat_model(config: ModelConfig) -> BaseChatModel:
         # 本地服务（Ollama / vLLM）通常不校验 key，给占位值避免 SDK 报缺少鉴权。
         "api_key": config.api_key or "not-needed",
         "temperature": config.temperature,
+        # 必须开流式：对话 conductor 用 langgraph messages 模式把增量推给前端，
+        # 不开的话回复（含思考内容）在整轮结束时一次性到达，前端没有流式观感。
+        "streaming": True,
     }
     base_url = (config.base_url or (spec.default_base_url if spec else "")).rstrip("/")
     if base_url:

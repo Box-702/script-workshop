@@ -196,12 +196,18 @@ def build_chat_tools(
         return reply
 
     @tool
-    def map_novel(project_id: str) -> str:
-        """为长篇原文建立章节地图：逐章摘要 + 出场人物，作为「选段改编」的依据。超过约 1.5 万字的小说建议先建图。后台运行（章节数多时要几分钟）。参数：project_id=项目 id。"""
+    def map_novel(project_id: str, rebuild: str = "") -> str:
+        """为长篇原文建立章节地图：逐章摘要 + 出场人物，作为「选段改编」的依据。超过约 1.5 万字的小说建议先建图。后台运行（章节数多时要几分钟）。已有地图时会拒绝重复建图，除非 rebuild=true（用户明确要求重建）。参数：project_id=项目 id；rebuild=传 "true" 强制重建。"""
         p = _project(project_id)
         text = (p.raw_text or "").strip()
         if len(text) <= LONG_TEXT_CHARS:
             return f"原文只有约 {len(text) / 10000:.1f} 万字，不算长篇，直接「生成初稿」就能全部覆盖，不需要建图。"
+        existing = len((p.novel_map or {}).get("chapters") or [])
+        if existing and str(rebuild).lower() != "true":
+            return (
+                f"这本书已经有章节地图（{existing} 章），不用重建，直接说「挑一段改编」就能选段；"
+                f"只有当原文替换过或摘要有问题时才需要重建（那时传 rebuild=true）。"
+            )
         if not llm.available:
             return "建立章节地图需要对话模型（当前不可用），请先在设置里配置模型。"
 
@@ -1407,7 +1413,9 @@ def chat_stream(
                 pairs = data if isinstance(data, list) else [data]
                 for pair in pairs:
                     msg_chunk = pair[0] if isinstance(pair, (tuple, list)) else pair
-                    if getattr(msg_chunk, "type", "") != "ai":
+                    # 注意用 isinstance：AIMessageChunk.type 返回 'AIMessageChunk'
+                    # 而不是 'ai'，按 type 字符串过滤会把所有 token 块丢弃（实测踩坑）。
+                    if not isinstance(msg_chunk, AIMessage):
                         continue
                     # 推理模型的思考增量（DeepSeek/GLM 风格 reasoning_content）：
                     # 只实时展示给用户看，不进入回复正文。
