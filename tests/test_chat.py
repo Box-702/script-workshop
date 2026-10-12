@@ -475,3 +475,27 @@ def test_propose_arcs_tool(store, llm, sample_text):
     arc_tools["propose_arcs"].invoke({"project_id": pid})
     user_msg = _ArcLLM.calls[-1][-1]["content"]
     assert "第 4 章" in user_msg
+
+
+# ---------- 编造动作护栏（deepseek 实测会模仿轨迹格式编结果） ----------
+
+
+def test_guard_flags_claims_without_tool_results():
+    from app.chat.conductor import _guard_unverified_claims
+
+    # 声称生成了版本、但本轮没有任何工具返回 → 追加更正
+    fabricated = "已生成初稿版本 ver_ab12cd34ef56（模式：llm）：共 5 场。"
+    guarded = _guard_unverified_claims(fabricated, events=[])
+    assert "系统更正" in guarded and "不可信" in guarded
+
+    # 提候选故事弧但没有工具返回 → 同样更正
+    assert "系统更正" in _guard_unverified_claims("为你挑出 3 个候选故事弧：…", events=[])
+
+    # 有真实工具返回 → 不动正文
+    events = [{"type": "tool_result", "name": "generate_script", "summary": "已生成初稿版本 ver_x"}]
+    legit = "已生成初稿版本 ver_x：共 3 场。"
+    assert _guard_unverified_claims(legit, events) == legit
+
+    # 纯讨论（无结果短语）→ 不动
+    chat = "当前版本是 ver_x，你觉得节奏怎么样？"
+    assert _guard_unverified_claims(chat, events=[]) == chat

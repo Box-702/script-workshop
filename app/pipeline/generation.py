@@ -17,7 +17,7 @@ import logging
 import re
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..config import Settings
 from ..domain import (
@@ -85,6 +85,18 @@ class _BeatIn(BaseModel):
     emotion: str | None = None
     subtext: str | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _alias_keys(cls, data: object) -> object:
+        # deepseek 实测会把动作节拍写成 {"type":"action","description":"..."}，
+        # 不做别名映射的话节拍能通过校验但 text 全空（比报错更危险的静默退化）。
+        if isinstance(data, dict) and not isinstance(data.get("text"), str) and not isinstance(data.get("line"), str):
+            for key in ("description", "content", "summary"):
+                if isinstance(data.get(key), str):
+                    data = {**data, "text": data[key]}
+                    break
+        return data
+
     @field_validator("text", "line", "action", "dialogue", "subtext", mode="before")
     @classmethod
     def _unwrap_text(cls, v: object) -> object:
@@ -135,6 +147,56 @@ class _SceneIn(BaseModel):
     beats: list[_BeatIn] = Field(default_factory=list)
     action: list[str] = Field(default_factory=list)
     dialogue: list[Any] = Field(default_factory=list)
+
+    @field_validator("action", mode="before")
+    @classmethod
+    def _coerce_action(cls, v: object) -> object:
+        # deepseek 实测会把 action 输出成一个长字符串（分句用「；」），规整成数组。
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [seg.strip() for seg in re.split(r"[；;\n]", v) if seg.strip()]
+        if isinstance(v, list):
+            return [str(x) for x in v if isinstance(x, str) and x.strip()] or (
+                [str(x).strip() for x in v if x] if v else []
+            )
+        return v
+
+    @field_validator("dialogue", mode="before")
+    @classmethod
+    def _coerce_dialogue(cls, v: object) -> object:
+        # 同实测形态：dialogue 输出成「角色（情绪）：『台词』」样式的单个字符串。
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return cls._parse_dialogue_str(v)
+        if isinstance(v, list):
+            out: list[Any] = []
+            for item in v:
+                if isinstance(item, str):
+                    out.extend(cls._parse_dialogue_str(item))
+                else:
+                    out.append(item)
+            return out
+        return v
+
+    @staticmethod
+    def _parse_dialogue_str(raw: str) -> list[dict[str, str]]:
+        """「角色（情绪）：『台词』」→ 对白对象；没有说话人时只保留台词。"""
+        text = raw.strip()
+        if not text:
+            return []
+        m = re.match(r"^(.*?)(?:（(.*?)）)?[:：]\s*[「『\"']?(.+?)[」』\"']?$", text)
+        if m and (m.group(3) or "").strip():
+            entry: dict[str, str] = {"line": m.group(3).strip()}
+            speaker = (m.group(1) or "").strip()
+            if speaker:
+                entry["speaker"] = speaker
+            emotion = (m.group(2) or "").strip()
+            if emotion:
+                entry["emotion"] = emotion
+            return [entry]
+        return [{"line": text}]
 
 
 def _synth_beats(scene: _SceneIn) -> list[_BeatIn]:

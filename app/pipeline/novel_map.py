@@ -16,7 +16,7 @@ import logging
 import re
 from typing import Any, Callable
 
-from .chunking import chapter_spans
+from .chunking import _CHAPTER_RE, chapter_spans
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +59,44 @@ _CHAPTER_PROMPT = (
 )
 
 
+def _split_names(raw: str) -> list[str]:
+    return [n.strip() for n in re.split(r"[、,，;；]", raw) if n.strip()][:6]
+
+
+def _parse_chapter_reply(raw: str) -> tuple[str, list[str]]:
+    """解析单章摘要回复。兼容两种格式：
+
+    - 带前缀：「剧情：xxx」+「人物：xxx」（提示词要求的格式）；
+    - 裸文本：模型没遵守格式时，首行是剧情、其余行里短的一行是人物名单。
+      （deepseek 实测约一半调用会丢掉前缀，直接回两行纯文本。）
+    """
+    lines = [ln.strip() for ln in str(raw).splitlines() if ln.strip()]
+    summary, characters = "", ""
+    for line in lines:
+        if line.startswith(("剧情", "情节")):
+            summary = line.split("：", 1)[-1].split(":", 1)[-1].strip()
+        elif line.startswith("人物"):
+            characters = line.split("：", 1)[-1].split(":", 1)[-1].strip()
+    if not summary and lines:
+        summary = lines[0]
+        rest = [ln for ln in lines[1:] if not _CHAPTER_RE.match(ln)]
+        if rest and len(rest[0]) <= 30 and not re.search(r"[。！？]", rest[0]):
+            characters = rest[0]
+    return summary, _split_names(characters)
+
+
+def _fallback_summary(body: str) -> str:
+    """回退摘要：跳过章节标题行，取正文第一句。"""
+    for line in (body or "").strip().splitlines():
+        stripped = line.strip()
+        if not stripped or _CHAPTER_RE.match(stripped):
+            continue
+        first = re.split(r"[。！？]", stripped)[0][:60]
+        if first:
+            return first
+    return "（摘要生成失败）"
+
+
 def _summarize_chapter(llm: Any, title: str, body: str) -> tuple[str, list[str]]:
     """单章摘要。失败返回占位摘要，不中断整体建图。"""
     text = f"{title}\n{body[:_CHAPTER_TEXT_CAP]}"
@@ -70,21 +108,13 @@ def _summarize_chapter(llm: Any, title: str, body: str) -> tuple[str, list[str]]
         raw = getattr(resp, "content", "") or ""
         if isinstance(raw, list):
             raw = " ".join(b.get("text", "") for b in raw if isinstance(b, dict) and b.get("type") == "text")
-        summary, characters = "", ""
-        for line in str(raw).splitlines():
-            line = line.strip()
-            if line.startswith("剧情"):
-                summary = line.split("：", 1)[-1].split(":", 1)[-1].strip()
-            elif line.startswith("人物"):
-                characters = line.split("：", 1)[-1].split(":", 1)[-1].strip()
-        names = [n.strip() for n in re.split(r"[、,，;；]", characters) if n.strip()][:6]
+        summary, names = _parse_chapter_reply(str(raw))
         if summary:
             return summary, names
     except Exception as e:  # noqa: BLE001
         log.warning("章节摘要失败（%s）：%s", title, e)
-    # 兜底：用正文第一句，保证地图完整可用。
-    first = re.split(r"[。！？\n]", body.strip())[0][:60]
-    return first or "（摘要生成失败）", []
+    # 兜底：用正文第一句（跳过标题行），保证地图完整可用。
+    return _fallback_summary(body), []
 
 
 def build_novel_map(raw_text: str, llm: Any, *, on_progress: ProgressFn | None = None) -> dict[str, Any]:
@@ -116,23 +146,30 @@ def build_novel_map(raw_text: str, llm: Any, *, on_progress: ProgressFn | None =
 
 def arcs_context(novel_map: dict[str, Any], from_chapter: int = 1, to_chapter: int | None = None,
                  max_chapters: int = 120) -> str:
-    """把章节地图压成供选段模型阅读的清单（章号+标题+摘要）。"""
+    """把章节地图压成供选段模型阅读的清单（章号+标题+字数+摘要）。"""
     chapters = novel_map.get("chapters") or []
     a = max(1, from_chapter)
     b = min(len(chapters), to_chapter or len(chapters))
     lines = []
     for c in chapters[a - 1:b][:max_chapters]:
         chars = "、".join(c.get("characters") or [])
-        suffix = f"（{chars}）" if chars else ""
-        lines.append(f"第{c['index']}章 {c.get('title', '')}：{c.get('summary', '')}{suffix}")
+        suffix = f"（人物：{chars}）" if chars else ""
+        n = c.get("chars")
+        size = f"（约{int(n)}字）" if n else ""
+        lines.append(f"第{c['index']}章 {c.get('title', '')}{size}：{c.get('summary', '')}{suffix}")
     if b - a + 1 > max_chapters:
         lines.append(f"（仅列出前 {max_chapters} 章，共 {b - a + 1} 章）")
     return "\n".join(lines)
 
 
+# 一次剧本生成的原文容量上限（12 切片 × 约 1000 字，留余量）。选弧提示词据此约束弧大小。
+ARC_CHAR_BUDGET = 12000
+
 ARCS_PROMPT = (
-    "你是短剧策划。下面的清单是一部小说的章节地图。请从指定范围里挑出 2-3 个"
+    "你是短剧策划。下面的清单是一部小说的章节地图（每章含字数）。请从指定范围里挑出 2-3 个"
     "最适合改编成短剧的「故事弧」——一个弧=一段有完整起承转合、能独立成片的连续章节。\n"
+    "硬约束：一个弧的章节字数总和不要超过 12000 字（单次剧本生成的容量），"
+    "大的故事阶段请拆成上下几个弧（如「虎妞逼婚(上)」）。\n"
     "只输出 JSON 数组，每项：{\"title\": \"弧名\", \"from\": 起始章号, \"to\": 结束章号, "
     "\"hook\": \"一句话戏剧钩子\", \"why\": \"为什么适合（20字内）\"}。"
     "弧与弧不重叠，覆盖你觉得最有戏的部分即可，不必覆盖全部。"
@@ -175,3 +212,19 @@ def previous_context(novel_map: dict[str, Any], until_chapter: int, *, max_chars
     ]
     text = "\n".join(lines)
     return text[-max_chars:] if len(text) > max_chars else text
+
+
+def next_to_chapter(novel_map: dict[str, Any], from_chapter: int, budget: int = ARC_CHAR_BUDGET) -> int:
+    """连载续接的默认终点：从 from_chapter 起按字数预算装章，至少一章、不超预算。"""
+    chapters = novel_map.get("chapters") or []
+    a = max(1, int(from_chapter))
+    if not chapters:
+        return a
+    acc, to = 0, a
+    for c in chapters[a - 1:]:
+        size = int(c.get("chars") or 0)
+        if to > a and acc + size > budget:
+            break
+        acc += size
+        to = int(c["index"])
+    return min(to, len(chapters))

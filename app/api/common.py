@@ -53,6 +53,7 @@ def project_dict(project: Any) -> dict[str, Any]:
     st = deps.store()
     runs = st.list_agent_runs(project.id)
     latest_run = runs[0] if runs else None
+    map_chapters = len((project.novel_map or {}).get("chapters") or [])
     return {
         "id": project.id,
         "title": project.title,
@@ -63,6 +64,9 @@ def project_dict(project: Any) -> dict[str, Any]:
         "created_at": project.created_at.isoformat(),
         "version_count": len(st.list_versions(project.id)),
         "run_count": len(runs),
+        # 长篇连载：已改编到第几章 + 地图章节数（完整地图只在详情接口给）
+        "adapted_until": int(getattr(project, "adapted_until", 0) or 0),
+        "novel_map_chapters": map_chapters,
         "latest_run": {"status": latest_run.status, "updated_at": latest_run.updated_at.isoformat()}
         if latest_run
         else None,

@@ -54,7 +54,10 @@ def list_projects() -> list[dict[str, Any]]:
 
 @router.get("/projects/{project_id}")
 def get_project(project_id: str) -> dict[str, Any]:
-    return common.project_dict(common.get_project(project_id))
+    p = common.get_project(project_id)
+    data = common.project_dict(p)
+    data["novel_map"] = p.novel_map  # 完整章节地图（列表接口只给章节数）
+    return data
 
 
 @router.delete("/projects/{project_id}")

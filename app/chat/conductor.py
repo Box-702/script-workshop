@@ -101,7 +101,11 @@ SYSTEM_PROMPT = (
     "14. 长篇小说：原文超过约 1.5 万字时不要直接生成初稿（只会覆盖开头一小段）。"
     "先调用 map_novel 建章节地图，再用 propose_arcs 提候选故事弧，用户选定章节范围后"
     "调用 generate_script(from_chapter, to_chapter) 按段生成；用户说「继续改编下一段」时"
-    "从已改编进度接着选段，前情提领会自动带上。\n"
+    "不要再提候选弧，直接调用 generate_script 且章节参数留空（自动从已改编进度续接约 1.2 万字），"
+    "前情提领会自动带上，生成后汇报本次范围与连载进度。\n"
+    "15. 汇报以工具返回为准：说「已生成 / 已建成 / 已挑出 / 已提交」之前，本轮必须真的调用过"
+    "对应工具；严禁凭对话历史编造版本号（ver_xxx）、场次、进度或任务结果。"
+    "没调工具就直说还没做，或者先做再说。\n"
     "行为准则：回复简洁、口语化、用简体中文；不确定时先问；不要虚构剧本内容；"
     "不要替用户做最终决定，审阅与落版决定永远交给用户。"
     "剧组任务（5-8）会在后台运行，启动后告知用户可在右栏查看进度；"
@@ -267,8 +271,8 @@ def build_chat_tools(
         """为指定项目生成剧本初稿（生成流水线：故事圣经 -> 场景/节拍）。
 
         长篇建议配合章节地图按章选段：from_chapter/to_chapter=章号（1 起，含两端）。
-        不传章节时改编全部原文——超长原文只会覆盖开头约 1.4 万字，会如实提示。
-        连载时自动携带「前情提要」保持衔接，生成后推进已改编进度。
+        有章节地图时不传 to_chapter 会按一次生成的容量（约 1.2 万字）自动续接；
+        用户说「继续改编下一段」时直接调用本工具、章节参数留空即可，从进度接续并自动带前情提要。
         参数：project_id=项目 id。
         """
         p = _project(project_id)
@@ -276,13 +280,18 @@ def build_chat_tools(
         span_label = ""
         prior_context = ""
         text = raw
-        if str(from_chapter).strip() or str(to_chapter).strip():
+        if str(from_chapter).strip() or str(to_chapter).strip() or (p.novel_map.get("chapters") if p.novel_map else None):
             from ..pipeline.chunking import slice_by_chapter
-            from ..pipeline.novel_map import previous_context
+            from ..pipeline.novel_map import next_to_chapter, previous_context
 
             try:
                 a = int(from_chapter) if str(from_chapter).strip() else (p.adapted_until + 1 if p.adapted_until else 1)
-                b = int(to_chapter) if str(to_chapter).strip() else 0
+                if str(to_chapter).strip():
+                    b = int(to_chapter)
+                elif p.novel_map.get("chapters"):
+                    b = next_to_chapter(p.novel_map, a)  # 按容量自动续接，不再默认切到全书末尾
+                else:
+                    b = 0
                 text, span_label, b = slice_by_chapter(raw, a, b or 10**9)
             except ValueError as e:
                 return f"选段失败：{e}"
@@ -315,6 +324,11 @@ def build_chat_tools(
         n_chapters = len(chapter_spans(raw))
         if span_label:
             coverage = f"本次改编自{span_label}（约 {len(text) / 10000:.1f} 万字）"
+            if len(text) > LONG_TEXT_CHARS:
+                coverage += (
+                    f"。注意：这个选段超过一次生成的容量（约 {LONG_TEXT_CHARS / 10000:.1f} 万字），"
+                    f"初稿只覆盖了选段开头，建议把章节范围切小（单次不超过 2 章左右）再分别生成"
+                )
             if p.adapted_until:
                 total = len((p.novel_map.get('chapters') or [])) or n_chapters
                 coverage += f"，连载进度：已改编到第 {p.adapted_until} 章（全书 {total} 章）"
@@ -1055,6 +1069,7 @@ def _finalize_turn(
     save_user=False：流式路径已在流开始时保存过用户消息，这里只补 assistant，
     避免同一条用户消息重复入库。
     """
+    final_text = _guard_unverified_claims(final_text, events)
     thread = conversation_id or GLOBAL_THREAD
     new_project_id = collector.get("project_id") or project_id
     if save_user:
@@ -1070,6 +1085,61 @@ def _finalize_turn(
         "project_id": new_project_id,
         "thread_id": thread,
     }
+
+
+# 声称「已经完成某动作」的结果短语。模型（deepseek 实测）偶尔会模仿历史消息里的
+# 「［本轮动作］生成初稿：已生成初稿版本 ver_xxx…」轨迹格式，在没调工具的情况下
+# 凭对话记忆编一份结果（假版本号、假进度）。这里做确定性护栏：有结果短语、
+# 本轮却没有一条真实的工具返回 → 追加系统更正，防止用户被假版本号误导。
+_CLAIM_PATTERNS = (
+    "已生成初稿",
+    "已改编自",
+    "已改编到第",
+    "章节地图已建成",
+    "个候选故事弧",
+    "已提交出片",
+    "已批准",
+)
+
+_FABRICATED_NOTICE = (
+    "\n\n（系统更正：本轮我没有实际调用工具，上面提到的「结果」是不可信的误报。"
+    "请再说一次你的需求，我会真正执行、以工具返回为准后再汇报。）"
+)
+
+_CORRECTION_PROMPT = (
+    "（系统拦截：你上一条回复在没有调用任何工具的情况下报告了「结果」——这是编造，已被系统标记。"
+    "请现在真正调用需要的工具完成用户请求；确实做不到就如实说明原因。一切以工具返回为准。）"
+)
+
+
+def _execute_graph_turn(graph: Any, input_state: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+    """跑一轮 ReAct 图（非流式），返回 (最终回复文本, 工具事件)。"""
+    events: list[dict[str, Any]] = []
+    final_text = ""
+    for chunk in graph.stream(input_state, stream_mode="updates"):
+        for node, update in chunk.items():
+            events.extend(_extract_events(node, update))
+            if node == "chat_agent":
+                for m in (update.get("messages") or []):
+                    if isinstance(m, AIMessage) and not m.tool_calls and m.content:
+                        final_text = _msg_text(m.content)
+    return final_text, events
+
+
+def _claims_unverified(final_text: str, events: list[dict[str, Any]] | None) -> bool:
+    """回复里有没有「声称了动作结果、但本轮没有任何真实工具返回」。"""
+    text = final_text or ""
+    if not text or any(ev.get("type") == "tool_result" for ev in events or []):
+        return False
+    return any(pattern in text for pattern in _CLAIM_PATTERNS)
+
+
+def _guard_unverified_claims(final_text: str, events: list[dict[str, Any]]) -> str:
+    """回复声称了动作结果、但本轮没有任何真实工具返回时，追加系统更正。"""
+    text = final_text or ""
+    if _claims_unverified(text, events):
+        return text + _FABRICATED_NOTICE
+    return text
 
 
 def _current_project_note(store: Store, project_id: str | None) -> str:
@@ -1224,13 +1294,18 @@ def _run_turn(
     events: list[dict[str, Any]] = []
     final_text = ""
     try:
-        for chunk in graph.stream(input_state, stream_mode="updates"):
-            for node, update in chunk.items():
-                events.extend(_extract_events(node, update))
-                if node == "chat_agent":
-                    for m in (update.get("messages") or []):
-                        if isinstance(m, AIMessage) and not m.tool_calls and m.content:
-                            final_text = _msg_text(m.content)
+        final_text, events = _execute_graph_turn(graph, input_state)
+        if _claims_unverified(final_text, events):
+            # 编造拦截：模型没调工具就报告了「结果」。带着更正指令重跑一次，
+            # 让请求真正落到工具上；重跑仍失败则如实把更正留给 finalize。
+            log.warning("对话轮检测到未执行的动作报告，自动重跑一次")
+            retry_state = {
+                **input_state,
+                "messages": list(input_state.get("messages") or []) + [HumanMessage(content=_CORRECTION_PROMPT)],
+            }
+            retry_text, retry_events = _execute_graph_turn(graph, retry_state)
+            if retry_text:
+                final_text, events = retry_text, events + retry_events
     except Exception as e:  # noqa: BLE001
         log.warning("对话运行失败：%s", e)
         final_text = f"对话运行出错了：{e}"
@@ -1307,8 +1382,12 @@ def chat_stream(
     events: list[dict[str, Any]] = []
     final_text = ""
     last_update_text = ""
-    try:
-        for chunk in graph.stream(input_state, stream_mode=["updates", "messages"]):
+
+    def _pump(state: dict[str, Any]):
+        """跑一遍图并实时 yield 事件；结果写回外层 holder。"""
+        nonlocal final_text, last_update_text
+        text = ""
+        for chunk in graph.stream(state, stream_mode=["updates", "messages"]):
             if isinstance(chunk, tuple):
                 mode, data = chunk[0], chunk[1]
             else:
@@ -1323,6 +1402,7 @@ def chat_stream(
                         for m in (update.get("messages") or []):
                             if isinstance(m, AIMessage) and not m.tool_calls and m.content:
                                 last_update_text = _msg_text(m.content)
+                                text = _msg_text(m.content)
             elif mode == "messages":
                 pairs = data if isinstance(data, list) else [data]
                 for pair in pairs:
@@ -1336,8 +1416,22 @@ def chat_stream(
                         yield {"event": "thinking", "data": {"delta": reasoning}}
                     delta = _msg_text(getattr(msg_chunk, "content", None))
                     if delta:
-                        final_text += delta
+                        text += delta
                         yield {"event": "token", "data": {"delta": delta}}
+        final_text = text or last_update_text
+
+    try:
+        for sse in _pump(input_state):
+            yield sse
+        if _claims_unverified(final_text, events):
+            # 编造拦截：流式路径同样自动重跑一次（done 事件会用重跑结果覆盖正文）。
+            log.warning("对话流式轮检测到未执行的动作报告，自动重跑一次")
+            retry_state = {
+                **input_state,
+                "messages": list(input_state.get("messages") or []) + [HumanMessage(content=_CORRECTION_PROMPT)],
+            }
+            for sse in _pump(retry_state):
+                yield sse
         if not final_text:
             final_text = last_update_text
     except GeneratorExit:

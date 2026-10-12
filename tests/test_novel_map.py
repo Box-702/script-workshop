@@ -8,8 +8,11 @@ import pytest
 
 from app.pipeline.chunking import chapter_spans, slice_by_chapter
 from app.pipeline.novel_map import (
+    _fallback_summary,
+    _parse_chapter_reply,
     arcs_context,
     build_novel_map,
+    next_to_chapter,
     parse_arcs,
     previous_context,
 )
@@ -92,6 +95,51 @@ def test_build_novel_map_pseudo_and_guard():
         build_novel_map(_novel(), _No())
 
 
+# ---------- 摘要回复解析（deepseek 实测会丢「剧情：/人物：」前缀） ----------
+
+
+def test_parse_chapter_reply_labeled_and_bare():
+    # 标准带前缀格式
+    s, names = _parse_chapter_reply("剧情：祥子买了车又被乱兵抢走。\n人物：祥子、刘四爷")
+    assert s == "祥子买了车又被乱兵抢走。"
+    assert names == ["祥子", "刘四爷"]
+    # 裸文本格式（无前缀）：首行剧情，短的次行是人物
+    s, names = _parse_chapter_reply(
+        "祥子买了自己的车后跑得更快更自信，却因忽视战争谣言而遭遇乱兵，新车被抢走。\n祥子"
+    )
+    assert s.startswith("祥子买了自己的车")
+    assert names == ["祥子"]
+    # 裸文本多行：次行是长句时不当人物
+    s, names = _parse_chapter_reply("第一句剧情。\n第二句也是剧情，还比较长。")
+    assert s == "第一句剧情。" and names == []
+    # 空回复 → 解析为空（由调用方走回退）
+    assert _parse_chapter_reply("") == ("", [])
+
+
+def test_fallback_summary_skips_heading_lines():
+    body = "第2章\n\n因为高兴，胆子也就大起来；自从买了车，祥子跑得更快了。后来出了事。"
+    assert _fallback_summary(body).startswith("因为高兴")
+    # 正文只有标题时的极端情况
+    assert _fallback_summary("第2章\n") == "（摘要生成失败）"
+
+
+def test_next_to_chapter_budget():
+    # 每章 5000 字、预算 12000：装 2 章（1 万字），第 3 章会超预算 → 到 2 为止
+    m = {"chapters": [
+        {"index": i, "title": f"第{i}章", "summary": "", "characters": [], "chars": 5000}
+        for i in range(1, 25)
+    ]}
+    assert next_to_chapter(m, 1) == 2
+    # 从中段续接
+    assert next_to_chapter(m, 3) == 4
+    # 尾部不足一章也至少给一章
+    assert next_to_chapter(m, 24) == 24
+    # 无地图 / 无字数：至少不越界
+    assert next_to_chapter({}, 1) == 1
+    m_no_chars = {"chapters": [{"index": i, "title": "", "summary": "", "characters": [], "chars": 0} for i in range(1, 5)]}
+    assert next_to_chapter(m_no_chars, 2) == 4  # 全 0 字数 → 装得下全部
+
+
 def test_previous_context_and_arcs():
     m = {"chapters": [
         {"index": i, "title": f"第{i}章", "summary": f"事件{i}", "characters": [], "chars": 100}
@@ -99,8 +147,10 @@ def test_previous_context_and_arcs():
     ]}
     ctx = previous_context(m, 3)
     assert "事件1" in ctx and "事件3" in ctx and "事件4" not in ctx
-    assert "第2章" in arcs_context(m, 2, 5) and "第5章" in arcs_context(m, 2, 5)
-    assert "第1章" not in arcs_context(m, 2, 5)
+    arcs_listed = arcs_context(m, 2, 5)
+    assert "第2章" in arcs_listed and "第5章" in arcs_listed
+    assert "第1章" not in arcs_listed
+    assert "约100字" in arcs_listed  # 字数标注：选弧模型靠它控制弧的容量
 
 
 def test_parse_arcs_extracts_json_from_noise():
