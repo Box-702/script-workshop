@@ -2,25 +2,23 @@
 // =====================================================================
 // ViewerPanel.vue —— 右侧作品工作台（上下文感知）
 //
-// 四个 tab，全部面向创作成果（场景/素材已从左栏迁入，项目=唯一组织单位）：
+// 三个 tab，全部面向创作成果（项目=唯一组织单位）：
 //   - 剧本：默认 tab，所见即所得直接点改，自动存新版本
 //   - 场景：场景结构（拖拽排序）+ 单场景聚焦
 //   - 视频：工作台 / 成片
-//   - 素材：参考视频登记与预览
+// 素材不做独立界面：对话里发链接由 add_asset 工具登记。
 // =====================================================================
 
 import { computed, ref, onUnmounted, watch } from 'vue'
 import ScreenplayEditor from './ScreenplayEditor.vue'
 import FolderTree from './FolderTree.vue'
 import VideoWorkbench from './video/VideoWorkbench.vue'
-import AssetPanel from './AssetPanel.vue'
 import { store, showView, focusScene, exportVersion, syncProjectToWorkspace, setVersionMilestone, notify, loadViewer, loadScenes, reorderScenes } from '../stores/app'
 
 const TABS = [
   { key: 'editor', label: '剧本', icon: '01' },
   { key: 'scene', label: '场景', icon: '02' },
   { key: 'video', label: '视频', icon: '03' },
-  { key: 'assets', label: '素材', icon: '04' },
 ]
 
 // 聚焦场景数据
@@ -298,11 +296,6 @@ function onSceneDragEnd() {
     <!-- 视频工作台：模式切换 / 批量生成 / 审批预览 / 镜头列表 -->
     <div v-else-if="store.view === 'video'" class="v-body v-body-video">
       <VideoWorkbench />
-    </div>
-
-    <!-- 素材：参考视频登记与预览（绑定当前项目） -->
-    <div v-else-if="store.view === 'assets'" class="v-body">
-      <AssetPanel />
     </div>
       </Transition>
     </div>

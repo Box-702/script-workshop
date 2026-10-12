@@ -34,9 +34,6 @@
       <div v-if="!globalConvs.length" class="conv-empty">
         <p class="conv-empty-title">从一句话开始你的第一个故事</p>
         <button class="conv-empty-cta" @click="onNew">新建对话</button>
-        <div class="conv-empty-tips" role="list" aria-label="示例">
-          <button v-for="t in EMPTY_TIPS" :key="t" class="conv-empty-tip" role="listitem" @click="useTip(t)">{{ t }}</button>
-        </div>
       </div>
     </div>
 
@@ -89,18 +86,7 @@ const editingId = ref(null)
 const editTitle = ref('')
 const editInput = ref(null)
 
-// 空态示例模板：新建对话后把示例填进输入框（不自动发送）。
-const EMPTY_TIPS = [
-  '一个失去记忆的出租车司机，在雨夜接到未来的自己。',
-  '把我贴进项目里的原文改编成 3 分钟短剧。',
-  '从人物开始：一个想退休却总被叫回去的深夜出诊兽医。',
-]
-
-function useTip(t) {
-  onNew()
-  store.draft = t
-  store.draftSeq++
-}
+// 空态只保留一个动作：新建对话。（示例模板已删——与中央开始页重复，没有存在价值）
 
 function isActive(pid, convId) {
   return store.convId === convId && store.pid === pid

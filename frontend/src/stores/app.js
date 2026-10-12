@@ -38,7 +38,7 @@ export const store = reactive({
   // 右侧查看面板开关（默认收起，记忆在 localStorage）
   rightOpen: false,
 
-  // 右侧作品工作台：剧本（默认）/ 场景 / 视频 / 素材
+  // 右侧作品工作台：剧本（默认）/ 场景 / 视频
   view: 'editor',
   viewerText: '',      // 最新版本剧本全文（纯文本，供复制）
   viewerScript: null,  // 最新版本结构化剧本（供剧本排版渲染）
