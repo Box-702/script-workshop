@@ -173,7 +173,18 @@ def _is_degenerate_plan(plan: ScenePlan, raw_text: str) -> bool:
     return False
 
 
-def _stage_bible(llm: LLM, settings: Settings, *, title: str, excerpts: list[str], prof: dict[str, Any], language: str) -> Bible:
+def _prior_block(prior_context: str) -> str:
+    """前情提要注入块（连载选段改编时衔接上下文，禁止写进本次剧本）。"""
+    text = (prior_context or "").strip()
+    if not text:
+        return ""
+    return (
+        f"\n\n【前情提要（此前已改编的部分，仅供保持人物与情节衔接，"
+        f"严禁改编或复述进本次剧本）】\n{text[:800]}"
+    )
+
+
+def _stage_bible(llm: LLM, settings: Settings, *, title: str, excerpts: list[str], prof: dict[str, Any], language: str, prior_context: str = "") -> Bible:
     """第一阶段：生成故事圣经（标题、梗概、主题、人物、地点）。"""
     from .profiles import profile_prompt
 
@@ -182,13 +193,14 @@ def _stage_bible(llm: LLM, settings: Settings, *, title: str, excerpts: list[str
         f"请基于下面的原著片段生成剧本故事圣经。标题：{title}\n"
         f"改编类型 profile：\n{profile_prompt(prof, language=language)}\n\n"
         f"原著片段：\n{text[:4000]}"
+        + _prior_block(prior_context)
     )
     return llm.structured(Bible).invoke(
         [{"role": "system", "content": llm.system_prompt()}, {"role": "user", "content": prompt}]
     )
 
 
-def _stage_scenes(llm: LLM, settings: Settings, *, bible: Bible, excerpts: list[str], prof: dict[str, Any], language: str, chunks: list[str], critique: str = "") -> ScenePlan:
+def _stage_scenes(llm: LLM, settings: Settings, *, bible: Bible, excerpts: list[str], prof: dict[str, Any], language: str, chunks: list[str], critique: str = "", prior_context: str = "") -> ScenePlan:
     """第二阶段：生成场景与节拍流（动作 / 对白 / cue）。
 
     核心是「影视剧的场景划分逻辑」：一场戏 = 同一地点 + 连续时间 + 一个戏剧目标
@@ -215,6 +227,7 @@ def _stage_scenes(llm: LLM, settings: Settings, *, bible: Bible, excerpts: list[
     )
     if critique:
         prompt += f"\n上一版存在以下问题，请修正后重新输出：\n{critique}\n"
+    prompt += _prior_block(prior_context)
     prompt += (
         f"\n人物：{characters}\n地点：{locations}\n"
         f"故事圣经：{bible.model_dump_json()}\n\n"
@@ -247,8 +260,13 @@ def generate_script(
     raw_text: str,
     adaptation_type: str,
     language: str,
+    prior_context: str = "",
 ) -> tuple[Script, dict[str, Any]]:
-    """生成剧本。返回 (Script, artifacts)。失败时回退最小剧本。"""
+    """生成剧本。返回 (Script, artifacts)。失败时回退最小剧本。
+
+    prior_context：连载选段时的「前情提要」（已改编章节摘要），
+    仅供模型保持人物与情节衔接，不进入本次剧本内容。
+    """
     prof = profile_for(adaptation_type)
     artifacts: dict[str, Any] = {"mode": "local-fallback"}
 
@@ -258,8 +276,8 @@ def generate_script(
             if not chunks:
                 chunks = [raw_text or ""]
             excerpts = chunks[:12]
-            bible = _stage_bible(llm, settings, title=title, excerpts=excerpts, prof=prof, language=language)
-            plan = _stage_scenes(llm, settings, bible=bible, excerpts=excerpts, prof=prof, language=language, chunks=chunks)
+            bible = _stage_bible(llm, settings, title=title, excerpts=excerpts, prof=prof, language=language, prior_context=prior_context)
+            plan = _stage_scenes(llm, settings, bible=bible, excerpts=excerpts, prof=prof, language=language, chunks=chunks, prior_context=prior_context)
             # 退化护栏：把多章素材挤进过少的场景（结构退化）时，带反馈重拆一次。
             if _is_degenerate_plan(plan, raw_text):
                 log.warning("场景规划退化（%d 场 / %d 字），带反馈重拆", len(plan.scenes), len(raw_text))
@@ -270,10 +288,11 @@ def generate_script(
                         "请严格按「同一地点 + 连续时间 + 一个戏剧目标 + 一场冲突」重新切分，"
                         "跨地点、跨时间的段落必须切成不同的场。"
                     ),
+                    prior_context=prior_context,
                 )
             if not plan.scenes:
                 # 思考模型输出不稳定：场景为空时重试一次。
-                plan = _stage_scenes(llm, settings, bible=bible, excerpts=excerpts, prof=prof, language=language, chunks=chunks)
+                plan = _stage_scenes(llm, settings, bible=bible, excerpts=excerpts, prof=prof, language=language, chunks=chunks, prior_context=prior_context)
             if not plan.scenes:
                 raise ValueError("场景生成为空")
 

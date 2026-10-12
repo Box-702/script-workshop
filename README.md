@@ -46,7 +46,9 @@
 
 ### 工具集
 
-**对话 Conductor 工具（17 个）**：剧本侧 `create_project` / `generate_script` / `run_adaptation` / `get_script_overview` / `ask`；剧组 `breakdown_scenes` / `generate_style_guide` / `generate_video_prompts` / `generate_reference_assets`；视频侧 `list_video_shots` / `approve_video_prompts` / `submit_videos` / `get_video_jobs` / `rerun_video`；运维 `check_background_tasks`；记忆 `remember` / `recall`。从导入小说到出片的全流程都能在对话里完成；每轮的工具轨迹压缩后进入历史上下文，多轮不丢事实。
+**对话 Conductor 工具（19 个）**：剧本侧 `create_project`（超长原文主动提示）/ `map_novel` / `propose_arcs` / `generate_script` / `run_adaptation` / `get_script_overview` / `ask`；剧组 `breakdown_scenes` / `generate_style_guide` / `generate_video_prompts` / `generate_reference_assets`；视频侧 `list_video_shots` / `approve_video_prompts` / `submit_videos` / `get_video_jobs` / `rerun_video`；运维 `check_background_tasks`；记忆 `remember` / `recall`。从导入小说到出片的全流程都能在对话里完成；每轮的工具轨迹压缩后进入历史上下文，多轮不丢事实。
+
+**长篇小说改编**：剧本生成一次约吃得下 1.4 万字原文，超长文本不再静默砍头——`create_project` 会如实提示规模；先 `map_novel`（后台 map-reduce 逐章摘要+出场人物，存 `projects.novel_map_json`）建章节地图，再 `propose_arcs` 提 2-3 个候选故事弧，用户选定后 `generate_script(from_chapter, to_chapter)` 按章生成；连载推进时自动携带已改编章节的「前情提要」保持人物与情节衔接（进度锚 `projects.adapted_until`）。
 
 **三层用户记忆 + 会话滚动摘要**（`app/memory.py`）：结构化记忆替代 RAG——preference（全局偏好）/ decision（项目决定）/ feedback（对话反馈）存 `memories` 表，按作用域注入系统提示；接受 / 拒绝审阅时自动沉淀（`learn_from_decision`）。长对话不再掐头：超过保留窗口的旧消息会被 LLM 压缩成事实清单（存 `conversations.summary_json`），上下文 = 摘要 + 最近消息，摘要失败自动回落为截断。
 

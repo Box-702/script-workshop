@@ -526,6 +526,8 @@ export const STAGE_LABELS = {
   get_video_jobs: '查询视频任务状态',
   rerun_video: '重新生成镜头',
   check_background_tasks: '查看后台任务进度',
+  map_novel: '建立章节地图',
+  propose_arcs: '挑选改编段落',
 }
 
 /** 聚焦底部输入框（开始页主按钮等调用）。 */

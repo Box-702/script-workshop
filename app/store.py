@@ -97,6 +97,11 @@ class Project(Base):
     # ---- v3.0 视频制作 ----
     current_video_version_id: Mapped[str | None] = mapped_column(default=None)
     video_style_json: Mapped[str] = mapped_column(default="{}")
+    # ---- 长篇改编 ----
+    # 章节地图：{"chapters":[{index,title,summary,characters,chars}],"total_chars","pseudo"}
+    novel_map_json: Mapped[str] = mapped_column(default="{}")
+    # 连载进度锚：已改编到的章号（0 = 还没按章选段生成过）
+    adapted_until: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(default=_now)
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
 
@@ -105,6 +110,10 @@ class Project(Base):
     conversations: Mapped[list[Conversation]] = relationship(back_populates="project")
     video_versions: Mapped[list[VideoVersion]] = relationship(back_populates="project")
     video_jobs: Mapped[list[VideoJob]] = relationship(back_populates="project")
+
+    @property
+    def novel_map(self) -> dict[str, Any]:
+        return _json_load(self.novel_map_json, {})
 
 
 class ScriptVersion(Base):
@@ -448,6 +457,10 @@ class Store:
                     conn.execute(text("ALTER TABLE projects ADD COLUMN current_video_version_id VARCHAR"))
                 if "video_style_json" not in cols_proj:
                     conn.execute(text("ALTER TABLE projects ADD COLUMN video_style_json VARCHAR DEFAULT '{}'"))
+                if "novel_map_json" not in cols_proj:
+                    conn.execute(text("ALTER TABLE projects ADD COLUMN novel_map_json VARCHAR DEFAULT '{}'"))
+                if "adapted_until" not in cols_proj:
+                    conn.execute(text("ALTER TABLE projects ADD COLUMN adapted_until INTEGER DEFAULT 0"))
 
             # ---- script_versions 表 ----
             cols_ver = {c["name"] for c in insp.get_columns("script_versions")} if "script_versions" in tables else set()
@@ -598,6 +611,30 @@ class Store:
             if not p:
                 return None
             p.notes = notes
+            p.updated_at = _now()
+            s.commit()
+            s.refresh(p)
+            return p
+
+    def set_novel_map(self, project_id: str, novel_map: dict[str, Any]) -> Project | None:
+        """保存章节地图（长篇选段改编的依据）。"""
+        with self.session() as s:
+            p = s.get(Project, project_id)
+            if not p:
+                return None
+            p.novel_map_json = json.dumps(novel_map, ensure_ascii=False)
+            p.updated_at = _now()
+            s.commit()
+            s.refresh(p)
+            return p
+
+    def set_adapted_until(self, project_id: str, chapter_index: int) -> Project | None:
+        """推进连载进度锚（已改编到第几章）。"""
+        with self.session() as s:
+            p = s.get(Project, project_id)
+            if not p:
+                return None
+            p.adapted_until = int(chapter_index)
             p.updated_at = _now()
             s.commit()
             s.refresh(p)

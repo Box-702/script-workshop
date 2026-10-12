@@ -366,3 +366,112 @@ def test_prepare_turn_injects_memory_and_summary(store, llm, settings, sample_te
     assert "[此前对话摘要]" not in system_text  # 历史很短，不产生摘要
     roles = [type(m).__name__ for m in input_state["messages"]]
     assert roles[0] == "SystemMessage" and roles[-1] == "HumanMessage"
+
+
+# ---------- 长篇小说：诚实化 / 建图 / 选段生成 / 选弧 ----------
+
+
+def _long_novel() -> str:
+    chapters = []
+    for i in range(1, 6):
+        chapters.append(f"第{'一二三四五'[i - 1]}章 试炼{i}\n" + f"林然在巷口遇上了红雨衣男人，交出了第{i}份情报，雨始终没有停。" * 200)
+    return "\n".join(chapters)
+
+
+class _ArcLLM:
+    """回答选弧请求的假模型。"""
+
+    available = True
+    calls: list = []
+
+    class _Chat:
+        def invoke(self, msgs):
+            _ArcLLM.calls.append(msgs)
+            return type("R", (), {"content": '[{"title":"巷口对峙","from":1,"to":3,"hook":"情报交易被撞破","why":"冲突密集"}]'})()
+
+    def chat(self):
+        return self._Chat()
+
+
+class _MapLLM:
+    """回答章节摘要请求的假模型。"""
+
+    available = True
+
+    class _Chat:
+        def invoke(self, msgs):
+            return type("R", (), {"content": "剧情：林然交出情报。\n人物：林然、红雨衣男人"})()
+
+    def chat(self):
+        return self._Chat()
+
+
+def test_create_project_warns_on_long_text(store, llm, sample_text):
+    tools, collector = _make_tools(store, llm)
+    r = tools["create_project"].invoke({
+        "title": "长篇", "adaptation_type": "short_drama", "raw_text": _long_novel(),
+    })
+    assert "万字" in r and "章节地图" in r, r
+    # 短文不警告
+    r2 = tools["create_project"].invoke({"title": "短篇", "adaptation_type": "short_drama", "raw_text": sample_text})
+    assert "章节地图" not in r2
+
+
+def test_map_novel_tool_builds_map_inline(store):
+    from app.chat import build_chat_tools
+
+    collector = {"project_id": None, "payloads": []}
+    tools = {t.name: t for t in build_chat_tools(store, _MapLLM(), collector)}
+    tools["create_project"].invoke({"title": "长篇", "adaptation_type": "short_drama", "raw_text": _long_novel()})
+    pid = collector["project_id"]
+    r = tools["map_novel"].invoke({"project_id": pid})
+    assert "5" in r and "章" in r
+    m = store.get_project(pid).novel_map
+    assert len(m["chapters"]) == 5 and m["chapters"][0]["summary"] == "林然交出情报。"
+
+
+def test_generate_script_with_span_sets_progress(store, llm, settings, sample_text):
+    tools, collector = _make_tools(store, llm)
+    tools["create_project"].invoke({"title": "连载", "adaptation_type": "short_drama", "raw_text": _long_novel()})
+    pid = collector["project_id"]
+    store.set_novel_map(pid, {"chapters": [
+        {"index": i, "title": f"第{i}章", "summary": f"事件{i}", "characters": [], "chars": 100} for i in range(1, 6)
+    ]})
+    r = tools["generate_script"].invoke({"project_id": pid, "from_chapter": "2", "to_chapter": "4"})
+    assert "第 2–4 章" in r, r
+    p = store.get_project(pid)
+    assert p.adapted_until == 4
+    version = store.latest_version(p)
+    assert "第 2–4 章" in (version.label or "")
+    # 无模型走本地回退也应有版本产出
+    assert version.source_type == "generation"
+
+
+def test_generate_script_long_text_honest_truncation(store, llm, sample_text):
+    tools, collector = _make_tools(store, llm)
+    tools["create_project"].invoke({"title": "长篇", "adaptation_type": "short_drama", "raw_text": _long_novel()})
+    pid = collector["project_id"]
+    r = tools["generate_script"].invoke({"project_id": pid})
+    assert "只基于开头" in r, r
+
+
+def test_propose_arcs_tool(store, llm, sample_text):
+    tools, collector = _make_tools(store, llm)
+    tools["create_project"].invoke({"title": "长篇", "adaptation_type": "short_drama", "raw_text": _long_novel()})
+    pid = collector["project_id"]
+    # 没建图就选弧 → 引导建图
+    r0 = tools["propose_arcs"].invoke({"project_id": pid})
+    assert "章节地图" in r0
+    store.set_novel_map(pid, {"chapters": [
+        {"index": i, "title": f"第{i}章", "summary": f"事件{i}", "characters": [], "chars": 100} for i in range(1, 6)
+    ]})
+    collector_arc = {"project_id": pid, "payloads": []}
+    from app.chat import build_chat_tools
+    arc_tools = {t.name: t for t in build_chat_tools(store, _ArcLLM(), collector_arc)}
+    r = arc_tools["propose_arcs"].invoke({"project_id": pid})
+    assert "巷口对峙" in r and "1–3" in r
+    # 连载进度后的默认起点
+    store.set_adapted_until(pid, 3)
+    arc_tools["propose_arcs"].invoke({"project_id": pid})
+    user_msg = _ArcLLM.calls[-1][-1]["content"]
+    assert "第 4 章" in user_msg

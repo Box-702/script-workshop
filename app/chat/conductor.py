@@ -47,6 +47,10 @@ log = logging.getLogger(__name__)
 # 对话 conductor 的 ReAct 工具循环上限。
 MAX_CHAT_TOOL_STEPS = 8
 
+# 超过这个字数的原文视为「长篇」：一次剧本生成（12 个切片 × 约 1200 字）
+# 只能覆盖开头一小段，必须诚实告知并引导走「建图 → 选段」。
+LONG_TEXT_CHARS = 1200 * 12
+
 # 对话线程：项目下每个对话（Conversation）一条独立线程；
 # 还没有项目的全局对话用固定值 GLOBAL_THREAD。
 GLOBAL_THREAD = "global"
@@ -94,6 +98,10 @@ SYSTEM_PROMPT = (
     "12. 后台任务：用户问「拆好了吗 / 好了没」时调用 check_background_tasks 查询真实状态，不要凭记忆回答。\n"
     "13. 记忆：系统提示里的「用户记忆」要主动遵循；用户说「记住… / 以后都…」时调用 remember；"
     "用户问「你记得什么」时调用 recall。用户的长期习惯值得记下来时也可以主动建议保存。\n"
+    "14. 长篇小说：原文超过约 1.5 万字时不要直接生成初稿（只会覆盖开头一小段）。"
+    "先调用 map_novel 建章节地图，再用 propose_arcs 提候选故事弧，用户选定章节范围后"
+    "调用 generate_script(from_chapter, to_chapter) 按段生成；用户说「继续改编下一段」时"
+    "从已改编进度接着选段，前情提领会自动带上。\n"
     "行为准则：回复简洁、口语化、用简体中文；不确定时先问；不要虚构剧本内容；"
     "不要替用户做最终决定，审阅与落版决定永远交给用户。"
     "剧组任务（5-8）会在后台运行，启动后告知用户可在右栏查看进度；"
@@ -166,38 +174,162 @@ def build_chat_tools(
         except Exception:
             pass
         genres = detect_genres(raw_text, top=2)
-        return (
+        reply = (
             f"已创建剧本项目《{p.title}》（id={p.id}，类型：{label}，题材：{'、'.join(genres)}）。"
-            f"需要我现在生成剧本初稿吗？"
+        )
+        # 诚实化：超长原文一次生成只覆盖开头一小段，必须说清楚并给出路。
+        from ..pipeline.chunking import chapter_spans
+        text_len = len((raw_text or "").strip())
+        n_chapters = len(chapter_spans((raw_text or "").strip()))
+        if text_len > LONG_TEXT_CHARS:
+            w = text_len / 10000
+            chapter_tip = f"、共识别出 {n_chapters} 章" if n_chapters > 1 else ""
+            reply += (
+                f"注意：原文约 {w:.1f} 万字{chapter_tip}，直接生成初稿只会改编开头约 1.4 万字。"
+                f"建议先让我「建立章节地图」，再从里面挑一段最适合改编的故事弧。"
+            )
+        reply += "需要我现在生成剧本初稿吗？"
+        return reply
+
+    @tool
+    def map_novel(project_id: str) -> str:
+        """为长篇原文建立章节地图：逐章摘要 + 出场人物，作为「选段改编」的依据。超过约 1.5 万字的小说建议先建图。后台运行（章节数多时要几分钟）。参数：project_id=项目 id。"""
+        p = _project(project_id)
+        text = (p.raw_text or "").strip()
+        if len(text) <= LONG_TEXT_CHARS:
+            return f"原文只有约 {len(text) / 10000:.1f} 万字，不算长篇，直接「生成初稿」就能全部覆盖，不需要建图。"
+        if not llm.available:
+            return "建立章节地图需要对话模型（当前不可用），请先在设置里配置模型。"
+
+        def _run(task):
+            from ..pipeline.novel_map import build_novel_map
+            m = build_novel_map(
+                text, llm,
+                on_progress=(lambda msg: runner.update_step(task.id, msg, "running")) if runner else None,
+            )
+            store.set_novel_map(p.id, m)
+            n = len(m.get("chapters") or [])
+            kind = "伪章节（原文没有章节标题，按长度切分）" if m.get("pseudo") else "章"
+            return f"章节地图已建成：共 {n} {kind}，可从中挑选改编段落。"
+
+        if runner:
+            task_id = runner.start("章节地图", _run)
+            collector["payloads"].append({
+                "type": "sub_agent_started", "task_id": task_id, "name": "章节地图", "project_id": p.id,
+            })
+            return "正在为全书逐章建立地图（摘要每章剧情与出场人物），完成后告诉我可以「挑一段改编」。"
+        m = _run(type("_T", (), {"id": "local"})())
+        return m
+
+    @tool
+    def propose_arcs(project_id: str, from_chapter: str = "") -> str:
+        """基于章节地图提出 2-3 个候选改编故事弧（章节范围+戏剧钩子），由用户选定后再生成剧本。需要先完成「建立章节地图」。参数：project_id=项目 id；from_chapter=起始章号（可选，默认从已改编进度之后开始）。"""
+        p = _project(project_id)
+        m = p.novel_map
+        chapters = m.get("chapters") or []
+        if not chapters:
+            return "还没有章节地图。请先让我「建立章节地图」，再挑选改编段落。"
+        if not llm.available:
+            return "挑选故事弧需要对话模型（当前不可用）。"
+        from ..pipeline.novel_map import ARCS_PROMPT, arcs_context, parse_arcs
+
+        try:
+            start = int(from_chapter) if str(from_chapter).strip() else (p.adapted_until + 1 if p.adapted_until else 1)
+        except ValueError:
+            return "from_chapter 需要是章号数字。"
+        start = max(1, min(start, len(chapters)))
+        ctx = arcs_context(m, from_chapter=start)
+        resp = llm.chat().invoke([
+            {"role": "system", "content": ARCS_PROMPT},
+            {"role": "user", "content": f"改编范围：第 {start} 章到第 {len(chapters)} 章。\n\n章节地图：\n{ctx}"},
+        ])
+        raw = getattr(resp, "content", "") or ""
+        if isinstance(raw, list):
+            raw = " ".join(b.get("text", "") for b in raw if isinstance(b, dict) and b.get("type") == "text")
+        try:
+            arcs = parse_arcs(str(raw))
+        except ValueError:
+            return "这次没能从章节地图里提炼出合适的故事弧，可以让我再试一次，或直接告诉我你想改编的章节范围。"
+        lines = []
+        for i, arc in enumerate(arcs, 1):
+            line = f"{i}. 「{arc['title']}」第 {arc['from']}–{arc['to']} 章：{arc['hook']}"
+            if arc["why"]:
+                line += f"（{arc['why']}）"
+            lines.append(line)
+        return (
+            f"从第 {start} 章起共 {len(chapters)} 章，为你挑出 {len(arcs)} 个候选故事弧：\n"
+            + "\n".join(lines)
+            + "\n告诉我选哪个（如「选 1」），或直接给我章节范围（如「改编第 5 到 16 章」），我就开始生成剧本。"
         )
 
     @tool
-    def generate_script(project_id: str) -> str:
-        """为指定项目生成剧本初稿（生成流水线：故事圣经 -> 场景/节拍）。参数：project_id=项目 id。"""
+    def generate_script(project_id: str, from_chapter: str = "", to_chapter: str = "") -> str:
+        """为指定项目生成剧本初稿（生成流水线：故事圣经 -> 场景/节拍）。
+
+        长篇建议配合章节地图按章选段：from_chapter/to_chapter=章号（1 起，含两端）。
+        不传章节时改编全部原文——超长原文只会覆盖开头约 1.4 万字，会如实提示。
+        连载时自动携带「前情提要」保持衔接，生成后推进已改编进度。
+        参数：project_id=项目 id。
+        """
         p = _project(project_id)
+        raw = p.raw_text or ""
+        span_label = ""
+        prior_context = ""
+        text = raw
+        if str(from_chapter).strip() or str(to_chapter).strip():
+            from ..pipeline.chunking import slice_by_chapter
+            from ..pipeline.novel_map import previous_context
+
+            try:
+                a = int(from_chapter) if str(from_chapter).strip() else (p.adapted_until + 1 if p.adapted_until else 1)
+                b = int(to_chapter) if str(to_chapter).strip() else 0
+                text, span_label, b = slice_by_chapter(raw, a, b or 10**9)
+            except ValueError as e:
+                return f"选段失败：{e}"
+            if a > 1:
+                prior_context = previous_context(p.novel_map, a - 1)
         script, artifacts = run_generation(
             llm,
             settings,
             title=p.title,
-            raw_text=p.raw_text,
+            raw_text=text,
             adaptation_type=p.adaptation_type,
             language=p.language,
+            prior_context=prior_context,
         )
+        version_label = f"初始生成（{span_label}）" if span_label else "初始生成"
         version = store.create_version(
             p,
             script,
             source_type="generation",
-            label="初始生成",
+            label=version_label,
             notes=f"生成模式：{artifacts.get('mode', 'n/a')}",
             parent_version_id=p.current_version_id,
             set_current=True,
         )
+        if span_label:
+            store.set_adapted_until(p.id, b)
         issues = [i for i in validate_script(script) if i.severity == "error"]
+        # 覆盖诚实化：说清这次改编的原文范围。
+        from ..pipeline.chunking import chapter_spans
+        n_chapters = len(chapter_spans(raw))
+        if span_label:
+            coverage = f"本次改编自{span_label}（约 {len(text) / 10000:.1f} 万字）"
+            if p.adapted_until:
+                total = len((p.novel_map.get('chapters') or [])) or n_chapters
+                coverage += f"，连载进度：已改编到第 {p.adapted_until} 章（全书 {total} 章）"
+        elif len(raw) > LONG_TEXT_CHARS:
+            coverage = (
+                f"注意：原文约 {len(raw) / 10000:.1f} 万字，本次初稿只基于开头约 {len(text) / 10000:.1f} 万字。"
+                f"要改编后面的内容，先让我「建立章节地图」再选段。"
+            )
+        else:
+            coverage = f"原文约 {len(raw) / 10000:.1f} 万字，已全部纳入改编"
+        tail = f"（有 {len(issues)} 处结构问题需注意）" if issues else ""
         return (
             f"已生成初稿版本 {version.id}（模式：{artifacts.get('mode')}）："
             f"共 {len(script.scenes)} 场，{len(script.characters)} 个人物，"
-            f"{len(script.locations)} 个地点。梗概：{script.logline}。"
-            f"校验问题 {len(issues)} 项。"
+            f"{len(script.locations)} 个地点。{coverage}。梗概：{script.logline}。{tail}"
             f"你可以说「把对白改口语一点」「节奏改紧凑」等让我开始改编。"
         )
 
@@ -706,6 +838,8 @@ def build_chat_tools(
 
     return [
         create_project,
+        map_novel,
+        propose_arcs,
         generate_script,
         run_adaptation,
         get_script_overview,
@@ -826,6 +960,7 @@ _TOOL_ACTION_LABELS = {
     "list_video_shots": "盘点镜头", "approve_video_prompts": "批准提示词",
     "submit_videos": "提交出片", "get_video_jobs": "查询出片状态",
     "rerun_video": "重roll镜头", "check_background_tasks": "查询后台任务",
+    "map_novel": "建立章节地图", "propose_arcs": "挑选改编段落",
 }
 
 

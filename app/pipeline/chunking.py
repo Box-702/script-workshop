@@ -99,3 +99,56 @@ def chunk_text(text: str, *, chunk_size: int = 800, overlap: int = 120) -> list[
     """兼容旧接口：返回纯文本块列表。"""
     target = max(200, chunk_size - overlap) if chunk_size > 200 else 400
     return [c.text for c in split_chunks(text, target_size=target, max_size=chunk_size, overlap_sentences=1)]
+
+
+# ---------- 章节级切片（长篇选段改编用） ----------
+
+
+def chapter_spans(text: str) -> list[dict]:
+    """扫描章节标题，返回 [{index,title,start,end,chars}]（index 从 1 起）。
+
+    没有任何章节标题的文本视为单章（index=1 覆盖全文），
+    这样「按章选段」对无章节结构的原文也总能工作。
+    """
+    spans: list[dict] = []
+    offset = 0
+    cur_title, cur_start = "", 0
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if _CHAPTER_RE.match(stripped) and len(stripped) <= 40:
+            if spans or cur_title:
+                spans.append({
+                    "index": len(spans) + 1,
+                    "title": cur_title or "（开头）",
+                    "start": cur_start,
+                    "end": offset,
+                    "chars": offset - cur_start,
+                })
+            cur_title = stripped
+            cur_start = offset
+        offset += len(line) + 1  # +1 for '\n'
+    spans.append({
+        "index": len(spans) + 1,
+        "title": cur_title or "（全文）",
+        "start": cur_start,
+        "end": len(text),
+        "chars": len(text) - cur_start,
+    })
+    return spans
+
+
+def slice_by_chapter(text: str, from_chapter: int, to_chapter: int) -> tuple[str, str, int]:
+    """按章号（1 起，含两端）切出原文片段。
+
+    返回 (片段文本, 范围标签, 实际切到的章号)。章号超出实际章数时夹到边界；
+    区间非法（from > to 或 < 1）抛 ValueError。
+    """
+    spans = chapter_spans(text)
+    total = len(spans)
+    a = max(1, int(from_chapter))
+    b = min(total, int(to_chapter))
+    if a > b:
+        raise ValueError(f"章节区间非法：{a} > {b}（全书共 {total} 章）")
+    span_a, span_b = spans[a - 1], spans[b - 1]
+    label = f"第 {a}–{b} 章" if b > a else f"第 {a} 章"
+    return text[span_a["start"]:span_b["end"]].strip(), label, b

@@ -1,0 +1,177 @@
+# =====================================================================
+# novel_map.py —— 长篇小说的章节地图与选段改编
+#
+# 解决的问题：剧本生成一次只吃得下约 1.4 万字原文，超长小说此前被
+# 「静默砍头」。正确形态是「先选故事弧，再改编」：
+#   build_novel_map()  map-reduce 建章节地图（每章一句摘要+出场人物）
+#   arcs_context()     把地图喂给模型提候选故事弧
+#   previous_context() 已改编章节的「前情提要」，注入下一次生成本衔接
+# 全部走后台任务 + 对话工具，产物存 projects.novel_map_json。
+# =====================================================================
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+from typing import Any, Callable
+
+from .chunking import chapter_spans
+
+log = logging.getLogger(__name__)
+
+# 地图章节上限：超过的按窗口硬切，防止失控（400 章 × 一次调用 ≈ 成本可控）。
+MAX_MAP_CHAPTERS = 400
+# 建图时每章最多喂给模型的字数（摘不需要全文）。
+_CHAPTER_TEXT_CAP = 1600
+# 伪章节（无标题长文）的窗口大小。
+_PSEUDO_WINDOW = 4000
+
+ProgressFn = Callable[[str], None]
+
+
+def _fake_llm_available(llm: Any) -> bool:
+    return bool(getattr(llm, "available", False))
+
+
+def _pseudo_spans(text: str) -> list[dict[str, Any]]:
+    """无章节标题的长文按固定窗口切成伪章节。"""
+    spans = chapter_spans(text)
+    if len(spans) > 1:
+        return spans
+    windows: list[dict[str, Any]] = []
+    for i in range(0, len(text), _PSEUDO_WINDOW):
+        windows.append({
+            "index": len(windows) + 1,
+            "title": f"片段 {len(windows) + 1}",
+            "start": i,
+            "end": min(i + _PSEUDO_WINDOW, len(text)),
+            "chars": min(_PSEUDO_WINDOW, len(text) - i),
+        })
+    return windows or [{"index": 1, "title": "（全文）", "start": 0, "end": len(text), "chars": len(text)}]
+
+
+_CHAPTER_PROMPT = (
+    "你是小说编辑。用两行概括这一章：\n"
+    "剧情：<一两句话，说清发生了什么、有什么转折>\n"
+    "人物：<出场人物名，顿号分隔，最多 6 个>\n"
+    "只输出这两行，不要评论。"
+)
+
+
+def _summarize_chapter(llm: Any, title: str, body: str) -> tuple[str, list[str]]:
+    """单章摘要。失败返回占位摘要，不中断整体建图。"""
+    text = f"{title}\n{body[:_CHAPTER_TEXT_CAP]}"
+    try:
+        resp = llm.chat().invoke([
+            {"role": "system", "content": _CHAPTER_PROMPT},
+            {"role": "user", "content": text},
+        ])
+        raw = getattr(resp, "content", "") or ""
+        if isinstance(raw, list):
+            raw = " ".join(b.get("text", "") for b in raw if isinstance(b, dict) and b.get("type") == "text")
+        summary, characters = "", ""
+        for line in str(raw).splitlines():
+            line = line.strip()
+            if line.startswith("剧情"):
+                summary = line.split("：", 1)[-1].split(":", 1)[-1].strip()
+            elif line.startswith("人物"):
+                characters = line.split("：", 1)[-1].split(":", 1)[-1].strip()
+        names = [n.strip() for n in re.split(r"[、,，;；]", characters) if n.strip()][:6]
+        if summary:
+            return summary, names
+    except Exception as e:  # noqa: BLE001
+        log.warning("章节摘要失败（%s）：%s", title, e)
+    # 兜底：用正文第一句，保证地图完整可用。
+    first = re.split(r"[。！？\n]", body.strip())[0][:60]
+    return first or "（摘要生成失败）", []
+
+
+def build_novel_map(raw_text: str, llm: Any, *, on_progress: ProgressFn | None = None) -> dict[str, Any]:
+    """建立章节地图：逐章摘要 + 出场人物。
+
+    返回 {"chapters": [{index,title,summary,characters,chars}], "total_chars",
+    "pseudo": 是否为伪章节切分}。需要可用的对话模型；不可用时抛 ValueError。
+    """
+    if not _fake_llm_available(llm):
+        raise ValueError("章节地图需要对话模型（当前未配置或不可用）")
+    text = raw_text or ""
+    spans = _pseudo_spans(text)[:MAX_MAP_CHAPTERS]
+    total = len(spans)
+    chapters: list[dict[str, Any]] = []
+    for i, span in enumerate(spans):
+        body = text[span["start"]:span["end"]]
+        summary, names = _summarize_chapter(llm, span["title"], body)
+        chapters.append({
+            "index": i + 1,
+            "title": span["title"],
+            "summary": summary,
+            "characters": names,
+            "chars": span["chars"],
+        })
+        if on_progress and (i + 1) % 5 == 0:
+            on_progress(f"已摘要 {i + 1}/{total} 章")
+    return {"chapters": chapters, "total_chars": len(text), "pseudo": len(chapters) > 0 and spans[0]["title"].startswith("片段")}
+
+
+def arcs_context(novel_map: dict[str, Any], from_chapter: int = 1, to_chapter: int | None = None,
+                 max_chapters: int = 120) -> str:
+    """把章节地图压成供选段模型阅读的清单（章号+标题+摘要）。"""
+    chapters = novel_map.get("chapters") or []
+    a = max(1, from_chapter)
+    b = min(len(chapters), to_chapter or len(chapters))
+    lines = []
+    for c in chapters[a - 1:b][:max_chapters]:
+        chars = "、".join(c.get("characters") or [])
+        suffix = f"（{chars}）" if chars else ""
+        lines.append(f"第{c['index']}章 {c.get('title', '')}：{c.get('summary', '')}{suffix}")
+    if b - a + 1 > max_chapters:
+        lines.append(f"（仅列出前 {max_chapters} 章，共 {b - a + 1} 章）")
+    return "\n".join(lines)
+
+
+ARCS_PROMPT = (
+    "你是短剧策划。下面的清单是一部小说的章节地图。请从指定范围里挑出 2-3 个"
+    "最适合改编成短剧的「故事弧」——一个弧=一段有完整起承转合、能独立成片的连续章节。\n"
+    "只输出 JSON 数组，每项：{\"title\": \"弧名\", \"from\": 起始章号, \"to\": 结束章号, "
+    "\"hook\": \"一句话戏剧钩子\", \"why\": \"为什么适合（20字内）\"}。"
+    "弧与弧不重叠，覆盖你觉得最有戏的部分即可，不必覆盖全部。"
+)
+
+
+def parse_arcs(raw: str) -> list[dict[str, Any]]:
+    """从模型输出中提取故事弧 JSON 数组；解析失败抛 ValueError。"""
+    text = str(raw or "")
+    start, end = text.find("["), text.rfind("]")
+    if start < 0 or end <= start:
+        raise ValueError("模型未返回 JSON 数组")
+    arcs = json.loads(text[start:end + 1])
+    result = []
+    for arc in arcs if isinstance(arcs, list) else []:
+        if not isinstance(arc, dict):
+            continue
+        a, b = int(arc.get("from") or 0), int(arc.get("to") or 0)
+        if a < 1 or b < a:
+            continue
+        result.append({
+            "title": str(arc.get("title") or f"故事弧 {len(result) + 1}"),
+            "from": a,
+            "to": b,
+            "hook": str(arc.get("hook") or "").strip(),
+            "why": str(arc.get("why") or "").strip(),
+        })
+    if not result:
+        raise ValueError("没有可用的故事弧")
+    return result
+
+
+def previous_context(novel_map: dict[str, Any], until_chapter: int, *, max_chars: int = 1200) -> str:
+    """汇总已改编章节的摘要作为「前情提要」（注入下一次生成本衔接连续性）。"""
+    chapters = novel_map.get("chapters") or []
+    lines = [
+        f"第{c['index']}章：{c.get('summary', '')}"
+        for c in chapters[:max(0, int(until_chapter))]
+        if c.get("summary")
+    ]
+    text = "\n".join(lines)
+    return text[-max_chars:] if len(text) > max_chars else text
