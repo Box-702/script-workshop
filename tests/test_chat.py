@@ -504,3 +504,17 @@ def test_guard_flags_claims_without_tool_results():
     # 纯讨论（无结果短语）→ 不动
     chat = "当前版本是 ver_x，你觉得节奏怎么样？"
     assert _guard_unverified_claims(chat, events=[]) == chat
+
+
+def test_add_asset_tool_registers_url(store, llm):
+    """对话里发链接 → add_asset 工具登记进项目素材库。"""
+    tools, collector = _make_tools(store, llm)
+    tools["create_project"].invoke({"title": "素材测试", "adaptation_type": "short_drama", "raw_text": "一段足够具体的原文，讲一个雨夜的故事。" * 3})
+    pid = collector["project_id"]
+    r = tools["add_asset"].invoke({"project_id": pid, "url": "https://cdn.example.com/ref.mp4"})
+    assert "已登记" in r
+    assets = store.list_assets(pid, kind="video")
+    assert len(assets) == 1 and assets[0].source == "url"
+    # 非法链接拒绝
+    r2 = tools["add_asset"].invoke({"project_id": pid, "url": "不是链接"})
+    assert "http" in r2

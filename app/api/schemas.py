@@ -36,6 +36,12 @@ class ApplyEdit(BaseModel):
     ops: list[dict] = Field(default_factory=list)
 
 
+class SceneOrderSet(BaseModel):
+    """场景拖拽排序：当前版本场景 id 的完整排列。"""
+
+    scene_ids: list[str] = Field(min_length=1)
+
+
 class NotesSet(BaseModel):
     notes: str = Field(default="")
 

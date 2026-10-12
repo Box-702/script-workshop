@@ -802,6 +802,17 @@ def build_chat_tools(
             return f"重跑失败：{detail}"
 
     @tool
+    def add_asset(project_id: str, url: str, name: str = "") -> str:
+        """把一个公网素材直链（参考视频等，http/https）登记进项目素材库，供视频生成挂参考。用户在对话里发来链接并说「当参考/加进素材」时调用。参数：project_id=项目 id，url=公网直链，name=可选的名字。"""
+        p = _project(project_id)
+        url = (url or "").strip()
+        if not url.startswith(("http://", "https://")):
+            return "需要 http(s) 开头的公网直链；本地文件请用左上角「＋」上传。"
+        name = (name or "").strip() or url.rsplit("/", 1)[-1] or "外部视频"
+        asset = store.add_asset(p.id, kind="video", name=name, source="url", url=url)
+        return f"已登记素材「{asset.name}」，生成视频时可以在镜头提示词里把它挂为参考视频。"
+
+    @tool
     def check_background_tasks() -> str:
         """查询后台任务（导演拆解 / 美术 / 摄影 / 定妆图）的状态和结果。用户问「拆好了吗 / 好了没 / 进度如何」时调用，不要凭记忆回答。无需参数。"""
         if runner is None:
@@ -873,6 +884,7 @@ def build_chat_tools(
         submit_videos,
         get_video_jobs,
         rerun_video,
+        add_asset,
         check_background_tasks,
         remember,
         recall,
@@ -979,7 +991,7 @@ _TOOL_ACTION_LABELS = {
     "generate_video_prompts": "撰写镜头提示词", "generate_reference_assets": "生成定妆图",
     "list_video_shots": "盘点镜头", "approve_video_prompts": "批准提示词",
     "submit_videos": "提交出片", "get_video_jobs": "查询出片状态",
-    "rerun_video": "重roll镜头", "check_background_tasks": "查询后台任务",
+    "rerun_video": "重roll镜头", "add_asset": "登记素材", "check_background_tasks": "查询后台任务",
     "map_novel": "建立章节地图", "propose_arcs": "挑选改编段落",
 }
 

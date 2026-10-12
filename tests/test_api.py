@@ -303,3 +303,38 @@ def test_video_generation_carries_aspect_ratio(client, sample_text, monkeypatch)
     jobs = client.get(f"/api/projects/{project['id']}/video/jobs").json()
     assert len(jobs) >= 2
     assert all(j["params"].get("aspect_ratio") == "9:16" for j in jobs)
+
+
+# ---------- 场景拖拽排序落库 ----------
+
+
+def test_scene_order_reorder_persists_as_new_version(client, store, sample_text):
+    """拖拽排序必须真实落库为新版本（此前左栏拖拽只改本地状态，刷新即丢）。"""
+    from copy import deepcopy
+
+    from app.pipeline.patch import make_source_script
+
+    project = _import_project(client, sample_text)
+    p = store.get_project(project["id"])
+    script = make_source_script("雨夜", sample_text)
+    second = deepcopy(script.scenes[0].model_dump())
+    second["id"] = "scene_002"
+    second["title"] = "第二场"
+    script.scenes.append(type(script.scenes[0]).model_validate(second))
+    v = store.create_version(p, script, source_type="generation", label="初始生成", set_current=True)
+
+    resp = client.post(
+        f"/api/versions/{v.id}/scene_order",
+        json={"scene_ids": ["scene_002", "scene_001"]},
+    )
+    assert resp.status_code == 200, resp.text
+    new_vid = resp.json()["version_id"]
+    assert new_vid != v.id
+    nv = store.get_version(new_vid)
+    assert [s.id for s in nv.script.scenes] == ["scene_002", "scene_001"]
+    # 新版本成为当前版本
+    assert store.latest_version(store.get_project(project["id"])).id == new_vid
+
+    # 不完整的排列拒绝
+    bad = client.post(f"/api/versions/{v.id}/scene_order", json={"scene_ids": ["scene_002"]})
+    assert bad.status_code == 400

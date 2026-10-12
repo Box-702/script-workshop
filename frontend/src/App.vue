@@ -9,9 +9,7 @@
 
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import HeaderBar from './components/HeaderBar.vue'
-import ProjectTree from './components/ProjectTree.vue'
 import ChatList from './components/ChatList.vue'
-import AssetPanel from './components/AssetPanel.vue'
 import ChatThread from './components/ChatThread.vue'
 import ChatComposer from './components/ChatComposer.vue'
 import ViewerPanel from './components/ViewerPanel.vue'
@@ -160,15 +158,7 @@ watch(() => store.view, () => {
   if (isNarrow.value && store.rightOpen) store.leftOpen = false
 })
 
-// ---- 左栏分段：对话 / 项目 / 素材 ----
-// 工作区（本地文件夹映射）对单机用途没意义，换成素材面板：上传/登记参考视频。
-const LEFT_TABS = ['chat', 'project', 'assets']
-const _savedTab = localStorage.getItem('sw-left-tab')
-const leftTab = ref(LEFT_TABS.includes(_savedTab) ? _savedTab : 'chat')
-function switchLeftTab(tab) {
-  leftTab.value = tab
-  localStorage.setItem('sw-left-tab', tab)
-}
+// ---- 左栏：单一对话列表（对话自动按项目归档），不再分段 tab ----
 
 watch(() => store.rightOpen, () => clampAll())
 
@@ -214,30 +204,11 @@ onUnmounted(() => {
     ref="layoutEl" class="layout"
     @dragenter="onDragEnter" @dragover="onDragOver"
   >
-    <!-- 左：对话 / 项目 / 素材（桌面=分栏；窄屏=抽屉） -->
+    <!-- 左：对话（桌面=分栏；窄屏=抽屉） -->
     <div class="panel-wrap panel-left-wrap" :class="{ closed: !store.leftOpen }" :style="{ '--pw': leftW + 'px' }">
       <div class="pane pane-left" :style="{ width: leftW + 'px' }">
-        <div class="left-tabs seg-tabs" role="tablist">
-          <button
-            :class="['ltab', 'seg-tab', { active: leftTab === 'chat' }]"
-            role="tab" :aria-selected="leftTab === 'chat'"
-            @click="switchLeftTab('chat')"
-          >对话</button>
-          <button
-            :class="['ltab', 'seg-tab', { active: leftTab === 'project' }]"
-            role="tab" :aria-selected="leftTab === 'project'"
-            @click="switchLeftTab('project')"
-          >项目</button>
-          <button
-            :class="['ltab', 'seg-tab', { active: leftTab === 'assets' }]"
-            role="tab" :aria-selected="leftTab === 'assets'"
-            @click="switchLeftTab('assets')"
-          >素材</button>
-        </div>
         <div class="left-body">
-          <ChatList v-if="leftTab === 'chat'" />
-          <ProjectTree v-else-if="leftTab === 'project'" />
-          <AssetPanel v-else />
+          <ChatList />
         </div>
       </div>
       <div class="split" @pointerdown="startDrag('left', $event)"></div>
@@ -287,11 +258,6 @@ onUnmounted(() => {
   background: var(--panel);
   border-right: 1px solid var(--line);
 }
-/* 左栏分段头：对话 / 项目 / 素材 —— 极简分段造型见 style.css 的 .seg-tabs/.seg-tab */
-.left-tabs {
-  flex: none; margin: 8px 8px 9px;
-}
-.ltab { flex: 1; }
 .left-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .left-body > * { flex: 1; min-height: 0; }
 .pane-mid { display: flex; flex-direction: column; min-height: 0; min-width: 0; flex: 1; }

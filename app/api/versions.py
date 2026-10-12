@@ -14,7 +14,7 @@ from fastapi.responses import Response
 from ..pipeline.export import EXPORT_FORMATS, export_script, script_to_screenplay
 from ..pipeline.patch import validate_script
 from . import common, deps
-from .schemas import ApplyEdit, MilestoneSet
+from .schemas import ApplyEdit, MilestoneSet, SceneOrderSet
 
 router = APIRouter()
 
@@ -82,6 +82,35 @@ def apply_edit(version_id: str, payload: ApplyEdit) -> dict[str, Any]:
     )
     common.persist_version(project, nv)
     return {"version_id": nv.id, "validation": [i.model_dump() for i in issues]}
+
+
+@router.post("/versions/{version_id}/scene_order")
+def set_scene_order(version_id: str, payload: SceneOrderSet) -> dict[str, Any]:
+    """按给定 scene_ids 顺序重排场景，生成新版本（场景拖拽排序的落库端点）。"""
+    v = deps.store().get_version(version_id)
+    if not v:
+        raise HTTPException(404, "版本不存在")
+    project = deps.store().get_project(v.project_id)
+    if not project:
+        raise HTTPException(404, "项目不存在")
+    scenes = list(v.script.scenes or [])
+    ids = [str(x) for x in payload.scene_ids]
+    if len(ids) != len(scenes) or set(ids) != {s.id for s in scenes}:
+        raise HTTPException(400, "scene_ids 必须是当前版本全部场景 id 的一个排列")
+    by_id = {s.id: s for s in scenes}
+    new_script = v.script.model_copy(update={"scenes": [by_id[i] for i in ids]})
+    nv = deps.store().create_version(
+        project,
+        new_script,
+        source_type="manual_edit",
+        label="调整场景顺序",
+        notes=f"基于 {version_id} 拖拽排序（{len(ids)} 场）",
+        parent_version_id=version_id,
+        set_current=True,
+        milestone="draft",
+    )
+    common.persist_version(project, nv)
+    return {"version_id": nv.id}
 
 
 # ---------- 版本文本查看（Codex 式「打开文件看内容」）----------

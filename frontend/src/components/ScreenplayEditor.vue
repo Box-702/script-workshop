@@ -17,6 +17,8 @@ import { store, applyEdits, notify } from '../stores/app'
 const props = defineProps({
   script: { type: Object, required: true },
   versionId: { type: String, required: true },
+  // standalone=true：作为工作台默认视图常驻（隐藏「取消」按钮，保存后停留在编辑态）
+  standalone: { type: Boolean, default: false },
 })
 const emit = defineEmits(['saved', 'cancel'])
 
@@ -131,13 +133,13 @@ function cancel() { emit('cancel') }
   <div class="ed">
     <!-- 顶部工具条 -->
     <div class="ed-bar">
-      <span class="ed-title">编辑剧本</span>
+      <span class="ed-title">{{ standalone ? '剧本' : '编辑剧本' }}</span>
       <span v-if="autoSaveStatus === 'saving'" class="ed-autosave">自动保存中…</span>
       <span v-else-if="autoSaveStatus === 'saved'" class="ed-autosave ed-saved">✓ 已自动保存</span>
       <span v-else-if="dirty" class="ed-autosave ed-dirty">● 未保存</span>
-      <span class="ed-hint">点击文字即可修改 · 换行自动排版</span>
+      <span class="ed-hint">点击文字即可修改 · 自动保存为新版本</span>
       <span class="spacer"></span>
-      <button class="ghost small" :disabled="saving" @click="cancel">取消</button>
+      <button v-if="!standalone" class="ghost small" :disabled="saving" @click="cancel">取消</button>
       <button class="small" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存为新版本' }}</button>
     </div>
     <div v-if="editErr" class="ed-err">⚠️ {{ editErr }}</div>

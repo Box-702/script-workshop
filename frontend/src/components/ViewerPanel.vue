@@ -1,24 +1,26 @@
 <script setup>
 // =====================================================================
-// ViewerPanel.vue —— Inspector 面板（上下文感知）
+// ViewerPanel.vue —— 右侧作品工作台（上下文感知）
 //
-// 三个 tab，全部面向创作成果：
-//   - 剧本编辑：标准剧本排版（可编辑/导出/复制）
-//   - 场景聚焦 / 视频工作台
-// 后台任务的进度只以对话流里的轻提示呈现，工程细节不进入本面板。
+// 四个 tab，全部面向创作成果（场景/素材已从左栏迁入，项目=唯一组织单位）：
+//   - 剧本：默认 tab，所见即所得直接点改，自动存新版本
+//   - 场景：场景结构（拖拽排序）+ 单场景聚焦
+//   - 视频：工作台 / 成片
+//   - 素材：参考视频登记与预览
 // =====================================================================
 
 import { computed, ref, onUnmounted, watch } from 'vue'
-import ScreenplayView from './ScreenplayView.vue'
 import ScreenplayEditor from './ScreenplayEditor.vue'
 import FolderTree from './FolderTree.vue'
 import VideoWorkbench from './video/VideoWorkbench.vue'
-import { store, showView, focusScene, exportVersion, syncProjectToWorkspace, setVersionMilestone, notify, loadViewer } from '../stores/app'
+import AssetPanel from './AssetPanel.vue'
+import { store, showView, focusScene, exportVersion, syncProjectToWorkspace, setVersionMilestone, notify, loadViewer, loadScenes, reorderScenes } from '../stores/app'
 
 const TABS = [
-  { key: 'editor', label: '剧本编辑', icon: '01' },
-  { key: 'scene', label: '场景聚焦', icon: '02' },
-  { key: 'video', label: '视频工作台', icon: '03' },
+  { key: 'editor', label: '剧本', icon: '01' },
+  { key: 'scene', label: '场景', icon: '02' },
+  { key: 'video', label: '视频', icon: '03' },
+  { key: 'assets', label: '素材', icon: '04' },
 ]
 
 // 聚焦场景数据
@@ -32,7 +34,7 @@ const charMap = computed(() => {
 })
 const currentTitle = computed(() => store.projects.find((p) => p.id === store.pid)?.title || '未选择项目')
 
-// 场景聚焦空态兜底：直接点「场景聚焦」tab 且从未选过场景时，
+// 场景聚焦空态兜底：直接点「场景」tab 且从未选过场景时，
 // 自动聚焦第一场——否则该视图永远空白，没有任何提示。
 watch(
   () => [store.view, store.viewerScript, store.focusedSceneId],
@@ -40,6 +42,15 @@ watch(
     if (view !== 'scene' || focused) return
     const scenes = script?.scenes || []
     if (scenes.length) focusScene(scenes[0].id)
+  },
+  { immediate: true },
+)
+
+// 进入场景 tab（或切换项目）时确保场景列表已加载——列表数据独立于剧本文本懒加载。
+watch(
+  () => [store.view, store.pid],
+  ([view, pid]) => {
+    if (view === 'scene' && pid) loadScenes(pid)
   },
   { immediate: true },
 )
@@ -117,11 +128,35 @@ async function syncToWorkspace() {
   }
 }
 
-// ---- 内置剧本编辑器 ----
-const editing = ref(false)
-function onSaved() {
-  editing.value = false
-  loadViewer()
+// ---- 场景拖拽排序（从左栏项目树迁入；排序经 API 落库为新版本） ----
+const dragScene = ref(null)     // sceneId
+const dragOverScene = ref(null) // sceneId
+const currentScenes = computed(() => store.scenesMap[store.pid] || [])
+
+function onSceneDragStart(e, sc) {
+  dragScene.value = sc.id
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('text/plain', sc.id)
+}
+function onSceneDragOver(e, sc) {
+  e.preventDefault()
+  e.dataTransfer.dropEffect = 'move'
+  dragOverScene.value = sc.id
+}
+function onSceneDragLeave() {
+  dragOverScene.value = null
+}
+function onSceneDrop(e, sc) {
+  e.preventDefault()
+  const fromId = dragScene.value
+  dragScene.value = null
+  dragOverScene.value = null
+  if (!fromId || fromId === sc.id) return
+  reorderScenes(fromId, sc.id)
+}
+function onSceneDragEnd() {
+  dragScene.value = null
+  dragOverScene.value = null
 }
 
 </script>
@@ -144,7 +179,6 @@ function onSaved() {
       <!-- 操作按钮：仅当有可操作的版本/文本时出现，并在出现/消失时平滑过渡，避免切换 tab 时突兀地弹出 -->
       <Transition name="vacts">
         <div v-if="store.view === 'editor' && latestVersionId" class="v-acts">
-          <button v-if="store.viewerScript && !editing" class="ghost small" @click="editing = true">✎ 编辑</button>
           <div class="export-wrap">
             <button class="ghost small" @click="exportOpen = !exportOpen">
               {{ exporting ? `导出中…` : '⤓ 导出' }}
@@ -166,16 +200,15 @@ function onSaved() {
     <!-- 各 tab 内容：纯淡入淡出重叠 crossfade，切换时不位移、屏幕不抖动 -->
     <div class="v-body-wrap">
       <Transition name="tabfade">
-    <!-- 剧本编辑：标准剧本排版 -->
+    <!-- 剧本：所见即所得，点击文字直接改（自动保存为新版本） -->
     <div v-if="store.view === 'editor'" class="v-body">
       <ScreenplayEditor
-        v-if="editing && store.viewerScript"
+        v-if="store.viewerScript && latestVersionId"
         :script="store.viewerScript"
         :version-id="latestVersionId"
-        @saved="onSaved"
-        @cancel="editing = false"
+        standalone
+        @saved="loadViewer()"
       />
-      <ScreenplayView v-else-if="store.viewerScript" :script="store.viewerScript" />
       <pre v-else-if="store.viewerText">{{ store.viewerText }}</pre>
       <div v-else class="v-empty">
         <template v-if="store.pid">还没有剧本版本。在左侧对话里说「生成初稿」，生成的内容会出现在这里。</template>
@@ -202,8 +235,32 @@ function onSaved() {
       </div>
     </div>
 
-    <!-- 场景聚焦视图 -->
+    <!-- 场景：结构列表（拖拽排序）+ 单场景聚焦 -->
     <div v-else-if="store.view === 'scene'" class="v-body">
+      <div v-if="currentScenes.length" class="scene-list">
+        <div class="sl-label">场景（{{ currentScenes.length }}）· 拖动可调整顺序</div>
+        <div
+          v-for="sc in currentScenes" :key="sc.id"
+          class="sl-item"
+          :class="{
+            active: store.focusedSceneId === sc.id,
+            'drag-over': dragOverScene === sc.id,
+            dragging: dragScene === sc.id,
+          }"
+          draggable="true"
+          @click="focusScene(sc.id)"
+          @dragstart="onSceneDragStart($event, sc)"
+          @dragover="onSceneDragOver($event, sc)"
+          @dragleave="onSceneDragLeave"
+          @drop="onSceneDrop($event, sc)"
+          @dragend="onSceneDragEnd"
+        >
+          <span class="drag-handle" aria-hidden="true">⠿</span>
+          <span class="sl-name">{{ sc.title }}</span>
+          <span class="sl-meta">{{ (sc.characters || []).length }}人 · {{ sc.beats_count }}拍</span>
+        </div>
+      </div>
+
       <div v-if="focusedScene" class="scene-focus">
         <div class="sf-header">
           <h3>{{ focusedScene.title || focusedScene.id }}</h3>
@@ -234,13 +291,18 @@ function onSaved() {
         </div>
       </div>
       <div v-else class="v-empty">
-        点击左侧场景列表中的某个场景，这里会显示该场景的详细内容。
+        这部剧还没有场景。生成剧本后，这里会列出全部场景。
       </div>
     </div>
 
     <!-- 视频工作台：模式切换 / 批量生成 / 审批预览 / 镜头列表 -->
     <div v-else-if="store.view === 'video'" class="v-body v-body-video">
       <VideoWorkbench />
+    </div>
+
+    <!-- 素材：参考视频登记与预览（绑定当前项目） -->
+    <div v-else-if="store.view === 'assets'" class="v-body">
+      <AssetPanel />
     </div>
       </Transition>
     </div>
@@ -302,7 +364,7 @@ function onSaved() {
 /* 头部操作按钮群：出现 / 消失平滑淡入淡出，不再硬切 */
 .vacts-enter-active, .vacts-leave-active { transition: opacity var(--dur) var(--ease); }
 .vacts-enter-from, .vacts-leave-to { opacity: 0; }
-/* 剧本正文：排版渲染（ScreenplayView），不再是裸 pre */
+/* 剧本正文：编辑器之外的兜底纯文本排版 */
 .v-body > .sp { padding: 16px 18px; }
 .v-body pre {
   margin: 0; padding: 16px 18px; font-family: var(--mono);
@@ -321,6 +383,37 @@ function onSaved() {
 .mile-final { color: var(--ok); border-color: color-mix(in oklch, var(--ok) 55%, var(--line)); }
 .mile-candidate { color: var(--warn); border-color: color-mix(in oklch, var(--warn) 55%, var(--line)); }
 .mile-draft { color: var(--muted); }
+
+/* 场景列表（从左栏迁入）：结构总览 + 拖拽排序 */
+.scene-list { padding: 10px 12px 4px; }
+.sl-label {
+  font-size: 9.5px; font-weight: 650; color: var(--dim);
+  text-transform: uppercase; letter-spacing: 0.14em;
+  padding: 0 2px 6px;
+}
+.sl-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px; border-radius: 7px; cursor: grab;
+  font-size: 12px; color: var(--muted);
+  transition: all 160ms var(--ease);
+  animation: slide-in-left 250ms var(--ease) both;
+}
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.sl-item:hover { color: var(--ink); background: color-mix(in oklch, var(--ink) 4%, transparent); }
+.sl-item.active {
+  color: var(--ink); font-weight: 550;
+  background: color-mix(in oklch, var(--gold) 7%, transparent);
+  box-shadow: inset 2px 0 0 var(--gold);
+}
+.sl-item.dragging { opacity: 0.45; }
+.sl-item.drag-over { border-top: 2px solid var(--gold); padding-top: 4px; }
+.drag-handle { font-size: 10px; color: var(--dim); opacity: 0; transition: opacity 200ms var(--ease); flex: none; }
+.sl-item:hover .drag-handle { opacity: 0.5; }
+.sl-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sl-meta { font-size: 10px; color: var(--dim); flex: none; font-variant-numeric: tabular-nums; }
 
 /* 场景聚焦视图 */
 .scene-focus { padding: 16px; font-family: var(--font-kai); font-size: 13.5px; }

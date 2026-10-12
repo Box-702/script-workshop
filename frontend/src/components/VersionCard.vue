@@ -16,10 +16,10 @@ const props = defineProps({
 const errorCount = computed(() =>
   (props.payload.validation_issues || []).filter((i) => i.severity === 'error').length)
 
-/** 刷新文本并切到「剧本文本」tab。 */
+/** 刷新并切到「剧本」tab。 */
 async function viewScript() {
   await loadViewer()
-  await showView('text')
+  await showView('editor')
 }
 </script>
 

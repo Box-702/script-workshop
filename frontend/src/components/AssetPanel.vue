@@ -1,10 +1,7 @@
 <template>
   <div class="asset-panel">
     <div class="asset-head">
-      <select class="proj-select" :value="store.pid || ''" @change="onPickProject($event.target.value)">
-        <option value="" disabled>选择项目…</option>
-        <option v-for="p in store.projects" :key="p.id" :value="p.id">{{ p.title }}</option>
-      </select>
+      <span class="asset-scope">当前项目的参考素材</span>
       <button class="upload-btn" :disabled="!store.pid || uploading" @click="fileInput?.click()">
         {{ uploading ? '上传中…' : '↑ 上传视频' }}
       </button>
@@ -31,12 +28,11 @@
     </div>
 
     <p class="hint">
-      上传的文件可预览、归档（服务商拉取需公网 URL）；登记的公网直链可直接作参考视频喂给 MiniMax。
-      在镜头「编辑 Prompt」里粘贴素材链接即可挂为参考视频。
+      上传或登记的直链可直接作参考视频喂给视频服务商：在镜头「编辑 Prompt」里粘贴素材链接即可挂为参考；也可以直接在对话里发链接，让我来登记。
     </p>
 
     <div class="asset-list">
-      <div v-if="!store.pid" class="empty">先在「项目」里选择一个项目</div>
+      <div v-if="!store.pid" class="empty">选择一个项目后，这里管理它的参考素材</div>
       <div v-else-if="loading" class="empty">加载中…</div>
       <div v-else-if="!assets.length" class="empty">还没有素材</div>
       <div v-for="a in assets" v-else :key="a.id" class="asset-row">
@@ -144,10 +140,6 @@ function preview(a) {
   previewUrl.value = a.url
 }
 
-function onPickProject(pid) {
-  if (pid && pid !== store.pid) store.pid = pid
-}
-
 function formatTime(v) {
   if (!v) return ''
   return new Intl.DateTimeFormat('zh-CN', {
@@ -165,13 +157,7 @@ watch(() => store.pid, refresh)
   display: flex; justify-content: space-between; align-items: center;
   padding: 12px 12px 10px; border-bottom: 1px solid var(--line);
 }
-.asset-title { font-size: 13.5px; font-weight: 650; color: var(--ink); }
-.proj-select {
-  flex: 1; min-width: 0; padding: 5px 8px;
-  background: var(--code-bg); border: 1px solid var(--line); border-radius: 7px;
-  color: var(--ink); font-size: 11.5px; outline: none; cursor: pointer;
-}
-.proj-select:focus { border-color: color-mix(in oklch, var(--gold) 40%, var(--line)); }
+.asset-scope { font-size: 11px; font-weight: 650; color: var(--dim); letter-spacing: .02em; }
 .upload-btn { flex: none; }
 .upload-btn {
   padding: 4px 10px; border: 1px solid var(--line); border-radius: 7px;

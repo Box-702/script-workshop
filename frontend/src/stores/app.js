@@ -22,12 +22,10 @@ export const store = reactive({
   scenesMap: {},       // pid -> 场景列表 [{id, title, characters, beats_count}]（懒加载）
   expanded: {},        // pid -> 是否展开
 
-  // 全局对话（不绑定项目）
+  // 全局对话（不绑定项目；在对话里创建项目后自动归档到该项目组下）
   globalConvs: [],     // [{ id, title, user_message_count, created_at }]
   // 工作区文件树
   workspaceTree: null, // { root, folders: [{name, type, children}] }
-  // 左栏当前 tab
-  leftTab: 'chat',     // 'chat' | 'workspace'
 
   // 对话与版本
   messages: [],        // 当前对话消息 [{ role, content, events, payloads, streaming }]
@@ -40,8 +38,8 @@ export const store = reactive({
   // 右侧查看面板开关（默认收起，记忆在 localStorage）
   rightOpen: false,
 
-  // 右侧查看面板
-  view: 'text',        // text | notes | files | diff
+  // 右侧作品工作台：剧本（默认）/ 场景 / 视频 / 素材
+  view: 'editor',
   viewerText: '',      // 最新版本剧本全文（纯文本，供复制）
   viewerScript: null,  // 最新版本结构化剧本（供剧本排版渲染）
 
@@ -226,6 +224,29 @@ export async function toggleProject(pid) {
   store.expanded[pid] = !store.expanded[pid]
   if (store.expanded[pid]) {
     await loadConversations(pid)
+    await loadScenes(pid)
+  }
+}
+
+/** 场景拖拽排序：乐观更新本地，落库为新版本；失败回滚重拉。 */
+export async function reorderScenes(fromId, toId) {
+  const pid = store.pid
+  const scenes = store.scenesMap[pid] || []
+  const fromIdx = scenes.findIndex((s) => s.id === fromId)
+  const toIdx = scenes.findIndex((s) => s.id === toId)
+  if (fromIdx < 0 || toIdx < 0) return
+  const reordered = [...scenes]
+  const [moved] = reordered.splice(fromIdx, 1)
+  reordered.splice(toIdx, 0, moved)
+  store.scenesMap[pid] = reordered
+  const versionId = store.versions[0]?.id
+  if (!versionId) { notify('没有可排序的剧本版本'); return }
+  try {
+    await api(`/versions/${versionId}/scene_order`, 'POST', { scene_ids: reordered.map((s) => s.id) })
+    await Promise.all([loadViewer(), loadScenes(pid)])
+    notify('场景顺序已更新', 'ok')
+  } catch (e) {
+    notify('排序失败：' + e.message)
     await loadScenes(pid)
   }
 }

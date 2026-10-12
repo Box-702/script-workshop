@@ -5,8 +5,9 @@
       <button class="btn-new" @click="onNew" title="新建聊天" aria-label="新建聊天">＋</button>
     </div>
 
-    <!-- 全局对话 -->
+    <!-- 未归类对话（还没落到任何项目下；在对话里创建项目后会自动归档） -->
     <div class="conv-section">
+      <div v-if="globalConvs.length" class="section-label">未归类</div>
       <div
         v-for="conv in globalConvs"
         :key="conv.id"
@@ -39,10 +40,10 @@
       </div>
     </div>
 
-    <!-- 项目内对话（按项目分组） -->
+    <!-- 项目（点组头打开该项目最近的对话；箭头折叠/展开） -->
     <div v-for="p in projects" :key="p.id" class="conv-group">
-      <div class="group-header" @click="toggleExpand(p.id)">
-        <span class="expand-icon">{{ expanded[p.id] ? '▼' : '▶' }}</span>
+      <div class="group-header" @click="openProject(p.id)">
+        <span class="expand-icon" :class="{ open: expanded[p.id] }" @click.stop="toggleExpand(p.id)">▶</span>
         <span class="group-name">{{ p.title }}</span>
       </div>
       <div v-if="expanded[p.id]" class="group-children">
@@ -77,7 +78,7 @@
 
 <script setup>
 import { ref, computed, nextTick } from 'vue'
-import { store, newGlobalConversation, selectGlobalConversation, loadGlobalConversations, newConversation, selectConversation, setConversationTitle, deleteConversation, loadConversations, toggleProject } from '../stores/app.js'
+import { store, newGlobalConversation, selectGlobalConversation, loadGlobalConversations, newConversation, selectConversation, selectProject, setConversationTitle, deleteConversation, loadConversations, toggleProject } from '../stores/app.js'
 
 const globalConvs = computed(() => store.globalConvs)
 const projects = computed(() => store.projects)
@@ -121,6 +122,16 @@ function onNewProject(pid) {
   newConversation(pid)
 }
 
+/** 打开项目：展开并进入该项目最近的对话（组头点击）。 */
+function openProject(pid) {
+  if (store.pid === pid && store.convId) {
+    // 已在该项目内：只保证展开，不打断当前对话。
+    if (!expanded.value[pid]) toggleExpand(pid)
+    return
+  }
+  selectProject(pid)
+}
+
 function toggleExpand(pid) {
   toggleProject(pid)
 }
@@ -147,7 +158,7 @@ function onDelete(pid, convId) {
 </script>
 
 <style scoped>
-.chat-list { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.chat-list { display: flex; flex-direction: column; height: 100%; overflow-y: auto; }
 .chat-header {
   display: flex; justify-content: space-between; align-items: center;
   padding: 12px 12px 10px; border-bottom: 1px solid var(--line);
@@ -167,7 +178,13 @@ function onDelete(pid, convId) {
   color: var(--gold); background: var(--gold-soft);
 }
 
-.conv-section { flex: 1; overflow-y: auto; padding: 6px 0; }
+.conv-section { overflow: visible; padding: 6px 0; }
+
+.section-label {
+  padding: 8px 14px 2px;
+  font-size: 9.5px; font-weight: 650; color: var(--dim);
+  text-transform: uppercase; letter-spacing: .14em;
+}
 
 .conv-item {
   position: relative;
@@ -248,7 +265,8 @@ function onDelete(pid, convId) {
   letter-spacing: .02em;
 }
 .group-header:hover { color: var(--muted); }
-.expand-icon { font-size: 8px; color: var(--dim); }
+.expand-icon { font-size: 8px; color: var(--dim); padding: 4px 2px; transition: transform 200ms var(--ease); }
+.expand-icon.open { transform: rotate(90deg); }
 .group-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .group-children { padding-bottom: 2px; }
 </style>
