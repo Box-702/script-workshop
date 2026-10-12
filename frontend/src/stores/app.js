@@ -98,6 +98,19 @@ export function dismissToast() {
   store.toast = null
 }
 
+// 输入区提示：瞬时通知，几秒后自动消退；聚焦输入框也会立即清掉（见 ChatComposer）。
+// 不要直接给 store.hint 赋值——那会让「对话已切换」这类提示永久挂在输入框里。
+let _hintTimer = null
+export function setHint(message) {
+  store.hint = message
+  clearTimeout(_hintTimer)
+  _hintTimer = setTimeout(() => { store.hint = '' }, 4000)
+}
+export function clearHint() {
+  clearTimeout(_hintTimer)
+  store.hint = ''
+}
+
 // ---------------------------------------------------------------------
 // 导航时序守卫：快速切换项目/对话时，慢响应不得覆盖新选中的数据。
 // 每次导航（选项目/选对话）取一个自增 token，await 返回后 token 已过期
@@ -231,7 +244,7 @@ export async function selectProject(pid) {
   const convs = store.convMap[pid] || []
   if (convs.length) await selectConversation(pid, convs[0].id, token)
   else {
-    store.hint = '已选择剧本项目。可新建对话，或直接在下方对话里提出改编需求。'
+    setHint('已选择剧本项目，可直接提改编需求')
     await loadViewer(token)
   }
 }
@@ -242,14 +255,14 @@ export async function selectConversation(pid, convId, token = ++_navSeq) {
   // 此前再点一次当前对话会 abort 流 + 清空消息，而生成中的内容尚未落库，
   // 拉回历史为空，看起来像「整个对话消失」。
   if (store.pid === pid && store.convId === convId && (store.streaming || store.messages.length)) {
-    store.hint = '已在该对话中。'
+    setHint('已在该对话中')
     return
   }
   _navSeq = token
   if (_streamAbort) _streamAbort.abort()
   store.pid = pid
   store.convId = convId
-  store.hint = '对话已切换（每个对话独立上下文）。'
+  setHint('对话已切换，各自独立上下文')
   store.messages = [] // 先清空旧对话内容，避免等待期间/失败时残留造成「串话」
   await loadHistory(token)
   if (!_isCurrent(token)) return
@@ -262,7 +275,7 @@ export async function newConversation(pid) {
   const convs = store.convMap[pid] || []
   const blank = convs.find((c) => (c.user_message_count ?? 0) === 0)
   if (blank) {
-    store.hint = '当前已有空白对话，直接使用即可。'
+    setHint('当前已有空白对话，直接使用即可')
     await selectConversation(pid, blank.id)
     return
   }
@@ -314,7 +327,7 @@ export async function loadGlobalConversations() {
 export async function newGlobalConversation() {
   const blank = store.globalConvs.find((c) => (c.user_message_count ?? 0) === 0)
   if (blank) {
-    store.hint = '当前已有空白对话，直接使用即可。'
+    setHint('当前已有空白对话，直接使用即可')
     await selectGlobalConversation(blank.id)
     return
   }
@@ -330,7 +343,7 @@ export async function newGlobalConversation() {
 export async function selectGlobalConversation(convId) {
   // 同 selectConversation：点击当前全局对话不做任何事，保护进行中的流。
   if (store.pid === null && store.convId === convId && (store.streaming || store.messages.length)) {
-    store.hint = '已在该对话中。'
+    setHint('已在该对话中')
     return
   }
   const token = ++_navSeq

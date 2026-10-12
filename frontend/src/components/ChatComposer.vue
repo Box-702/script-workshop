@@ -10,7 +10,7 @@
 // =====================================================================
 
 import { ref, computed, watch, nextTick } from 'vue'
-import { store, sendMessage, focusComposer } from '../stores/app'
+import { store, sendMessage, focusComposer, clearHint } from '../stores/app'
 
 const input = ref(null)
 const text = ref('')
@@ -64,10 +64,11 @@ watch(() => store.draftSeq, () => {
         ref="input"
         v-model="text"
         rows="1"
-        placeholder="描述你的故事想法，例如：一个失去记忆的出租车司机，在雨夜接到未来的自己。"
+        placeholder="描述你的故事想法"
         aria-label="描述你的故事想法"
         @keydown="onKeydown"
         @input="autoSize"
+        @focus="clearHint"
       ></textarea>
       <div class="toolbar">
         <div class="toolbar-left">
