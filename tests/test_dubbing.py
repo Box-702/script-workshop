@@ -141,6 +141,9 @@ def test_synthesize_and_mix_with_real_ffmpeg(tmp_path):
     first_dur_ms = track[1]["start_ms"] - 250 - track[0]["start_ms"]
     assert 500 <= first_dur_ms <= 900
     assert track[1]["start_ms"] == track[0]["start_ms"] + first_dur_ms + 250
+    # 字幕同步字段：speaker 随句携带，end_ms = start + 实测时长
+    assert track[0]["speaker"] == "小赵"
+    assert track[0]["end_ms"] == track[0]["start_ms"] + first_dur_ms
 
     out = tmp_path / "dubbed.mp4"
     mix_dubbing(video, track, out, bg_volume=0.25, ffmpeg=ffmpeg)

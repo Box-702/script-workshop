@@ -13,8 +13,9 @@ import PromptEditor from './PromptEditor.vue'
 import {
   store, loadShots, loadVideoJobs, submitVideoJob, playVideo, closeVideo, openPromptEditor,
   closePromptEditor, loadPromptHistory, saveShotPrompt, bulkReviewPrompts,
-  setVideoMode, setVideoResolution, setVideoAspect, startVideoBatch,
+  setVideoMode, setVideoResolution, setVideoAspect, setVideoSubtitle, startVideoBatch,
   pollVideoBatch, ensureBatchPolling, batchCommand,
+  startFinalize, pollFinalize, ensureFinalizePolling,
 } from '../../stores/app'
 
 // 画幅：短剧产品默认竖屏 9:16
@@ -68,6 +69,27 @@ const currentVideoUrl = computed(() => {
   return jobs[0]?.video_url || ''
 })
 
+// ---- 成片合成 ----
+const finalize = computed(() => store.videoFinalize)
+const finalizeRunning = computed(() => finalize.value?.status === 'running')
+const finalizeResult = computed(() => finalize.value?.status === 'succeeded' ? finalize.value.result : null)
+const succeededCount = computed(() =>
+  (store.videoJobs || []).filter((j) => j.status === 'succeeded' && j.video_url).length
+)
+const finalizeTail = computed(() => (finalize.value?.messages || []).slice(-1)[0] || '正在准备镜头…')
+const filmMetaText = computed(() => {
+  const r = finalizeResult.value
+  if (!r) return ''
+  const bits = []
+  if (r.duration_sec) bits.push(`${Number(r.duration_sec).toFixed(1)} 秒`)
+  if (r.shots_used != null) bits.push(`${r.shots_used}/${r.shots_total} 镜`)
+  const flags = []
+  if (r.dubbed) flags.push('配音')
+  if (r.subtitled) flags.push('字幕')
+  if (flags.length) bits.push(flags.join('·'))
+  return bits.join(' · ')
+})
+
 const starting = ref(false)
 async function onStart() {
   starting.value = true
@@ -81,8 +103,9 @@ async function onStart() {
 // 批次轮询收敛到 store 层（ensureBatchPolling）：切走视图也能继续跟进，
 // 进度经 store.videoBatch 响应式同步回来；这里只负责进面板时的首次拉取。
 onMounted(async () => {
-  await Promise.all([loadShots(), loadVideoJobs(), pollVideoBatch()])
+  await Promise.all([loadShots(), loadVideoJobs(), pollVideoBatch(), pollFinalize()])
   ensureBatchPolling()
+  ensureFinalizePolling()
 })
 
 async function onPromptReview(payload) {
@@ -148,6 +171,22 @@ function formatVersionTime(value) {
         </select>
       </div>
 
+      <div class="ctrl-group">
+        <span class="ctrl-label">台词字幕</span>
+        <div class="seg">
+          <button
+            :class="['seg-btn', { active: store.videoSubtitle }]"
+            title="合成成片时把台词字幕烧进画面，同时附带 SRT 字幕文件"
+            @click="setVideoSubtitle(true)"
+          >开</button>
+          <button
+            :class="['seg-btn', { active: !store.videoSubtitle }]"
+            title="成片不带字幕"
+            @click="setVideoSubtitle(false)"
+          >关</button>
+        </div>
+      </div>
+
       <button
         class="start-btn"
         :disabled="starting || running || !promptCount.approved"
@@ -166,6 +205,53 @@ function formatVersionTime(value) {
         <span class="approved">{{ promptCount.approved }} 已批准</span>
         <span v-if="promptCount.pending">{{ promptCount.pending }} 待处理</span>
         <span v-else-if="promptCount.total">全部已批准</span>
+      </div>
+    </div>
+
+    <!-- 成片合成：拼装 + 配音 + 字幕（字幕开关在上方控制栏） -->
+    <div class="film">
+      <div class="film-head">
+        <strong>成片</strong>
+        <span v-if="finalizeResult">{{ filmMetaText }}</span>
+        <span v-else-if="!succeededCount">还没有已生成的镜头</span>
+      </div>
+
+      <div v-if="finalizeRunning" class="film-status">
+        <span class="film-spinner" aria-hidden="true"></span>合成中：{{ finalizeTail }}
+      </div>
+      <div v-else-if="finalize?.status === 'failed'" class="film-status bad">
+        合成失败：{{ finalize?.error }}
+      </div>
+
+      <video
+        v-if="finalizeResult?.video_url"
+        :key="finalizeResult.video_asset_id"
+        :src="finalizeResult.video_url"
+        controls
+        class="film-video"
+      ></video>
+
+      <div v-if="finalizeResult" class="film-actions">
+        <a class="rv ok" :href="finalizeResult.video_url" download>下载成片</a>
+        <a v-if="finalizeResult.srt_url" class="rv" :href="finalizeResult.srt_url" download>下载字幕（SRT）</a>
+        <button
+          class="rv"
+          :disabled="finalizeRunning || !succeededCount"
+          title="用已生成的镜头重新拼一版（配音与字幕按当前开关）"
+          @click="startFinalize()"
+        >重新合成</button>
+      </div>
+      <div v-else class="film-actions">
+        <button
+          class="rv ok"
+          :disabled="finalizeRunning || !succeededCount"
+          :title="succeededCount ? '把已生成的镜头拼装成完整成片（含配音与字幕）' : '先完成至少一个镜头的生成'"
+          @click="startFinalize()"
+        >合成成片{{ succeededCount ? `（${succeededCount} 镜）` : '' }}</button>
+      </div>
+
+      <div v-if="finalizeResult?.warnings?.length" class="film-warns">
+        <span v-for="w in finalizeResult.warnings" :key="w">{{ w }}</span>
       </div>
     </div>
 
@@ -285,6 +371,25 @@ function formatVersionTime(value) {
 .prompt-gate span { color: var(--dim); font-size: 11px; }
 .prompt-count { display: flex; gap: 10px; flex: none; font-size: 11px; }
 .prompt-count .approved { color: var(--ok); }
+
+.film {
+  border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
+  background: var(--panel2); display: flex; flex-direction: column; gap: 10px;
+}
+.film-head { display: flex; align-items: baseline; gap: 10px; }
+.film-head strong { color: var(--ink); font-size: 12.5px; }
+.film-head span { color: var(--dim); font-size: 11.5px; }
+.film-status { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--dim); }
+.film-status.bad { color: var(--danger, #e5484d); }
+.film-spinner {
+  width: 10px; height: 10px; flex: none; border-radius: 50%;
+  border: 2px solid var(--line); border-top-color: var(--cyan);
+  animation: film-spin 0.9s linear infinite;
+}
+@keyframes film-spin { to { transform: rotate(360deg); } }
+.film-video { width: 100%; max-width: 560px; border-radius: 10px; background: #000; }
+.film-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.film-warns { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--warn); }
 
 .version-strip {
   border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px;

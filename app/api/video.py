@@ -871,3 +871,51 @@ def batch_command(batch_id: str, payload: BatchCommandRequest) -> dict[str, Any]
     except ValueError as e:
         raise HTTPException(400, str(e))
     return batch.to_dict()
+
+
+# ---- 成片合成（拼装 + 可选配音/字幕） ----
+
+
+class FinalizeCreate(BaseModel):
+    """成片合成请求。version_id 缺省用项目当前视频版本。
+
+    subtitles：台词字幕烧录（默认开）；dubbing：台词配音（默认开，无台词/无 TTS 自动跳过）。
+    """
+
+    version_id: str | None = None
+    subtitles: bool = True
+    dubbing: bool = True
+
+
+@router.post("/projects/{project_id}/video/finalize")
+def finalize_film(project_id: str, payload: FinalizeCreate) -> dict[str, Any]:
+    """把已生成的镜头合成为完整成片。后台执行，返回任务 id 供轮询。"""
+    common.get_project(project_id)
+    if payload.version_id:
+        version = deps.store().get_video_version(payload.version_id)
+        if version is None:
+            raise HTTPException(404, "视频版本不存在")
+    rec = deps.finalize_manager().start(
+        project_id, version_id=payload.version_id,
+        subtitles=payload.subtitles, dubbing=payload.dubbing,
+    )
+    return rec
+
+
+@router.get("/video/finalizes/{finalize_id}")
+def get_finalize(finalize_id: str) -> dict[str, Any]:
+    """查询合成任务进度与结果（前端轮询用）。"""
+    rec = deps.finalize_manager().get(finalize_id)
+    if rec is None:
+        raise HTTPException(404, "合成任务不存在（重启后历史任务作废，产物已在素材里）")
+    return rec
+
+
+@router.get("/projects/{project_id}/video/finalize/latest")
+def get_latest_finalize(project_id: str) -> dict[str, Any]:
+    """查询项目最近一次合成任务（刷新页面后恢复状态用）。"""
+    common.get_project(project_id)
+    rec = deps.finalize_manager().latest_for_project(project_id)
+    if rec is None:
+        return {"id": None, "status": "none"}
+    return rec

@@ -65,3 +65,10 @@ def video_manager() -> VideoJobManager:
 @lru_cache
 def batch_manager():
     return get_batch_manager()
+
+
+@lru_cache
+def finalize_manager():
+    from .video.finalize import get_finalize_manager
+
+    return get_finalize_manager()

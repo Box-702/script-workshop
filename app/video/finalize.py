@@ -1,0 +1,319 @@
+# =====================================================================
+# finalize.py —— 成片合成（拼装 + 配音 + 字幕，产品化接线）
+#
+# 在此之前，assemble_videos / dub_video 只有测试脚本在用：批次跑完只把状态
+# 标成 done，用户拿到的一直是单镜视频。本模块把「最后一公里」接进产品：
+#
+#   版本快照里已成功的镜头 → 下载各镜 mp4 → 拼装 → 台词配音（可选）
+#   → 字幕烧录（可选，时间轴优先用 TTS 实测值）→ 成片 + SRT 落盘为项目素材
+#
+# 降级阶梯（每步失败都不阻断交付，状态如实回报）：
+#   某镜下载失败 → 跳过该镜继续；配音失败/无 TTS → 静片 + 估算字幕时间轴；
+#   烧录失败 → 交付无字幕成片。真正致命的只有「一个可用镜头都没有」和「拼装失败」。
+#
+# 状态在内存（与 BatchManager 同模式，进程重启后进行中的合成作废）；
+# 产物本身已落盘并注册为项目素材，不受重启影响。
+# =====================================================================
+
+from __future__ import annotations
+
+import logging
+import shutil
+import tempfile
+import threading
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import httpx
+
+from ..domain import Script, Shot
+from ..media.dubbing import dub_video_with_track
+from ..media.subtitles import burn_subtitles, timeline_estimated, timeline_from_track, write_subtitle_files
+
+log = logging.getLogger(__name__)
+
+# 下载/合成的单镜超时与轮询已由 provider 侧保证，这里只约束下载。
+_DOWNLOAD_TIMEOUT = 300
+
+
+@dataclass
+class FinalizeOptions:
+    """成片合成选项（用户可选项都收在这里）。"""
+
+    subtitles: bool = True   # 台词字幕烧录
+    dubbing: bool = True     # 台词配音（无台词/无 TTS 自动跳过）
+
+
+def _emit(rec: dict[str, Any], msg: str) -> None:
+    log.info("[finalize] %s", msg)
+    rec["messages"].append(msg)
+    del rec["messages"][:-40]  # 只保留最近的进度，避免长片刷屏
+
+
+def _latest_succeeded_url(jobs: list, shot_id: str) -> str | None:
+    """该镜头最近一次成功任务的成片 URL（版本快照可能没回填 video_url）。"""
+    urls = [
+        (j.created_at, j.video_url) for j in jobs
+        if j.shot_id == shot_id and j.status == "succeeded" and j.video_url
+    ]
+    return max(urls)[1] if urls else None
+
+
+def _download(url: str, dest: Path) -> None:
+    with httpx.Client(timeout=_DOWNLOAD_TIMEOUT, follow_redirects=True, trust_env=False) as client:
+        with client.stream("GET", url) as resp:
+            resp.raise_for_status()
+            with dest.open("wb") as f:
+                for chunk in resp.iter_bytes():
+                    f.write(chunk)
+
+
+def _resolve_script(store: Any, project: Any) -> Script | None:
+    """项目的当前剧本（配音与字幕的台词来源）。取不到就降级为无对白。"""
+    vid = project.current_version_id
+    if not vid:
+        return None
+    try:
+        sv = store.get_version(vid)
+        return sv.script if sv else None
+    except Exception as e:  # noqa: BLE001
+        log.warning("剧本读取失败，成片将无对白/字幕：%s", e)
+        return None
+
+
+def _resolve_tts():
+    from ..config import get_settings
+    from ..llm.registry import resolve_tts
+    from ..llm.tts import build_tts_client
+
+    cfg = resolve_tts(get_settings())
+    return build_tts_client(cfg) if cfg else None
+
+
+def _register_asset(store: Any, project_id: str, path: Path, *, kind: str, name: str) -> dict[str, Any]:
+    """成片/SRT 落盘为项目素材，返回 {asset_id, url}。复用 upload 的落盘与回放约定。"""
+    from ..config import get_settings
+    from ..store import gen_id
+
+    asset_id = gen_id("asset")
+    dest_dir = Path(get_settings().effective_workspace_root) / "assets" / project_id
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{asset_id}{path.suffix.lower()}"
+    shutil.move(str(path), str(dest))
+    rel = dest.relative_to(get_settings().effective_workspace_root).as_posix()
+    store.add_asset(project_id, kind=kind, name=name, source="finalize",
+                    url=f"/api/assets/file/{asset_id}", file_path=rel, id=asset_id)
+    return {"asset_id": asset_id, "url": f"/api/assets/file/{asset_id}"}
+
+
+def finalize_film(
+    project_id: str,
+    *,
+    version_id: str | None = None,
+    subtitles: bool = True,
+    dubbing: bool = True,
+    on_progress: Any = None,
+    store: Any = None,
+) -> dict[str, Any]:
+    """把已生成的镜头合成为完整成片。阻塞执行（调用方负责放线程里跑）。
+
+    返回 result 字典；致命失败（无可用镜头/拼装失败）抛异常，由调用方记录。
+    """
+    store = store or _default_store()
+    rec: dict[str, Any] = {"messages": []}
+
+    def emit(msg: str) -> None:
+        _emit(rec, msg)
+        if on_progress:
+            on_progress(msg)
+
+    project = store.get_project(project_id)
+    if project is None:
+        raise ValueError(f"项目不存在：{project_id}")
+
+    # ---- 1) 收集镜头：版本快照定顺序，成片 URL 取各镜最近一次成功任务 ----
+    vid = version_id or project.current_video_version_id
+    version = store.get_video_version(vid) if vid else None
+    if version is None:
+        raise ValueError("没有可合成的视频版本（先生成分镜并出片）")
+    shot_dicts = [s for s in version.shots if isinstance(s, dict)]
+    if not shot_dicts:
+        raise ValueError("该版本没有镜头")
+    jobs = store.list_video_jobs(project_id)
+
+    shots: list[Shot] = []
+    tmp = Path(tempfile.mkdtemp(prefix="finalize_"))
+    try:
+        clips: list[str] = []
+        warnings: list[str] = []
+        for raw in sorted(shot_dicts, key=lambda s: s.get("order", 0)):
+            sid = str(raw.get("id") or "")
+            url = _latest_succeeded_url(jobs, sid)
+            if not url:
+                warnings.append(f"镜头 {sid} 还没有成片，已跳过")
+                emit(f"镜头 {sid} 没有成片，跳过")
+                continue
+            dest = tmp / f"{sid}.mp4"
+            try:
+                _download(url, dest)
+            except Exception as e:  # noqa: BLE001
+                warnings.append(f"镜头 {sid} 下载失败：{e}")
+                emit(f"镜头 {sid} 下载失败，跳过：{e}")
+                continue
+            shots.append(Shot.model_validate(raw))
+            clips.append(str(dest))
+        if not clips:
+            raise ValueError("没有任何已生成的镜头可合成（先生成视频再合成成片）")
+        emit(f"已就绪 {len(clips)}/{len(shot_dicts)} 个镜头")
+
+        # ---- 2) 拼装 ----
+        from .assemble import assemble_videos
+
+        base = tmp / "base.mp4"
+        result = assemble_videos(clips, str(base))
+        if not result.get("ok"):
+            raise RuntimeError(f"拼装失败：{result.get('error')}")
+        emit(f"拼装完成（{result.get('duration', 0):.1f}s）")
+
+        # ---- 3) 配音（可选）----
+        current, track = base, []
+        script = _resolve_script(store, project)
+        dubbed = False
+        if dubbing and script is not None:
+            tts = _resolve_tts()
+            if tts is None or not tts.available:
+                emit("未配置 TTS（可用 MINIMAX_API_KEY），跳过配音")
+            else:
+                try:
+                    dubbed_path = tmp / "dubbed.mp4"
+                    out, track = dub_video_with_track(current, script, shots, tts, dubbed_path,
+                                                      on_progress=emit)
+                    if out:
+                        current, dubbed = dubbed_path, True
+                        emit("配音完成")
+                except Exception as e:  # noqa: BLE001
+                    warnings.append(f"配音失败，成片为静片：{e}")
+                    emit(f"配音失败，跳过：{e}")
+        elif dubbing:
+            emit("剧本不可读或无版本，跳过配音")
+
+        # ---- 4) 字幕（可选）----
+        subtitled = False
+        srt_info: dict[str, Any] | None = None
+        entries: list = []
+        if subtitles:
+            if script is None:
+                emit("剧本不可读，跳过字幕")
+            else:
+                entries = timeline_from_track(track) if track else timeline_estimated(script, shots)
+        if entries:
+            try:
+                ass_path, _srt = write_subtitle_files(entries, tmp / "film", width=1280, height=720)
+                final = tmp / "final.mp4"
+                burn_subtitles(current, ass_path, final)
+                current, subtitled = final, True
+                emit(f"字幕烧录完成（{len(entries)} 句）")
+                srt_info = _register_asset(store, project_id, _srt, kind="subtitle", name="成片字幕.srt")
+            except Exception as e:  # noqa: BLE001
+                warnings.append(f"字幕烧录失败，交付无字幕成片：{e}")
+                emit(f"字幕烧录失败：{e}")
+        elif subtitles:
+            emit("本片没有台词，无需字幕")
+
+        # ---- 5) 交付：成片注册为项目素材 ----
+        video_info = _register_asset(store, project_id, current, kind="video",
+                                     name=f"成片·{project.title}.mp4")
+        duration = _duration_sec(current)
+        emit("成片已交付")
+        return {
+            "video_asset_id": video_info["asset_id"],
+            "video_url": video_info["url"],
+            "srt_asset_id": srt_info["asset_id"] if srt_info else None,
+            "srt_url": srt_info["url"] if srt_info else None,
+            "duration_sec": round(duration, 2),
+            "shots_used": len(clips),
+            "shots_total": len(shot_dicts),
+            "dubbed": dubbed,
+            "subtitled": subtitled,
+            "warnings": warnings,
+        }
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _duration_sec(path: Path) -> float:
+    """成片时长：qa._duration 有 ffmpeg stderr 兜底（本机常缺 ffprobe）。"""
+    from .qa import _duration
+
+    try:
+        return _duration(path)
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def _default_store():
+    from ..deps import store as _store
+
+    return _store()
+
+
+# ---- 状态注册表（内存，与 BatchManager 同模式） ----
+
+
+class FinalizeManager:
+    """合成任务的状态注册与后台线程执行。"""
+
+    def __init__(self) -> None:
+        self._jobs: dict[str, dict[str, Any]] = {}
+        self._lock = threading.Lock()
+
+    def start(self, project_id: str, *, version_id: str | None = None,
+              subtitles: bool = True, dubbing: bool = True) -> dict[str, Any]:
+        fid = f"fin_{int(time.time() * 1000):x}"
+        rec: dict[str, Any] = {
+            "id": fid, "project_id": project_id, "status": "running",
+            "messages": [], "result": None, "error": None,
+            "created_at": time.time(),
+        }
+        with self._lock:
+            self._jobs[fid] = rec
+        t = threading.Thread(target=self._run, args=(rec, version_id, subtitles, dubbing),
+                             daemon=True, name=f"finalize-{fid}")
+        t.start()
+        return dict(rec)
+
+    def _run(self, rec: dict[str, Any], version_id: str | None,
+             subtitles: bool, dubbing: bool) -> None:
+        try:
+            result = finalize_film(
+                rec["project_id"], version_id=version_id, subtitles=subtitles,
+                dubbing=dubbing, on_progress=lambda m: _emit(rec, m),
+            )
+            rec["result"] = result
+            rec["status"] = "succeeded"
+        except Exception as e:  # noqa: BLE001
+            log.exception("成片合成失败")
+            rec["error"] = str(e)
+            rec["status"] = "failed"
+
+    def get(self, finalize_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            rec = self._jobs.get(finalize_id)
+            return dict(rec) if rec else None
+
+    def latest_for_project(self, project_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            found = [r for r in self._jobs.values() if r["project_id"] == project_id]
+            return dict(max(found, key=lambda r: r["created_at"])) if found else None
+
+
+_manager: FinalizeManager | None = None
+
+
+def get_finalize_manager() -> FinalizeManager:
+    global _manager
+    if _manager is None:
+        _manager = FinalizeManager()
+    return _manager

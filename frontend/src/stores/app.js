@@ -70,6 +70,8 @@ export const store = reactive({
   videoMode: localStorage.getItem('sw_video_mode') || 'auto',   // 生成模式：auto | approval
   videoResolution: localStorage.getItem('sw_video_resolution') || '',  // 空=全局默认(768P)
   videoAspect: localStorage.getItem('sw_video_aspect') || '9:16',  // 画幅：短剧默认竖屏 9:16
+  videoSubtitle: localStorage.getItem('sw_video_subtitle') !== 'off',  // 成片合成时烧台词字幕（默认开）
+  videoFinalize: null,    // 成片合成任务状态（null/对象）
   // 视频播放器
   playingVideo: null,     // { url, title, meta }
   // Prompt 编辑
@@ -820,6 +822,12 @@ export function setVideoAspect(ratio) {
   localStorage.setItem('sw_video_aspect', ratio)
 }
 
+/** 设置成片字幕烧录开关（合成成片时生效，默认开）。 */
+export function setVideoSubtitle(on) {
+  store.videoSubtitle = !!on
+  localStorage.setItem('sw_video_subtitle', on ? 'on' : 'off')
+}
+
 /** 启动批量生成（自动/审批模式由 store.videoMode 决定）。 */
 export async function startVideoBatch() {
   if (!store.pid) return
@@ -892,6 +900,79 @@ export async function batchCommand(command) {
   } catch (e) {
     notify(`命令失败：${e.message}`, 'error')
   }
+}
+
+/** 发起成片合成（拼装 + 配音 + 字幕按当前开关，后台执行）。 */
+export async function startFinalize() {
+  if (!store.pid) return
+  const done = (store.videoJobs || []).filter((j) => j.status === 'succeeded' && j.video_url).length
+  if (!done) {
+    notify('还没有已生成的镜头，先出片再合成成片', 'info')
+    return
+  }
+  try {
+    store.videoFinalize = await api(`/projects/${store.pid}/video/finalize`, 'POST', {
+      subtitles: store.videoSubtitle,
+      dubbing: true,
+    })
+    notify('成片合成已开始（后台执行）', 'ok')
+    ensureFinalizePolling()
+  } catch (e) {
+    notify(`成片合成启动失败：${e.message}`, 'error')
+  }
+}
+
+/** 查询成片合成进度；进程重启后内存任务丢失，从素材库恢复最近一次成片。 */
+export async function pollFinalize() {
+  if (!store.pid) return
+  try {
+    const rec = await api(`/projects/${store.pid}/video/finalize/latest`)
+    if (rec.id) {
+      store.videoFinalize = rec
+      return
+    }
+    const assets = await api(`/projects/${store.pid}/assets`)
+    const byNew = (a, b) => (b.created_at || '').localeCompare(a.created_at || '')
+    const film = assets.filter((a) => a.source === 'finalize' && a.kind === 'video').sort(byNew)[0]
+    if (!film) {
+      store.videoFinalize = null
+      return
+    }
+    const srt = assets.filter((a) => a.source === 'finalize' && a.kind === 'subtitle').sort(byNew)[0]
+    store.videoFinalize = {
+      id: `asset:${film.id}`, status: 'succeeded',
+      messages: [], error: null,
+      result: {
+        video_url: film.url, video_asset_id: film.id,
+        srt_url: srt?.url || null, srt_asset_id: srt?.id || null,
+        duration_sec: null, dubbed: null, subtitled: null,
+        shots_used: null, shots_total: null, warnings: [],
+      },
+    }
+  } catch { /* 忽略轮询错误 */ }
+}
+
+let finalizePollTimer = null
+/**
+ * 成片合成轮询：running 时全局跟进（与批次轮询同模式），终态自动停止并通知。
+ */
+export function ensureFinalizePolling() {
+  if (finalizePollTimer) return
+  finalizePollTimer = setInterval(async () => {
+    const rec = store.videoFinalize
+    if (!store.pid || !rec || rec.status !== 'running') {
+      clearInterval(finalizePollTimer)
+      finalizePollTimer = null
+      return
+    }
+    await pollFinalize()
+    const after = store.videoFinalize
+    if (after?.status === 'succeeded') {
+      notify('成片已合成完成，可在作品工作台播放', 'ok')
+    } else if (after?.status === 'failed') {
+      notify(`成片合成失败：${after.error || '未知原因'}`, 'error')
+    }
+  }, 3000)
 }
 
 /** 打开视频播放器。 */

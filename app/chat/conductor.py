@@ -813,6 +813,45 @@ def build_chat_tools(
         return f"已登记素材「{asset.name}」，生成视频时可以在镜头提示词里把它挂为参考视频。"
 
     @tool
+    def finalize_film(project_id: str, subtitles: bool = True, dubbing: bool = True) -> str:
+        """把已生成成功的镜头合成为完整成片（拼装 + 台词配音 + 台词字幕，后台执行）。用户说「合成成片 / 拼成片 / 出完整视频」时调用。参数：project_id=项目 id，subtitles=是否烧台词字幕（默认开），dubbing=是否配台词语音（默认开，无台词或未配语音 key 时自动跳过）。"""
+        from ..deps import finalize_manager as _manager
+
+        p = _project(project_id)
+        _manager().start(p.id, subtitles=subtitles, dubbing=dubbing)
+        opts = [o for o, on in (("配音", dubbing), ("字幕", subtitles)) if on]
+        suffix = f"（含{'/'.join(opts)}）" if opts else ""
+        return (
+            f"已开始合成成片{suffix}，正在后台拼装各镜头。"
+            "完成后成片会出现在作品工作台里，稍等片刻或直接问「合成好了吗」。"
+        )
+
+    @tool
+    def check_finalize() -> str:
+        """查询成片合成的进度与结果。用户问「合成好了吗 / 成片好了没」时调用，不要凭记忆回答。无需参数。"""
+        from ..deps import finalize_manager as _manager
+
+        pid = collector.get("project_id")
+        rec = _manager().latest_for_project(pid) if pid else None
+        if rec is None:
+            return "这个项目还没有发起过成片合成。说「合成成片」即可开始。"
+        if rec["status"] == "running":
+            tail = rec["messages"][-1] if rec["messages"] else "正在准备"
+            return f"合成进行中：{tail}"
+        if rec["status"] == "failed":
+            return f"合成失败了：{rec['error']}。可以排查后再让我重新合成。"
+        r = rec["result"] or {}
+        head = (f"成片已合成完成（{r.get('duration_sec', 0)} 秒，"
+                f"用了 {r.get('shots_used', 0)}/{r.get('shots_total', 0)} 个镜头）")
+        flags = [
+            "已配音" if r.get("dubbed") else "未配音（无台词或未配置语音）",
+            "已烧字幕" if r.get("subtitled") else "无字幕",
+        ]
+        for w in r.get("warnings") or []:
+            flags.append(f"注意：{w}")
+        return "；".join([head, *flags]) + "。成片在作品工作台里可直接播放下载。"
+
+    @tool
     def check_background_tasks() -> str:
         """查询后台任务（导演拆解 / 美术 / 摄影 / 定妆图）的状态和结果。用户问「拆好了吗 / 好了没 / 进度如何」时调用，不要凭记忆回答。无需参数。"""
         if runner is None:
@@ -885,6 +924,8 @@ def build_chat_tools(
         get_video_jobs,
         rerun_video,
         add_asset,
+        finalize_film,
+        check_finalize,
         check_background_tasks,
         remember,
         recall,

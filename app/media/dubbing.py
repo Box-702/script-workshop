@@ -223,7 +223,8 @@ def synthesize_track(
     首轮按常速合成，若最后一句的结束时刻超出片尾预算，则整批以 1.2 倍速
     重合成一次再排——宁可语速稍快，不让台词被片尾截掉。
 
-    返回 [{"path": mp3路径, "start_ms": int}, ...]（按时间排序）。
+    返回 [{"path": mp3路径, "start_ms": int, "end_ms": int, "text": str,
+          "speaker": str}, ...]（按时间排序）。end_ms 与 speaker 供字幕时间轴复用。
     """
     def _emit(msg: str) -> None:
         log.info(msg)
@@ -253,7 +254,9 @@ def synthesize_track(
             base = shot_start.get(line.shot_id, 0.0)
             start = max(base + LINE_LEAD_SEC, next_free.get(line.shot_id, 0.0) or base + LINE_LEAD_SEC)
             next_free[line.shot_id] = start + dur + LINE_GAP_SEC
-            track.append({"path": str(mp3), "start_ms": int(start * 1000), "text": line.text})
+            track.append({"path": str(mp3), "start_ms": int(start * 1000),
+                          "end_ms": int((start + dur) * 1000),
+                          "text": line.text, "speaker": line.speaker})
             _emit(f"[配音] {line.speaker}（{start:.1f}s 起，{dur:.1f}s）：{line.text}")
         track.sort(key=lambda x: x["start_ms"])
         return track, total
@@ -337,7 +340,7 @@ def mix_dubbing(
     return out_path
 
 
-def dub_video(
+def dub_video_with_track(
     video_path: Path,
     script: Script,
     shots: list[Shot],
@@ -347,12 +350,15 @@ def dub_video(
     work_dir: Path | None = None,
     bg_volume: float = 0.25,
     on_progress: Any = None,
-) -> Path | None:
-    """一站式配音：计划 → 合成 → 混音。没有台词或 TTS 不可用时返回 None。"""
+) -> tuple[Path | None, list[dict[str, Any]]]:
+    """一站式配音：计划 → 合成 → 混音。没有台词或 TTS 不可用时返回 (None, [])。
+
+    额外返回台词时间轴（start_ms/end_ms/text/speaker），供字幕与语音同步。
+    """
     plan = plan_dubbing(script, shots)
     if not plan.lines:
         log.info("本片没有对白，跳过配音")
-        return None
+        return None, []
 
     def _emit(msg: str) -> None:
         log.info(msg)
@@ -364,8 +370,27 @@ def dub_video(
     try:
         track = synthesize_track(tts, plan, shots, tmp, on_progress=on_progress)
         if not track:
-            return None
-        return mix_dubbing(video_path, track, out_path, bg_volume=bg_volume)
+            return None, []
+        return mix_dubbing(video_path, track, out_path, bg_volume=bg_volume), track
     finally:
         if work_dir is None:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+def dub_video(
+    video_path: Path,
+    script: Script,
+    shots: list[Shot],
+    tts: TTSClient,
+    out_path: Path,
+    *,
+    work_dir: Path | None = None,
+    bg_volume: float = 0.25,
+    on_progress: Any = None,
+) -> Path | None:
+    """一站式配音。需要台词时间轴（字幕同步）时改用 dub_video_with_track。"""
+    video, _ = dub_video_with_track(
+        video_path, script, shots, tts, out_path,
+        work_dir=work_dir, bg_volume=bg_volume, on_progress=on_progress,
+    )
+    return video
