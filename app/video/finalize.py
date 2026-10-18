@@ -168,6 +168,16 @@ def finalize_film(
             raise ValueError("没有任何已生成的镜头可合成（先生成视频再合成成片）")
         emit(f"已就绪 {len(clips)}/{len(shot_dicts)} 个镜头")
 
+        # provider 实际产出与计划时长有偏差（v6 实测：计划 20s，成片 21.2s），
+        # 按计划时长排配音/字幕会越往后漂移越大——下载后逐镜实测校准。
+        calibrated: list[Shot] = []
+        for shot, clip in zip(shots, clips):
+            real = _media_duration_sec(Path(clip))
+            calibrated.append(shot.model_copy(update={"duration_sec": max(1.0, real)}) if real > 0 else shot)
+        if any(a.duration_sec != b.duration_sec for a, b in zip(calibrated, shots)):
+            emit(f"按实际成片时长校准时间轴（合计 {sum(s.duration_sec for s in calibrated):.1f}s）")
+        shots = calibrated
+
         # ---- 2) 拼装 ----
         from .assemble import assemble_videos
 
@@ -223,9 +233,12 @@ def finalize_film(
             emit("本片没有台词，无需字幕")
 
         # ---- 5) 交付：成片注册为项目素材 ----
+        # 时长要在 move 进素材目录之前量（move 后原路径不存在）。
+        duration = _media_duration_sec(current)
+        if duration <= 0:
+            duration = sum(max(1.0, s.duration_sec) for s in shots)  # 兜底：校准后的计划时长
         video_info = _register_asset(store, project_id, current, kind="video",
                                      name=f"成片·{project.title}.mp4")
-        duration = _duration_sec(current)
         emit("成片已交付")
         return {
             "video_asset_id": video_info["asset_id"],
@@ -243,14 +256,36 @@ def finalize_film(
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _duration_sec(path: Path) -> float:
-    """成片时长：qa._duration 有 ffmpeg stderr 兜底（本机常缺 ffprobe）。"""
-    from .qa import _duration
+def _media_duration_sec(path: Path) -> float:
+    """实测媒体时长：优先 ffprobe；缺 ffprobe 回退解析 `ffmpeg -i` 的 stderr。
+
+    全部探不到返回 0.0，调用方回退到计划时长（与配音模块的兜底思路一致，
+    本机便携版 ffmpeg 常配不到 ffprobe）。
+    """
+    import re
+    import subprocess
+
+    from .qa import _ffmpeg, _ffprobe
 
     try:
-        return _duration(path)
+        probe = _ffprobe()
+        if probe:
+            r = subprocess.run(
+                [probe, "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=nw=1:nk=1", str(path)],
+                capture_output=True, text=True, timeout=30,
+            )
+            return float(r.stdout.strip())
+        ffmpeg = _ffmpeg()
+        if ffmpeg:
+            r = subprocess.run([ffmpeg, "-i", str(path)], capture_output=True, text=True, timeout=30)
+            m = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.?\d*)", r.stderr or "")
+            if m:
+                h, mi, s = (float(x) for x in m.groups())
+                return h * 3600 + mi * 60 + s
     except Exception:  # noqa: BLE001
-        return 0.0
+        pass
+    return 0.0
 
 
 def _default_store():

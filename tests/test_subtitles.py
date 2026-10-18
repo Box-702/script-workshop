@@ -128,6 +128,25 @@ def test_subtitles_filter_escapes_windows_path():
     assert _subtitles_filter(r"C:\data\proj_a\film.ass") == "subtitles='C\\:/data/proj_a/film.ass'"
 
 
+def test_media_duration_sec_falls_back_to_ffmpeg_stderr(monkeypatch, tmp_path):
+    """缺 ffprobe 时解析 `ffmpeg -i` 的 Duration 行；全失败返回 0.0。"""
+    import app.video.qa as qa
+    from app.video import finalize as fin
+
+    monkeypatch.setattr(qa, "_ffprobe", lambda: None)
+    monkeypatch.setattr(qa, "_ffmpeg", lambda: "ffmpeg")
+
+    def fake_run(cmd, capture_output, text, timeout):
+        return SimpleNamespace(returncode=0, stdout="",
+                               stderr="Duration: 00:00:21.20, start: 0.000000, bitrate: 1703 kb/s")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    assert fin._media_duration_sec(tmp_path / "x.mp4") == 21.2
+
+    monkeypatch.setattr(qa, "_ffmpeg", lambda: None)
+    assert fin._media_duration_sec(tmp_path / "x.mp4") == 0.0
+
+
 def test_burn_subtitles_builds_expected_command(monkeypatch):
     """烧录只重编码视频轨，音轨直拷，滤镜走转义路径。"""
     captured = {}
@@ -175,7 +194,7 @@ class _FakeStore:
 
 
 def _finalize_env(monkeypatch, tmp_path, n_shots: int = 2):
-    """假镜头/任务 + 打桩下载与拼装；返回 (store, warnings 承接点)。"""
+    """假镜头/任务 + 打桩下载与拼装；返回 store。"""
     from app.video import finalize as fin
 
     shot_dicts = [
@@ -211,12 +230,27 @@ def test_finalize_film_happy_path(monkeypatch, tmp_path):
     from app.video import finalize as fin
 
     store = _finalize_env(monkeypatch, tmp_path)
-    result = fin.finalize_film("p1", subtitles=True, dubbing=True, store=store)
+
+    # 逐镜实测时长：镜头文件按 6.5/8.5 校准，成片本体探不到（假字节）→ 回退计划合计。
+    def measure(path):
+        name = path.name
+        if "shot_scene_001_001" in name:
+            return 6.5
+        if "shot_scene_001_002" in name:
+            return 8.5
+        return 0.0
+
+    monkeypatch.setattr(fin, "_media_duration_sec", measure)
+    messages: list[str] = []
+    result = fin.finalize_film("p1", subtitles=True, dubbing=True, store=store,
+                               on_progress=messages.append)
     assert result["shots_used"] == 2
     assert result["video_url"] == "/api/assets/file/asset_video"
     assert result["dubbed"] is False  # 无剧本 → 配音降级跳过
     assert result["subtitled"] is False
     assert result["warnings"] == []
+    assert result["duration_sec"] == 15.0  # 校准后的实际合计，而不是计划的 14.0
+    assert any("校准" in m for m in messages)
 
 
 def test_finalize_film_skips_missing_and_failed_downloads(monkeypatch, tmp_path):

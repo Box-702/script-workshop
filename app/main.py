@@ -16,9 +16,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from dotenv import load_dotenv
 
 from .api import router as api_router
 from .config import apply_langsmith_env, get_settings
+
+# .env 里的密钥（MINIMAX_API_KEY 等）不只有 Settings 在读：视频 provider 与 TTS
+# 的回落链直接读 os.environ，必须在进程启动时先落进环境变量。
+load_dotenv()
 
 # 站点目录：前端由 frontend/ 的 Vue 工程构建（frontend/dist），
 # FastAPI 直接托管构建产物（API 与 Web 页面同源）。

@@ -51,3 +51,4 @@ clear_db.py
 # ---------- Blender 白模渲染产物（体积大，blend 源文件与脚本仍提交） ----------
 blender/renders/
 blender/*.blend1
+.zcode/

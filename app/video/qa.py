@@ -80,7 +80,22 @@ def _duration(path: Path) -> float:
             return max(1.0, float(r.stdout.strip()))
         except Exception:  # noqa: BLE001
             pass
-    return 8.0  # 探不到时长时按常见单镜时长估算抽帧点
+    # 便携版常缺 ffprobe：回退解析 `ffmpeg -i` 的 stderr Duration 行（与配音模块同思路），
+    # 否则探不到时长的片子只能按 8s 估算抽帧点，长片质检会挤在开头。
+    import re
+    import subprocess
+
+    ffmpeg = _ffmpeg()
+    if ffmpeg:
+        try:
+            r = subprocess.run([ffmpeg, "-i", str(path)], capture_output=True, text=True, timeout=30)
+            m = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.?\d*)", r.stderr or "")
+            if m:
+                h, mi, s = (float(x) for x in m.groups())
+                return max(1.0, h * 3600 + mi * 60 + s)
+        except Exception:  # noqa: BLE001
+            pass
+    return 8.0  # 全部探不到时的最后估算
 
 
 def extract_frames(video_url: str, *, count: int = 5) -> list[str]:

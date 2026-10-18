@@ -562,6 +562,8 @@ export const STAGE_LABELS = {
   get_video_jobs: '查询视频任务状态',
   rerun_video: '重新生成镜头',
   check_background_tasks: '查看后台任务进度',
+  finalize_film: '合成完整成片',
+  check_finalize: '查询成片进度',
   map_novel: '建立章节地图',
   propose_arcs: '挑选改编段落',
 }
