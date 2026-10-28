@@ -701,7 +701,10 @@ def build_chat_tools(
         for s in targets:
             s["prompt_status"] = "approved"
             s["prompt_review_note"] = "对话中批准"
-        refresh_prompt_audits(shots)
+        refresh_prompt_audits(
+            shots,
+            style_context=(current.style_guide.camera_style if current.style_guide else ""),
+        )
         version = store.create_video_version(
             project_id=p.id, shots=shots, style_guide=current.style_guide,
             source_type="manual", label="对话中批准镜头提示词",

@@ -76,6 +76,10 @@ _BODY_RULES_ZH = """**每个镜头的 prompt_body 要写什么**（这是给视�
 8. **只写正向描述，禁止否定句**。"手没有从带子里穿过去""没有碰到头"这类否定式防穿模
    表述，等于把「穿过身体」这个概念喂给模型，它反而会画出来。不想要的东西直接不提；
    必须交代的让位关系，改写成它应该怎样（如「带子从她头顶上方通过」）。
+   同类高发写法也要一并改掉（实测这两类最常漏）：
+   · 否定动作延续 → 写"低头快走掠过，没有停留"要改成"低头快走掠过，脚步不停，衣角翻飞"；
+   · 否定视线/神态 → 写"眼睛没有看任何地方"要改成"目光涣散，焦点落在虚空处"。
+   只要句子里出现「没有」「不」「避免」「禁止」「不是」「并非」，一律重写成正向描述。
 9. **台词不进提示词**。不要把角色说的话写成引用（「说道：『……』」「报告：『……』」）——
    视频模型会把台词渲染成含混的假说话，观众完全听不懂。对白段只写说话的**姿态与口型动机**：
    谁对谁说、语速与情绪、身体朝向与距离、手的动作；声音交给后期配音与对口型。
@@ -508,7 +512,9 @@ class DPAgent(CrewAgent):
             if prompt:
                 shot.video_prompt = prompt
             # 第二道审计（出厂前双重审计）：结论随镜头落库，人工审阅时逐镜可见。
-            shot.prompt_audit = audit_video_prompt({"video_prompt": prompt})
+            # 传入 style（全片风格段）以排除「本镜没有的运镜」——风格段每个镜头都带一遍，
+            # 不排除会把所有镜头都误判成「一镜多运镜」。
+            shot.prompt_audit = audit_video_prompt({"video_prompt": prompt}, style_context=style)
             updated.append(shot)
         return updated
 
@@ -556,7 +562,9 @@ class DPAgent(CrewAgent):
             shot.video_prompt = strip_spoken_quotes(
                 strip_slop("。".join(p.strip().rstrip("。") for p in pieces if p) + "。")
             )
-            shot.prompt_audit = audit_video_prompt({"video_prompt": shot.video_prompt})
+            shot.prompt_audit = audit_video_prompt(
+                {"video_prompt": shot.video_prompt}, style_context=style
+            )
         return CrewTaskResult(data=shots, summary=f"（无模型回退）为 {len(shots)} 个镜头拼装基础提示词")
 
 

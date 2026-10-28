@@ -37,18 +37,20 @@
 - **剧组 Agent 系统**：导演 / 美术指导 / 摄影指导三个 Agent 各司其职（美术指导产出的角色造型与环境描述是全片视觉锚的唯一来源，下游逐字复用）。
 - **参考资产流水线（图像级一致性）**：为角色与场景生成定妆图 → 视觉模型质检 → 注册为全局参考 → 回填到镜头，让视频模型「看见」同一个角色，而不是只靠文字描述。
 - **镜头级视频生成**：镜头数由导演按剧情内容决定（分镜 = 一段连贯的角色动作或一段连贯的角色对话剧情）。摄影指导只提出 Prompt 草稿，用户可逐镜编辑、保存、标记需修改或批准；只有批准后的 Prompt 才能提交视频任务。首尾帧接力 + 参考图/参考视频锁一致性，最后 FFmpeg 拼接。
+- **成片合成（最后一公里）**：`finalize` 把成功镜头下载后**逐镜实测时长校准**（provider 产出常与计划时长有偏差，不校准则字幕/配音越往后越飘），再拼装 → 配音（TTS 真实语音，模型本身产不出人声）→ ASS 字幕烧录，成片与字幕注册为项目素材直接播放。降级阶梯：配音失败交静片+估算字幕，烧录失败交无字幕成片，单镜失败跳过并警告。
 - **视频 Provider 抽象层**：产品统一走 MiniMax（自带 Key，模型名可换）；底层保留统一接口的多厂商适配（Runway / Kling / CogVideoX / Sora），需要时可扩展启用。
 - **人审环节**：剧本改编走 `interrupt` 暂停 / `Command.resume` 恢复的四决策闭环（接受 / 编辑 / 重新生成 / 拒绝）；视频侧先审 Prompt，再审成片，所有决定都进入「分镜版本 → 提示词版本 → 成片版本」的链式快照。
 - **版本迭代**：视频版本链式快照，支持回溯/分叉/里程碑标记。
 
 > 开发指引与踩坑记录见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)；
-> 包结构、模型接入层、Agent 清单与核心链路见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
+> 包结构、模型接入层、Agent 清单与核心链路见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)；
+> 技术选型的「为什么」见 [`docs/DECISIONS.md`](docs/DECISIONS.md)。
 
 ### 工具集
 
-**对话 Conductor 工具（19 个）**：剧本侧 `create_project`（超长原文主动提示）/ `map_novel` / `propose_arcs` / `generate_script` / `run_adaptation` / `get_script_overview` / `ask`；剧组 `breakdown_scenes` / `generate_style_guide` / `generate_video_prompts` / `generate_reference_assets`；视频侧 `list_video_shots` / `approve_video_prompts` / `submit_videos` / `get_video_jobs` / `rerun_video`；运维 `check_background_tasks`；记忆 `remember` / `recall`。从导入小说到出片的全流程都能在对话里完成；每轮的工具轨迹压缩后进入历史上下文，多轮不丢事实。
+**对话 Conductor 工具（22 个）**：剧本侧 `create_project`（超长原文主动提示）/ `map_novel` / `propose_arcs` / `generate_script` / `run_adaptation` / `get_script_overview` / `ask`；剧组 `breakdown_scenes` / `generate_style_guide` / `generate_video_prompts` / `generate_reference_assets`；素材 `add_asset`；视频侧 `list_video_shots` / `approve_video_prompts` / `submit_videos` / `get_video_jobs` / `rerun_video` / `finalize_film` / `check_finalize`；运维 `check_background_tasks`；记忆 `remember` / `recall`。从导入小说到出片的全流程都能在对话里完成；每轮的工具轨迹压缩后进入历史上下文，多轮不丢事实。
 
-**长篇小说改编**：剧本生成一次约吃得下 1.4 万字原文，超长文本不再静默砍头——`create_project` 会如实提示规模；先 `map_novel`（后台 map-reduce 逐章摘要+出场人物，存 `projects.novel_map_json`）建章节地图，再 `propose_arcs` 提 2-3 个候选故事弧（清单带每章字数，单弧约束在 1.2 万字生成容量内，大弧自动拆上下部）；用户选定后 `generate_script(from_chapter, to_chapter)` 按章生成，「继续改编下一段」直接按容量从进度续接；连载推进时自动携带已改编章节的「前情提要」保持人物与情节衔接（进度锚 `projects.adapted_until`，项目 API 已暴露地图与进度）。**可靠性护栏**（deepseek 实测驱动）：模型摘要/剧本输出不守格式时结构化容错解析而非整体回退；回复声称了「已生成/已建成」但本轮没有真实工具返回时，系统自动更正并带纠错指令重跑一次，杜绝凭对话历史编造版本号。
+**长篇小说改编**：单次剧本生成的原文容量约 1.2 万字，超长文本不再静默砍头——`create_project` 会如实提示规模；先 `map_novel`（后台 map-reduce 逐章摘要+出场人物，存 `projects.novel_map_json`）建章节地图，再 `propose_arcs` 提 2-3 个候选故事弧（清单带每章字数，单弧约束在 1.2 万字生成容量内，大弧自动拆上下部）；用户选定后 `generate_script(from_chapter, to_chapter)` 按章生成，「继续改编下一段」直接按容量从进度续接；连载推进时自动携带已改编章节的「前情提要」保持人物与情节衔接（进度锚 `projects.adapted_until`，项目 API 已暴露地图与进度）。**可靠性护栏**（deepseek 实测驱动）：模型摘要/剧本输出不守格式时结构化容错解析而非整体回退；回复声称了「已生成/已建成」但本轮没有真实工具返回时，系统自动更正并带纠错指令重跑一次，杜绝凭对话历史编造版本号。
 
 **三层用户记忆 + 会话滚动摘要**（`app/memory.py`）：结构化记忆替代 RAG——preference（全局偏好）/ decision（项目决定）/ feedback（对话反馈）存 `memories` 表，按作用域注入系统提示；接受 / 拒绝审阅时自动沉淀（`learn_from_decision`）。长对话不再掐头：超过保留窗口的旧消息会被 LLM 压缩成事实清单（存 `conversations.summary_json`），上下文 = 摘要 + 最近消息，摘要失败自动回落为截断。
 
@@ -238,6 +240,7 @@ Script Workshop/
 │   │   ├── queue.py          #   异步任务队列
 │   │   ├── continuity.py     #   连续性解析（接力 → 参考视频）
 │   │   ├── assemble.py       #   FFmpeg 拼接
+│   │   ├── finalize.py       #   成片合成（拼装 → 配音 → 字幕烧录）
 │   │   └── providers/        #   5 个 Provider 适配器
 │
 ├── frontend/
@@ -252,7 +255,22 @@ Script Workshop/
 │           ├── VideoPlayer.vue       # 视频播放器
 │           └── ...
 │
-└── tests/                    # 测试套件（114 tests）
+├── docs/                     # ★ 文档
+│   ├── README.md             #   文档索引（先读这个）
+│   ├── ARCHITECTURE.md       #   分层结构 / 模型接入 / Agent 清单 / 核心链路
+│   ├── DEVELOPMENT.md         #   开发指引 + 踩坑记录 + 排查手册
+│   ├── DECISIONS.md          #   技术选型记录（为什么用这个）
+│   └── DRAMATURGY.md         #   「先戏剧后语法」方法论
+│
+├── evals/                    # ★ 提示词质量 eval（改提示词后跑这个）
+│   ├── README.md             #   怎么跑、怎么加 case、判定标准
+│   ├── rubric.md             #   五维评分量表
+│   ├── assertions.py         #   确定性断言库
+│   ├── cases.py              #   10 条 golden case
+│   ├── runner.py             #   引擎
+│   └── fixtures/             #   录制的真实产出（离线回归用）
+│
+└── tests/                    # 测试套件（195 tests）
 ```
 
 ## 环境变量
@@ -277,8 +295,24 @@ Script Workshop/
 
 ```bash
 python -m pytest tests -q
-# 114 passed
+# 195 passed
 ```
+
+## 提示词质量 eval
+
+`tests/` 测「代码不崩」，**eval 测「提示词质量没退化」**——改提示词没有编译器，
+只有 eval 能提前告诉你这次改动是不是把质量拉垮了。
+
+```bash
+python -m evals.run              # 跑 10 条 golden case（需要对话模型）
+python -m evals.run --judge      # 额外跑 LLM judge 打分（看质量趋势）
+pytest evals -q                  # 离线层：不需要 key
+```
+
+它已经抓到过三个真问题：审计器对真实提示词 4/4 误报「一镜多运镜」、
+提示词里混进否定句（视频模型会把被否定的内容照画出来）、
+每镜都带的全片风格段与本镜运镜指令互相矛盾。
+详见 [`evals/README.md`](evals/README.md)。
 
 ## 许可证
 
@@ -286,6 +320,7 @@ python -m pytest tests -q
 
 ## 致谢
 
+- [visual-skills](https://github.com/smixs/visual-skills)（Serge Shima，CC BY 4.0） - 《AIGC 视觉内容提示词方法论》，本项目 `app/crew/dramaturgy.py` 的确定性审计规则（场景公式、细节律、五锚点、空洞词表、否定句检测）源自该方法论，按 CC BY 4.0 要求署名
 - [LangGraph](https://github.com/langchain-ai/langgraph) - 有状态 Agent 编排框架
 - [LangChain](https://github.com/langchain-ai/langchain) - LLM 应用开发框架
 - [FastAPI](https://github.com/tiangolo/fastapi) - 现代 Python Web 框架

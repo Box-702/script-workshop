@@ -13,14 +13,15 @@ app/
 ├── api/           REST 路由包 —— 按业务域分模块
 ├── config.py / deps.py                      配置与依赖装配（全项目唯一装配点）
 ├── domain.py / store.py / workspace.py      领域模型 / 持久化 / 文件系统
+├── memory.py                                 三层用户记忆 + 会话滚动摘要
 │
 ├── llm/        模型接入层   —— 对上提供能力，对下屏蔽厂商
 ├── pipeline/   内容生产线   —— 纯逻辑，不依赖 LangGraph / HTTP
 ├── agent/      改编智能体   —— LangGraph 状态图 + 后台任务运行器
 ├── chat/       对话编排层   —— 对话式 Agent（复用 agent 的工作流）
 ├── crew/       剧组 Agent   —— 导演 / 美术指导 / 摄影指导
-├── media/      参考资产层   —— 定妆图 → 质检 → 注册 → 回填
-└── video/      视频生成层   —— Provider 抽象 + 队列 + 连续性 + 拼接
+├── media/      参考资产层   —— 定妆图 → 质检 → 注册 → 回填 / 配音 / 字幕
+└── video/      视频生成层   —— Provider 抽象 + 队列 + 连续性 + 拼接 + 成片合成
 ```
 
 `app/api/` 内部再分一层，避免路由堆在一个大文件里：
@@ -140,10 +141,23 @@ ProviderSpec(
 
 | Agent | 角色 | 职责 |
 |---|---|---|
-| **ChatConductor** | 前厅 / 调度 | 绑定 9 个工具理解用户意图，把请求路由到确定性流水线或后台剧组任务 |
+| **ChatConductor** | 前厅 / 调度 | 绑定 22 个工具理解用户意图，把请求路由到确定性流水线或后台剧组任务 |
 
 它是一个 ReAct 小图（`chat_agent` ↔ `tools`），工具循环上限 8 轮。
 关键设计：**审阅动作走确定性路径**（accept/reject 不经过 LLM），避免「对话式工具调用不可靠」导致误操作。
+
+工具按职责分四组：
+
+| 组 | 工具 |
+|---|---|
+| 项目与改编 | `create_project` `map_novel` `propose_arcs` `generate_script` `run_adaptation` `get_script_overview` `ask` |
+| 剧组与素材 | `breakdown_scenes` `generate_style_guide` `generate_video_prompts` `generate_reference_assets` `add_asset` |
+| 出片 | `list_video_shots` `approve_video_prompts` `submit_videos` `get_video_jobs` `rerun_video` `finalize_film` `check_finalize` |
+| 状态与记忆 | `check_background_tasks` `remember` `recall` |
+
+> 工具数量逼近 30–50 会开始出现「模型选不对工具」的退化（Anthropic 官方建议的阈值）。
+> 目前 22 个仍安全，但**新增工具前应先考虑合并到已有工具的参数**，而不是继续加新工具。
+> 详见 [`DECISIONS.md` D-12](DECISIONS.md)。
 
 ### 3.2 剧组 Agent（3 个）—— `app/crew/`
 
@@ -168,7 +182,22 @@ ProviderSpec(
   它们是 `app/agent/graph.py` 里的固定编排节点，不是自主 Agent——流程由代码决定，
   模型只在 `plan` / `propose` 两个节点里产出内容。
 - `guard` 是自纠错闸门（硬校验 + LLM 五维评审），`review` 是 `interrupt` 人机协同点。
-- 成片拼接（`app/video/assemble.py`，FFmpeg）也不是 Agent。
+- **剧组的三个角色不是嵌套 Agent**：`CrewAgent.run()` 走的是 `llm.chat()` **一次**结构化调用，
+  没有自己的工具集和上下文循环。按业界（Anthropic）定义它们更接近「领域技能」而非 subagent。
+  详见 [`DECISIONS.md` D-04](DECISIONS.md)。
+- 成片拼接（`app/video/assemble.py`，FFmpeg）与成片合成（`app/video/finalize.py`）也不是 Agent。
+- **`app/agent/skills.py` 与「技能」无关**：它是后台任务运行器（`SubAgentRunner`），
+  名字是历史遗留的术语污染。
+
+### 3.5 记忆层 —— `app/memory.py`
+
+| 机制 | 说明 |
+|---|---|
+| 三层用户记忆 | `global → project → conversation` 三种作用域，由 `remember` / `recall` 两个工具读写；按作用域注入系统提示 |
+| 滚动摘要 | 超过阈值把旧消息压成 ≤300 字事实清单（存 `conversations.summary_json`），**替代「掐头丢弃」**，长对话不丢事实 |
+| 审阅决策自动学习 | 用户在审阅卡片上的接受/拒绝决策会被提炼成偏好记忆 |
+
+记忆是**按需加载**的：只有需要时才从 DB 读，不常驻上下文。
 
 ---
 
@@ -218,6 +247,15 @@ ProviderSpec(
   单镜和批量投递都会再次校验 Prompt 是否已批准
 
 ⑨ 拼接成片          app/video/assemble.py（FFmpeg concat / filter_complex）
+
+⑩ 成片合成          app/video/finalize.py（最后一公里，后台线程）
+  收集版本内成功镜头（成片 URL 取各镜最近一次成功 video_job，不信任快照回填）
+  → 下载 → 逐镜实测时长校准（provider 产出常与计划时长有偏差）
+  → 拼装 → 配音（可选，TTS 实测时间轴）→ ASS 字幕烧录（可选）
+  → 成片 + SRT 注册为项目素材（source="finalize"），前端经 /api/assets/file/{id} 播放
+  降级阶梯：配音失败→静片+估算字幕；烧录失败→无字幕成片；单镜下载失败→跳过并警告
+  致命只有两种：没有任何可用镜头、拼装失败
+  入口三处：工作台成片卡片 / 对话工具 finalize_film·check_finalize / POST /projects/{id}/video/finalize
 ```
 
 **两条贯穿全链路的原则**

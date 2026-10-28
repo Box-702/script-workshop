@@ -35,10 +35,20 @@ T = TypeVar("T", bound=BaseModel)
 class LLM:
     """对话模型 + 视觉 + 文生图的统一入口（单例，见 app/deps.py）。"""
 
-    def __init__(self, settings: Settings, store: Any = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        store: Any = None,
+        *,
+        temperature: float | None = None,
+    ) -> None:
         self.settings = settings
         self._store = store
         self.config: ModelConfig | None = resolve_chat(settings, store)
+        # temperature 覆盖：仅供需要可复现输出的场合（如提示词质量 eval）。
+        # 生产链路保持默认温度，不要在这里改。
+        if self.config is not None and temperature is not None:
+            self.config.temperature = temperature
         self._model: BaseChatModel | None = (
             build_chat_model(self.config) if self.config else None
         )
@@ -135,11 +145,14 @@ class LLM:
         }
 
 
-def build_llm(settings: Settings | None = None, store: Any = None) -> LLM:
-    """构造模型门面。未显式传入时使用全局 Settings。"""
+def build_llm(settings: Settings | None = None, store: Any = None, *, temperature: float | None = None) -> LLM:
+    """构造模型门面。未显式传入时使用全局 Settings。
+
+    temperature 覆盖仅供需要可复现输出的场合（如提示词质量 eval 固定用 0）。
+    """
     from ..config import get_settings
 
-    return LLM(settings or get_settings(), store)
+    return LLM(settings or get_settings(), store, temperature=temperature)
 
 
 # 供上层按能力维度做校验/展示。

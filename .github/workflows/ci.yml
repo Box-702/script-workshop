@@ -1,8 +1,12 @@
 # =====================================================================
-# ci.yml —— 后端测试 + 前端构建
+# ci.yml —— 后端测试 + 提示词质量 eval + 前端构建
 #
-# 两个独立 job 并行跑：任一失败即标红。
-# 不含真实模型调用：测试套件在无 key 环境下运行（conftest 已处理）。
+# 三个独立 job 并行跑：任一失败即标红。
+#
+# eval 分两个 job：
+#   - eval-offline：不需要任何 key，验证断言库、judge 解析器、case 完整性，
+#     以及「用录制的真实产出跑断言」——锁住审计器不误报。**每次都跑。**
+#   - eval-llm：需要 EVAL_* secret，跑真实链路。secret 没配时自动跳过。
 # =====================================================================
 
 name: CI
@@ -33,7 +37,66 @@ jobs:
         run: uv sync --frozen
 
       - name: 跑测试
-        run: uv run pytest -q
+        run: uv run pytest tests -q
+
+  eval-offline:
+    name: 提示词 eval（离线层）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: 同步依赖
+        run: uv sync --frozen
+
+      # 不需要任何模型 key：只跑断言库、解析器与录制 fixture 的回归层。
+      - name: 跑离线 eval
+        run: uv run pytest evals -q
+
+  eval-llm:
+    name: 提示词 eval（真实链路）
+    runs-on: ubuntu-latest
+    # 需要 secret 才跑；没配时整个 job 跳过，不阻塞 CI。
+    if: ${{ github.event_name == 'push' || secrets.EVAL_API_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: 同步依赖
+        run: uv sync --frozen
+
+      - name: 跑提示词质量 eval
+        env:
+          CHAT_PROVIDER: ${{ vars.EVAL_CHAT_PROVIDER || 'deepseek' }}
+          DEEPSEEK_API_KEY: ${{ secrets.EVAL_API_KEY }}
+          ZHIPUAI_API_KEY: ${{ secrets.EVAL_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.EVAL_API_KEY }}
+        run: |
+          uv run python -m evals.run --out eval_report.json
+
+      - name: 上传报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: eval_report.json
+          if-no-files-found: ignore
 
   frontend:
     name: 前端构建

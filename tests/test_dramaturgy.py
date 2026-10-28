@@ -14,12 +14,14 @@ from __future__ import annotations
 from app.crew.dramaturgy import (
     audit_breakdowns,
     audit_video_prompt,
+    find_camera_moves,
     find_negations,
     find_slop_words,
     find_spoken_quotes,
     refresh_prompt_audits,
     strip_slop,
     strip_spoken_quotes,
+    strip_style_block,
     three_details,
 )
 from app.domain import SceneAnchors, SceneBreakdown, Shot
@@ -139,12 +141,55 @@ def test_audit_video_prompt_flags_all_killers():
 
 
 def test_audit_video_prompt_flags_slop_negation_and_multi_move():
-    prompt = "电影感十足的走廊，他推近又环绕地看，手没有碰到门。epic, masterpiece"
+    prompt = "电影感十足的走廊，镜头先推近又环绕，手没有碰到门。epic, masterpiece"
     issues = audit_video_prompt({"video_prompt": prompt})
     joined = " ".join(issues)
     assert "占位词" in joined
     assert "否定式描述" in joined
     assert "一镜多运镜" in joined
+
+
+def test_audit_video_prompt_ignores_non_camera_movement_words():
+    """「拉出一道冷光带」里的「拉出」不是 pull-out——不能报一镜多运镜。
+
+    实测踩坑：修复前真实提示词 4/4 全被误判成「一镜多运镜」。
+    """
+    prompt = (
+        "夜里的面馆，门外街灯冷白的光斜射进来，在靠门地面拉出一道冷光带。"
+        "周野的筷子悬在碗上方停住，何清的勺子搁在碗边，两人都静止。"
+    )
+    assert audit_video_prompt({"video_prompt": prompt}) == []
+
+
+def test_audit_video_prompt_excludes_film_wide_camera_style():
+    """全片风格段每个镜头都带一遍，其中的运镜词不属于本镜——必须排除。
+
+    否则所有镜头都会被误判成「一镜多运镜」，告警直接失去意义。
+    """
+    style = "客观机位，稳定为主，关键处缓慢推近。跟随人物时以缓慢横移和轻微推拉为主。"
+    prompt = (
+        "窄小面馆，钨丝灯从正上方偏后打下来，桌面被照出一圈暖黄。"
+        "周野1号右手捏着筷子，把面条挑起来又放回去，何清2号低头喝汤。"
+        "客观机位，稳定为主，关键处缓慢推近。跟随人物时以缓慢横移和轻微推拉为主，"
+        "主色调 #1c1a17。"
+    )
+    issues = audit_video_prompt({"video_prompt": prompt}, style_context=style)
+    assert "一镜多运镜" not in " ".join(issues)
+
+
+def test_find_camera_moves_requires_camera_context():
+    assert find_camera_moves("在靠门地面拉出一道冷光带") == []
+    assert find_camera_moves("镜头极缓慢地向桌面推近") == ["推近"]
+    assert set(find_camera_moves("镜头先推近再横移")) == {"推近", "横移"}
+
+
+def test_strip_style_block_handles_trailing_punctuation_change():
+    """风格段进提示词时末尾「。」会变成「，」——剥离必须容忍这个差异。"""
+    style = "客观机位，稳定为主，关键处缓慢推近。呼吸感来自细微的手持浮动。"
+    prompt = "面馆里灯光昏黄。客观机位，稳定为主，关键处缓慢推近。呼吸感来自细微的手持浮动，主色调 #111。"
+    stripped = strip_style_block(prompt, style)
+    assert "推近" not in stripped
+    assert "面馆里灯光昏黄" in stripped
 
 
 def test_audit_video_prompt_clean_prompt_passes():

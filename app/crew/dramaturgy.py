@@ -103,6 +103,52 @@ _CAMERA_MOVE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# 镜头语境词：运镜动词必须挨着它，才算「在描述镜头怎么动」。
+# 没有语境词时，「在地面拉出一道冷光带」里的「拉出」会被误当成 pull-out——
+# 这类误报曾让真实提示词 4/4 全被标成「一镜多运镜」。
+_CAMERA_CONTEXT_WORDS = (
+    "镜头", "摄影机", "摄像机", "机位", "运镜", "视角", "构图", "景别", "画面", "camera", "shot",
+)
+# 语境窗口：动词前后多少字内出现镜头词才算数。
+_CAMERA_CONTEXT_WINDOW = 14
+
+
+def find_camera_moves(text: str, *, context_window: int = _CAMERA_CONTEXT_WINDOW) -> list[str]:
+    """找出**带镜头语境**的运镜动词。
+
+    与 `_CAMERA_MOVE_RE` 的区别：后者只匹配字面，会把「拉出一道冷光带」误判成
+    pull-out；本函数要求动词附近出现镜头/摄影机/机位等语境词，
+    否则不算运镜。`camera.path`（导演写的运镜轨迹）请直接用 `find_camera_moves` 判定，
+    它天然带语境。
+    """
+    if not text:
+        return []
+    out: list[str] = []
+    for m in _CAMERA_MOVE_RE.finditer(text):
+        verb = m.group(0)
+        lo = max(0, m.start() - context_window)
+        hi = min(len(text), m.end() + context_window)
+        window = text[lo:hi].lower()
+        if any(w in window for w in _CAMERA_CONTEXT_WORDS):
+            out.append(verb)
+    return out
+
+
+def strip_style_block(prompt: str, style: str) -> str:
+    """从提示词里剥掉**全片风格段**（美术指导产出的 camera_style 等）。
+
+    风格段描述的是整部片的运镜语法（「以缓慢推近、轻微横移为主」），每个镜头
+    都会带一遍——它不属于「本镜的运镜」，统计时必须排除，否则一镜多运镜会全量误报。
+
+    风格段进提示词时末尾标点会被改成「，」，因此这里按去尾标点后的核心串匹配。
+    """
+    if not prompt or not style:
+        return prompt
+    core = style.strip().rstrip("。；;，,、 ")
+    if core and core in prompt:
+        return prompt.replace(core, " ")
+    return prompt
+
 
 # ---------- 基础检测 ----------
 
@@ -295,11 +341,16 @@ def audit_breakdowns(breakdowns: list[Any]) -> list[str]:
 # ---------- 摄影指导侧：最终提示词审计（写进 prompt_audit 供人工审阅） ----------
 
 
-def audit_video_prompt(shot: dict[str, Any]) -> list[str]:
+def audit_video_prompt(shot: dict[str, Any], *, style_context: str = "") -> list[str]:
     """对最终 video_prompt 做第二道审计，返回人类可读的提醒列表。
 
     只报「修了会明显出片」的问题；风格偏好类不报（沿用质检的教训：
     把小瑕疵也算 FAIL 会让审阅者对告警脱敏）。
+
+    参数：
+      shot          —— 镜头 dict，至少含 video_prompt；若有 camera 字段（运镜轨迹）会更准
+      style_context —— 全片风格段（美术指导的 camera_style）。用于排除「本镜没有的运镜」：
+                       风格段每个镜头都带一遍，不排除会把所有镜头都误判成一镜多运镜。
     """
     prompt = str(shot.get("video_prompt") or "").strip()
     if not prompt:
@@ -317,7 +368,13 @@ def audit_video_prompt(shot: dict[str, Any]) -> list[str]:
     quotes = find_spoken_quotes(prompt)
     if quotes:
         issues.append(f"含引用台词（「{quotes[0][:12]}」）：会渲染成含混的假说话，语音应交给后期配音")
-    flat = {m for tup in _CAMERA_MOVE_RE.findall(prompt) for m in tup if m}
+
+    # 一镜多运镜：只看**本镜自己的**运镜——剥掉全片风格段，且要求动词带镜头语境。
+    own_text = strip_style_block(prompt, style_context)
+    flat = set(find_camera_moves(own_text))
+    camera = shot.get("camera")
+    if isinstance(camera, dict):
+        flat |= set(find_camera_moves(str(camera.get("path") or "")))
     if len(flat) >= 2:
         issues.append(
             "疑似一镜多运镜（" + "、".join(sorted(flat)[:3]) + "）："
@@ -326,9 +383,9 @@ def audit_video_prompt(shot: dict[str, Any]) -> list[str]:
     return issues
 
 
-def refresh_prompt_audits(shots: list[dict[str, Any]]) -> None:
+def refresh_prompt_audits(shots: list[dict[str, Any]], *, style_context: str = "") -> None:
     """就地刷新一组镜头 dict 的 prompt_audit 字段（人工编辑 prompt 后调用）。"""
     for shot in shots:
         if not isinstance(shot, dict):
             continue
-        shot["prompt_audit"] = audit_video_prompt(shot)
+        shot["prompt_audit"] = audit_video_prompt(shot, style_context=style_context)

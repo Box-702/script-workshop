@@ -3,7 +3,10 @@
 > 面向继续开发本项目的人。除了架构与开发指引，重点记录**踩过的坑**：
 > 每条都写清「症状 → 根因 → 解法 → 涉及文件」，避免重复踩。
 >
-> 本文档基于真实调试过程整理（2026-09 ~ 2026-09），所有结论都在本机实测验证过。
+> 本文档基于真实调试过程整理（2026-09 ~ 2026-10），所有结论都在本机实测验证过。
+>
+> **选型理由**（为什么用这个技术、不为什么用那个）见 [`DECISIONS.md`](DECISIONS.md)；
+> **分层结构与核心链路**见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
 
 ---
 
@@ -37,6 +40,9 @@
   ├─ video/providers/*      视频 Provider 适配层（runway/kling/cogvideo/sora/minimax）
   ├─ video/queue.py         异步任务队列（线程池 + 轮询 + 状态回调写回 DB）
   ├─ video/continuity.py    把 reference_group/chain_from 解析成 reference_videos
+  ├─ video/finalize.py      成片合成编排（最后一公里）
+  │                  收集版本内成功镜头 → 下载 → 逐镜实测时长校准 → 拼装
+  │                  → 配音（可选）→ ASS 字幕烧录（可选）→ 成片+SRT 注册为项目素材
   └─ video/assemble.py      FFmpeg 拼接成片
 ```
 
@@ -87,7 +93,7 @@ cd frontend && npm install && npm run build   # 构建产物由 FastAPI 托管
 - 生成状态：`video_prompt / video_url / video_job_id`
 - Prompt 审阅：`prompt_status`（`needs_review` / `needs_revision` / `approved`）、`prompt_review_note`
 
-### 5.9 Prompt 人机协同
+### 3.1 Prompt 人机协同
 
 摄影指导的职责是提出结构化 Prompt 草稿，不负责替作者做最终出片决定。视频工作台把每个镜头分成三个状态：
 
@@ -393,6 +399,199 @@ MiniMax 按 token 计费（6s/768P ≈ 19.5 万 token/条）。反复「盲出�
 
 ---
 
+### 5.9 成片合成与字幕（2026-10 最后一公里）
+
+> 相关代码：`app/video/finalize.py`（合成编排）· `app/media/dubbing.py`（配音）· `app/media/subtitles.py`（字幕）
+
+#### （1）双 deps 单例陷阱：根 `deps.py` 加了还不够
+
+- **症状**：路由运行时 `AttributeError: module 'app.api.deps' has no attribute 'finalize_manager'`，
+  但**导入期完全正常**（`import app.main` 不报错）。
+- **根因**：项目有**两个** deps 模块——
+  - `app/deps.py`：全项目唯一装配点，真正创建单例（`@lru_cache`）。
+  - `app/api/deps.py`：API 层的晚绑定入口，**路由只认这个**。
+  新增单例只在根 deps 加，API 层拿不到。
+- **解法**：两个地方都要加（`app/deps.py` 建、`app/api/deps.py` 再导出）。
+- **⚠️ 检测方法**：这类错误**只有发真实请求才会暴露**。单元测试用 `monkeypatch` 直接替换依赖，
+  绕过了这条路径。**新加单例后必须用 TestClient 打一次真实 HTTP 请求冒烟**，
+  只跑 `pytest` 是不够的。
+- **文件**：`app/deps.py` · `app/api/deps.py`
+
+#### （2）`.env` 只进了 Settings，没进 `os.environ`
+
+- **症状**：视频能出片（key 走数据库 `api_providers`），但配音永远失败，报 key 缺失。
+- **根因**：pydantic-settings 只把 `.env` 的值读进 `Settings` 对象，**不会导出到进程环境变量**。
+  而 TTS 的回落链是 `resolve_tts() → os.environ["MINIMAX_API_KEY"]` 直接读环境变量——链是断的。
+- **解法**：`app/main.py` 顶部加 `load_dotenv()`，进程启动时先落进环境变量。
+  注意这与「改 `.env` 必须重启」是同一条约束的两面（见 5.3(3)）。
+- **文件**：`app/main.py` · `app/llm/tts.py`
+
+#### （3）provider 实际时长 ≠ 计划时长，时间轴会越往后漂越大
+
+- **现象**：字幕和配音整体后移，末尾明显对不上画面。
+- **根因**：v6 实测——计划 6+8+6=20s，成片实测 **21.2s**。按计划时长排配音/字幕，
+  每一处偏差都往后累积。
+- **解法**：`finalize` 在**下载之后**逐镜实测真实时长，用 `model_copy(update={"duration_sec": ...})`
+  替换镜头时长，配音排程与字幕估算都用校准后的镜头。
+- **文件**：`app/video/finalize.py::finalize_film`
+
+#### （4）先测量，后 move
+
+- **症状**：注册成片素材后拿到的时长是 0。
+- **根因**：`_register_asset()` 会把文件 **move** 进素材目录，move 之后原路径不存在，
+  再去量就量到空文件。
+- **解法**：**时长必须在 move 之前量**。顺序反了就是 0。
+- **文件**：`app/video/finalize.py`
+
+#### （5）便携版 ffmpeg 没有 ffprobe
+
+- **症状**：成片时长恒为 0；质检抽的 5 帧全挤在片头 8 秒内。
+- **根因**：本机 `imageio-ffmpeg` 提供的便携二进制**只有 `ffmpeg.exe`，没有 `ffprobe.exe`**。
+- **解法**：统一的三级降级链——**ffprobe → 解析 `ffmpeg -i` 的 stderr `Duration:` 行 → 返回 0 由调用方兜底**。
+  `finalize._media_duration_sec` 与 `qa._duration` 两处都要有。
+- **文件**：`app/video/finalize.py` · `app/video/qa.py`
+
+#### （6）ASS 字幕烧录：Windows 盘符要转义
+
+- **解法**：字幕滤镜的路径里的盘符冒号会被 FFmpeg 误解析，要写成 `C\:/...` 并用单引号包裹整个路径。
+  用 `subtitles` 滤镜**单次重编码**，不要分两步（先烧字再转码，画质二次损失）。
+
+#### （7）降级阶梯要写死，别让一步失败毁掉整条链路
+
+- 配音失败 → 交**静片 + 估算字幕**；
+- 烧录失败 → 交**无字幕成片**；
+- 单镜下载失败 → **跳过并警告**，其余镜头照常合成。
+- 真正致命的只有两种：**没有任何可用镜头**、**拼装失败**。
+
+---
+
+### 5.10 对话流式输出（2026-10）
+
+#### （1）`ChatOpenAI` 不开 `streaming`，前端就没有流式
+
+- **症状**：回复（含思考内容）整轮结束后一次性到达，前端完全没有流式观感。
+- **根因**：`build_chat_model()` 的默认参数里没有 `streaming=True`。
+- **解法**：`app/llm/providers.py::build_chat_model()` 统一带上 `"streaming": True`。
+
+#### （2）`AIMessageChunk.type` 返回 `'AIMessageChunk'`，不是 `'ai'`
+
+- **症状**：流式 token 一个都不出来。
+- **根因**：代码写的是 `if getattr(msg_chunk, "type", "") != "ai": continue`，
+  但 LangChain 的 `AIMessageChunk.type` 实际返回 **`'AIMessageChunk'`**，所有块都被过滤掉了。
+- **解法**：**用 `isinstance` 判断**，不要比较 `type` 字符串：
+  ```python
+  if not isinstance(msg_chunk, AIMessage):
+      continue
+  ```
+  字符串比较是这里最容易犯的错——它不报错，只是静默丢光。
+
+#### （3）长篇建图要防重复
+
+- **症状**：同一本书被反复建章节地图，每次几分钟，token 白烧。
+- **解法**：`map_novel` 先查 `project.novel_map` 里已有章节数，已有则直接拒绝并提示用户
+  「直接说挑一段改编」；只有用户明确要求重建时传 `rebuild=true`。
+
+---
+
+### 5.11 长篇改编与「模型编造」（2026-10）
+
+#### （1）一次生成有容量上限，选段要按容量切
+
+- **现象**：用户选了 3 章的区间，生成结果只覆盖了选段**开头一小段**。
+- **根因**：单次生成的原文容量约 **1.2 万字**（`novel_map.ARC_CHAR_BUDGET = 12000`），
+  超过就截断。注意这与「触发长篇提示」的阈值不是同一个数——
+  后者是 `conductor.LONG_TEXT_CHARS = 1200 × 12 = 14400`（约 1.44 万字）。
+- **解法**：有章节地图时，不传 `to_chapter` 就按 `next_to_chapter()` 按容量自动续接；
+  选段超容量时在回复里**明确告知**「初稿只覆盖了选段开头，建议切到 2 章左右」。
+
+#### （2）模型会在没调工具的情况下编造结果（deepseek 实测）
+
+- **症状**：模型回复「已生成初稿版本 ver_xxx」，但**根本没有这个版本**——它照抄了历史消息里的
+  轨迹格式，凭对话记忆编了一份结果。
+- **根因**：上下文里存在「［本轮动作］生成初稿：已生成初稿版本 ver_xxx…」这类历史文本，
+  模型把它当成了格式模板。
+- **解法**：**确定性护栏**——`app/chat/conductor.py` 的 `_CLAIM_PATTERNS` 匹配「已生成初稿 / 已改编到第 /
+  章节地图已建成 / 个候选故事弧 / 已提交出片 / 已批准」等结果短语；若本轮**没有任何真实工具返回**，
+  就追加 `_CORRECTION_PROMPT` 让模型重跑一轮。回复末尾再追加 `_FABRICATED_NOTICE` 说明是误报。
+- **同类问题**见 5.6(1)：**不要相信回复文本里的任务号**，用任务差集确认真实新任务。
+
+#### （3）摘要与剧本的输出容错
+
+- 解法同 5.2 的思路：摘要/剧本的模型输出都要容错解析，**不能假设结构**。
+
+---
+
+### 5.12 依赖装配与单例（2026-10）
+
+| 坑 | 现象 | 解法 |
+|---|---|---|
+| 双 deps 模块 | 路由运行时才报 `AttributeError`，导入期无感 | 根 `deps.py` 与 `api/deps.py` 两处都加；**必须用 TestClient 发真实请求冒烟**（见 5.9(1)） |
+| `load_dotenv` 缺失 | 配了 `.env` 但 `os.environ` 为空，配音链断 | `app/main.py` 顶部 `load_dotenv()`（见 5.9(2)） |
+| 路由直接绑依赖名 | 测试无法整体替换 | 路由一律 `from . import deps` 再 `deps.store()`（见 `DEVELOPMENT.md` 4.3） |
+| `Settings` 是 `lru_cache` 单例 | 改 `.env` 不重启不生效 | 重启；或改完调 `reset_llm()` 热重建模型层 |
+
+---
+
+### 5.13 提示词质量 eval（2026-10）
+
+> 详细说明见 [`../evals/README.md`](../evals/README.md)；选型理由见 [`DECISIONS.md`](DECISIONS.md) D-13。
+
+#### （1）确定性断言最危险的失败模式是**误报**，不是漏报
+
+- **现象**：审计器对**真实链路产出的提示词 4/4 全误报**「疑似一镜多运镜」，
+  每个镜头的 `prompt_audit` 都挂着假告警，用户审阅时被反复干扰。
+- **根因**：两处叠加——
+  1. 提示词里带**全片风格段**（美术指导的 `camera_style`，描述整部片的运镜语法），
+     每个镜头都带一遍。统计运镜时没排除它，等于把全片语法算成本镜的运镜。
+  2. 运镜动词**没有镜头语境要求**：「在靠门地面拉出一道冷光带」里的「拉出」被当成 pull-out。
+- **解法**：新增 `find_camera_moves()`（要求动词附近有镜头/摄影机/机位等语境词）
+  与 `strip_style_block()`（剥掉全片风格段，容忍末尾标点从「。」变「，」），
+  `audit_video_prompt()` 改为用这两者，并接受 `style_context` 参数。
+- **调用点**：dp.py 传 `style`；`app/api/video.py` 传 `current.style_guide.camera_style`
+  （新增 `_style_context()` 辅助）；`app/chat/conductor.py` 同样传。
+- **⚠️ 教训**：断言库一定要有**录制真实产出**的离线回归层（`evals/fixtures/`）。
+  只用手写的坏例子测断言库，测不出误报。
+
+#### （2）LLM 输出不确定，回归信号会被抖动淹没
+
+- **现象**：同一份代码两次跑出的分镜与提示词并不相同；默认温度 0.4 下差异更大。
+- **根因**：`ModelConfig.temperature` 默认 0.4。采样带来的随机性会让「这次改动是不是退化了」
+  这个问题无法回答。
+- **解法**：
+  1. eval 专用模型把温度钉到 **0**（贪心解码）——为此给 `LLM.__init__` 与 `build_llm`
+     加了 `temperature` 覆盖参数（生产链路不受影响）。
+  2. 出现 critical 时**自动复跑一次**，两次都失败才算稳定缺陷。
+- **注意**：温度 0 也不保证逐字一致（远端模型有别的随机源），所以复跑机制不能省。
+
+#### （3）模型余额耗尽不是质量回归
+
+- **现象**：eval 跑着跑着出现 `402 Insufficient Balance`（智谱是 `429 code 1113`），
+  case 全部失败。
+- **根因**：把基础设施故障当成质量失败，报告里一片红，实际是没跑成。
+- **解法**：`EvalRunner` 识别余额/限流/鉴权/连接类错误，标记为 **blocked**——
+  **不计入失败**，但在报告里显式列出，并让 `python -m evals.run` 返回退出码 2。
+  「跑不动」不能被误读成「跑过了且通过」。
+
+#### （4）锚复用判定要看整体，不能只看开头几个字
+
+- **现象**：`appear[:16] not in prompt` 判成「没复用人物锚」，但锚其实**完整地**在提示词里。
+- **根因**：DP 偶尔会重写锚里的个别词，只比对前 16 字会把「轻微改写」误判成「完全没复用」。
+- **解法**：改成**整段锚是否原样出现** + `difflib` 相似度分级——
+  原样出现=通过；相似度 ≥85% 但非原样=warn（轻微改写）；<85%=critical（没复用）。
+
+#### （5）eval 找出的提示词缺陷：否定句
+
+- **现象**：judge 与确定性层同时报出提示词里有否定式描述——
+  「眼睛没有看任何地方」「避免均匀平光」「低头快走掠过，没有停留」。
+- **根因**：视频模型会把被否定的内容**照画出来**（这是提示词工程的常识，
+  但写作规则里虽然写了「禁止否定句」，模型并不总是遵守；且美术指导的风格段里也会冒出来）。
+- **解法**：在美术指导与摄影指导的写作规则里补强——
+  ① 美术指导新增第 6 条：五样产出（会被**逐字复制进每个镜头**）一律不写否定句，
+  给出正向改写示例；② 摄影指导第 8 条补上两类高发写法的改写示例。
+- **实测**：10 条 case 的 DPT-04 从 8 条 critical 降到 **0 条**。
+
+---
+
 ## 六、排查手册（症状 → 先查什么）
 
 | 症状 | 先查 |
@@ -405,3 +604,11 @@ MiniMax 按 token 计费（6s/768P ≈ 19.5 万 token/条）。反复「盲出�
 | 分镜切得很碎 | 上游是否把多章塞成了一场戏；导演提示词是否被改回了「覆盖式拍摄」 |
 | 参考图质检永远不合格 | 判定标准是否把「水印 / 细节数量」也算 FAIL；角色是否戴面具（东亚面孔那条要写例外） |
 | 视觉质检报 `Failed to download image` | 图片 URL 是否失效；改用 base64 data URI |
+| 成片合成接口 500 且报 `AttributeError` | 新单例只在根 `deps.py` 加了，忘了 `app/api/deps.py`（见 5.9(1)） |
+| 配音永远失败但视频能出 | `.env` 没落进 `os.environ`，TTS 回落链断了（见 5.9(2)） |
+| 字幕/配音整体后移、末尾对不上 | 用了计划时长而非实测时长；是否走了逐镜校准（见 5.9(3)） |
+| 成片时长恒为 0 | 便携 ffmpeg 缺 ffprobe；是否走了 stderr 兜底（见 5.9(5)） |
+| 前端没有流式效果 | `build_chat_model()` 少了 `streaming=True`（见 5.10(1)） |
+| 流式 token 一个都不出来 | 用 `type == "ai"` 过滤 chunk，应改 `isinstance`（见 5.10(2)） |
+| 模型报「已生成 ver_xxx」但版本不存在 | 编造护栏没触发，或本轮确实调过工具；查 `_CLAIM_PATTERNS`（见 5.11(2)） |
+| 长篇选段只生成了开头一小段 | 选段超单次容量（约 1.2 万字），需切小（见 5.11(1)） |

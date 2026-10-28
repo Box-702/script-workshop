@@ -297,6 +297,21 @@ def _normalize_reference_videos(urls: list[str] | None) -> list[str]:
     return cleaned
 
 
+def _style_context(version: Any) -> str:
+    """取版本风格指南里的全片风格段（camera_style）。
+
+    审计「一镜多运镜」时要排除它——风格段描述的是整部片的运镜语法，
+    每个镜头都会带一遍，不排除会把所有镜头都误判成一镜多运镜。
+    """
+    guide = getattr(version, "style_guide", None)
+    if guide is None and isinstance(version, dict):
+        guide = version.get("style_guide")
+    camera_style = getattr(guide, "camera_style", None)
+    if camera_style is None and isinstance(guide, dict):
+        camera_style = guide.get("camera_style")
+    return str(camera_style or "")
+
+
 @router.put("/projects/{project_id}/video-versions/{version_id}/shots/{shot_id}/prompt")
 def review_video_prompt(
     project_id: str,
@@ -325,7 +340,8 @@ def review_video_prompt(
     if payload.reference_videos is not None:
         target["reference_videos"] = _normalize_reference_videos(payload.reference_videos)
     # 人工改完 prompt 后重跑确定性审计，结论随新版本落库（出厂前双重审计的人工侧）。
-    refresh_prompt_audits(shots)
+    # 传入风格指南的 camera_style，排除「本镜没有的运镜」——风格段每个镜头都带一遍。
+    refresh_prompt_audits(shots, style_context=_style_context(current))
 
     labels = {
         "approve": "批准镜头提示词",
@@ -381,7 +397,7 @@ def bulk_review_video_prompts(
         shot["prompt_status"] = status
         shot["prompt_review_note"] = payload.note.strip()
     # 批量决策不改 prompt 内容，但也要把全部镜头的审计结论刷新到同一基线。
-    refresh_prompt_audits(shots)
+    refresh_prompt_audits(shots, style_context=_style_context(current))
 
     labels = {
         "approve": "批量批准镜头提示词",
