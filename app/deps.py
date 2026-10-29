@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 
-from .agent.skills import SubAgentRunner, get_runner
+from .agent.tasks import SubAgentRunner, get_runner
 from .config import Settings, get_settings
 from .llm import LLM, build_llm
 from .store import Store

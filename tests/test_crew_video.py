@@ -252,6 +252,81 @@ def test_dp_does_not_add_anchor_for_absent_character():
     assert "人羊" not in prompt, f"无关角色被塞进来了：{prompt}"
 
 
+def test_dp_repairs_negations_once_and_keeps_positive_rewrite():
+    """提示词里仍有否定句时，要有界修复一轮：只改含否定词的句子。
+
+    规则层已尽力（写作规则 + 交稿前自查），但概率模型仍会漏；
+    规则管不住的部分用一次有界修复兜底。
+    """
+    raw = {"scenes": [{"scene_id": "scene_001", "shots": [
+        {"shot_id": "shot_scene_001_000", "prompt_body": "视线扫过空椅子但没有停留。"},
+        {"shot_id": "shot_scene_001_001", "prompt_body": "他弯腰把杯子放进纸箱。"},
+    ]}]}
+    shot0 = Shot(id="shot_scene_001_000", scene_id="scene_001", order=0,
+                 video_prompt="视线扫过空椅子但没有停留。")
+    shot1 = Shot(id="shot_scene_001_001", scene_id="scene_001", order=1,
+                 video_prompt="他弯腰把杯子放进纸箱。")
+
+    dp = _dp()
+    calls: list[str] = []
+
+    def fake_invoke(system: str, user: str) -> dict:
+        calls.append(user)
+        return {"shot_scene_001_000": "视线扫过空椅子，随即移开。"}
+
+    dp._invoke_json = fake_invoke  # type: ignore[method-assign]
+    assert dp._repair_negations([shot0, shot1], raw) is True
+    assert len(calls) == 1
+    assert "shot_scene_001_000" in calls[0]
+    assert "shot_scene_001_001" not in calls[0]      # 只送有问题的镜头
+    assert raw["scenes"][0]["shots"][0]["prompt_body"] == "视线扫过空椅子，随即移开。"
+    assert raw["scenes"][0]["shots"][1]["prompt_body"] == "他弯腰把杯子放进纸箱。"
+
+
+def test_dp_repair_rejects_rewrite_that_still_has_negation():
+    """模型改完还带否定词的，不要采纳——免得来回改更糟。"""
+    raw = {"scenes": [{"scene_id": "scene_001", "shots": [
+        {"shot_id": "shot_scene_001_000", "prompt_body": "他没有回头。"},
+    ]}]}
+    shot = Shot(id="shot_scene_001_000", scene_id="scene_001", order=0,
+                video_prompt="他没有回头。")
+    dp = _dp()
+    dp._invoke_json = lambda s, u: {"shot_scene_001_000": "他仍然没有回头。"}  # type: ignore[method-assign]
+    assert dp._repair_negations([shot], raw) is False
+    assert raw["scenes"][0]["shots"][0]["prompt_body"] == "他没有回头。"
+
+
+def test_dp_repair_does_nothing_when_prompts_are_clean():
+    raw = {"scenes": [{"scene_id": "scene_001", "shots": [
+        {"shot_id": "shot_scene_001_000", "prompt_body": "他弯腰把杯子放进纸箱。"},
+    ]}]}
+    shot = Shot(id="shot_scene_001_000", scene_id="scene_001", order=0,
+                video_prompt="他弯腰把杯子放进纸箱。")
+    dp = _dp()
+
+    def boom(s, u):
+        raise AssertionError("干净时不该调用模型")
+
+    dp._invoke_json = boom  # type: ignore[method-assign]
+    assert dp._repair_negations([shot], raw) is False
+
+
+def test_dp_repair_survives_model_failure():
+    """修复是增强而非必需：模型不配合时不能连累已经拿到的结果。"""
+    raw = {"scenes": [{"scene_id": "scene_001", "shots": [
+        {"shot_id": "shot_scene_001_000", "prompt_body": "他没有回头。"},
+    ]}]}
+    shot = Shot(id="shot_scene_001_000", scene_id="scene_001", order=0,
+                video_prompt="他没有回头。")
+    dp = _dp()
+
+    def boom(s, u):
+        raise RuntimeError("模型挂了")
+
+    dp._invoke_json = boom  # type: ignore[method-assign]
+    assert dp._repair_negations([shot], raw) is False
+
+
 def test_dp_system_carries_the_five_prompt_rules():
     """图里那套提示词逻辑要固化成系统提示词，漏掉任何一条都会让画面失控。"""
     zh = dp_system(language="zh", provider_label="MiniMax", max_duration=10, has_anchors=True)
@@ -268,10 +343,10 @@ def test_dp_system_carries_the_five_prompt_rules():
 
 def test_director_and_art_rules_lock_adherence_budget():
     """v2/v3 对比实测的四条教训要固化：越轴、动作节拍过载、视点摇摆、身份职业词。"""
-    from app.crew.director import DIRECTOR_SYSTEM
+    from app.crew.director import director_system
 
     for kw in ["运镜三禁", "越轴", "结尾不改景别", "物理过程的预算只给主事件", "第二次互动", "正向描述"]:
-        assert kw in DIRECTOR_SYSTEM
+        assert kw in director_system()
     art = art_system("zh")
     for kw in ["客观机位", "视点切换", "禁止出现身份与职业词"]:
         assert kw in art
@@ -279,11 +354,11 @@ def test_director_and_art_rules_lock_adherence_budget():
 
 def test_drama_rules_locked_into_prompts():
     """方法论「先戏剧，后语法」要固化进剧组提示词：三工作、细节律、五锚点、最终画面、运镜动机。"""
-    from app.crew.director import DIRECTOR_SYSTEM
+    from app.crew.director import director_system
 
     for kw in ["先戏剧，后语法", "三工作规则", "细节律", "最终画面", "五锚点",
                "运镜必须有动机", "节奏阶梯", "不豁免"]:
-        assert kw in DIRECTOR_SYSTEM
+        assert kw in director_system()
     art = art_system("zh")
     for kw in ["写实人物公式", "环境会表演", "环境压力"]:
         assert kw in art

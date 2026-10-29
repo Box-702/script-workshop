@@ -40,7 +40,7 @@ from ..pipeline.knowledge import detect_genres, format_author_style
 from ..llm import LLM
 from ..pipeline.patch import validate_script
 from ..store import Project, Store
-from ..agent.skills import SubAgentRunner
+from ..agent.tasks import SubAgentRunner
 
 log = logging.getLogger(__name__)
 

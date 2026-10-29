@@ -15,6 +15,7 @@ app/
 ├── domain.py / store.py / workspace.py      领域模型 / 持久化 / 文件系统
 ├── memory.py                                 三层用户记忆 + 会话滚动摘要
 │
+├── skills/     技能（长指令）—— SKILL.md 按需加载，代码只留装配
 ├── llm/        模型接入层   —— 对上提供能力，对下屏蔽厂商
 ├── pipeline/   内容生产线   —— 纯逻辑，不依赖 LangGraph / HTTP
 ├── agent/      改编智能体   —— LangGraph 状态图 + 后台任务运行器
@@ -187,7 +188,7 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
 三者都继承 `CrewAgent`，输出统一的 `CrewTaskResult`（结构化数据 + 摘要 + 错误列表），
 并且都有**规则兜底**：LLM 不可用时返回可用的降级结果，而不是报错中断。
 
-### 3.3 后台任务运行器 —— `app/agent/skills.py`
+### 3.3 后台任务运行器 —— `app/agent/tasks.py`
 
 剧组工具（导演拆解 / 美术指导 / 摄影指导 / 参考资产）都是耗时操作，统一由 `SubAgentRunner`
 在后台线程执行，通过 `update_step()` 实时上报进度到前端右栏任务面板；任务起止快照落库
@@ -203,8 +204,8 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
   没有自己的工具集和上下文循环。按业界（Anthropic）定义它们更接近「领域技能」而非 subagent。
   详见 [`DECISIONS.md` D-04](DECISIONS.md)。
 - 成片拼接（`app/video/assemble.py`，FFmpeg）与成片合成（`app/video/finalize.py`）也不是 Agent。
-- **`app/agent/skills.py` 与「技能」无关**：它是后台任务运行器（`SubAgentRunner`），
-  名字是历史遗留的术语污染。
+- **技能（Skill）是另一回事**：见 3.6。`app/agent/tasks.py` 是后台任务运行器
+  （原来的 `skills.py`，2026-10-29 正名）。
 
 ### 3.5 记忆层 —— `app/memory.py`
 
@@ -215,6 +216,27 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
 | 审阅决策自动学习 | 用户在审阅卡片上的接受/拒绝决策会被提炼成偏好记忆 |
 
 记忆是**按需加载**的：只有需要时才从 DB 读，不常驻上下文。
+
+### 3.6 技能（Skill）—— `app/skills/`
+
+长指令外置成 `SKILL.md`，代码只留装配逻辑。剧组三个角色的系统提示词
+（合计约 2.2 万字符）都在这里，不再硬编码在 `.py` 里。
+
+| 文件 | 内容 | 谁用 |
+|---|---|---|
+| `director-breakdown/SKILL.md` | 导演分镜方法论（三工作、细节律、五锚点、连续性计划） | `crew/director.py` |
+| `video-prompt-zh/SKILL.md` | 摄影指导写作规则（中文，十一条） | `crew/dp.py` |
+| `video-prompt-en/SKILL.md` | 同上（英文，目标模型方言） | `crew/dp.py` |
+| `style-guide/SKILL.md` | 美术指导方法论（视觉锚的唯一来源） | `crew/art_director.py` |
+
+**渐进披露三级**：`skill_index()` 只给 name + description（很便宜）→ `render_skill(name)`
+加载正文 → `skill_file(name, file)` 按需读附属文件。
+
+**模板语法只有两种**：`{{var}}` 与 `{% if x %}…{% else %}…{% endif %}`。
+不用 `str.format()`（提示词里有 JSON 示例，单花括号会被当占位符）；
+不支持嵌套条件块。**缺变量直接报错**——静默留一个 `{{x}}` 进最终提示词比报错更糟。
+
+改写作规则 → 直接改对应的 `SKILL.md`，不用动代码。
 
 ---
 
@@ -290,7 +312,7 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
 |---|---|---|
 | `app/api.py` | 单文件 1400+ 行，业务逻辑写在路由里 | 拆成 `app/api/` 包（7 个域模块 + common/schemas/deps）；路由表逐条比对无增删（66 → 66） |
 | `app/chat/conductor.py` | 部分工具直接用 `store.session()` 操作 ORM，绕过 `Store` | 收敛为 `Store` 方法（`get/set_version_breakdown`、`get/set/merge_video_style`） |
-| `app/agent/skills.py` | 后台任务只在内存，进程重启即丢 | 起止两个时刻快照落库（`subagent_tasks` 表）；`/api/tasks` 合并内存态与历史态 |
+| `app/agent/tasks.py` | 后台任务只在内存，进程重启即丢 | 起止两个时刻快照落库（`subagent_tasks` 表）；`/api/tasks` 合并内存态与历史态 |
 | `app/api/video.py` | `cancel` 只改本地状态，未通知服务商 | 先尽力调用 provider 的 `cancel_job`，失败不影响本地状态收尾 |
 | `app/api/system.py` | `/status` 用 openai/deepseek 三元表达式猜模型名（漏了智谱） | 改为读 `LLM.describe()` 的解析结果，另附视觉模型状态 |
 
@@ -300,7 +322,7 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
 |---|---|---|---|
 | 全仓 | `ruff` 配置为 `select = ["E","F","I","B","UP"]`、`line-length = 100`，但全量检查有 200 处 `E501` 等未清 | 一旦在 CI 里加 ruff 就会红 | 要么清账（主要是长行拆分），要么把 `E501` 移出 select。`app/api/`、`app/llm/` 这两个新目录目前是全绿的 |
 | `app/chat/conductor.py` | 每轮对话重建图与全部工具闭包 | 实测开销可忽略（纯对象装配，无 I/O；LLM 调用才是耗时大头） | 仅在压测显示瓶颈后再做，需要先把 collector 从闭包挪进图状态 |
-| `app/agent/skills.py` | 进行中的任务只有内存态（历史已落库） | 重启后运行中的任务面板清空——这是真实情况，不假装还活着 | 若要多实例部署再接队列 |
+| `app/agent/tasks.py` | 进行中的任务只有内存态（历史已落库） | 重启后运行中的任务面板清空——这是真实情况，不假装还活着 | 若要多实例部署再接队列 |
 | `app/api/` | 全部路由无鉴权，且默认可设置任意工作目录 | 仅限本机使用 | 已默认 `API_HOST=127.0.0.1`；若要做多用户需先加鉴权 |
 
 
@@ -317,5 +339,7 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
 | 加一个 API 路由 | 在 `app/api/` 对应域模块里加 `@router.xxx`；新域就新建文件并在 `api/__init__.py` 的列表里注册 |
 | 加一个持久化字段 | `app/store.py` 加模型字段（新表由 `create_all` 自动建；给老表加列要在 `_ensure_columns()` 里补 ALTER） |
 | 加一个生成阶段 | `app/pipeline/` 加模块，由 `agent/nodes.py` 或 `chat/conductor.py` 调用 |
+| 改剧组写作规则 | 直接改 `app/skills/<技能名>/SKILL.md`，**不用动代码**；改完跑 `python -m evals.run` 确认质量没退化 |
+| 加一个技能 | 建 `app/skills/<name>/SKILL.md`（frontmatter 必填 `name` + `description`），代码里 `render_skill(name, **vars)` 取正文 |
 
 

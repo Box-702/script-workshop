@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 import app.api as api_mod
 import app.api.video as video_api
-from app.agent.skills import SubAgentRunner
+from app.agent.tasks import SubAgentRunner
 from app.main import create_app
 
 

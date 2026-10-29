@@ -14,7 +14,7 @@ import io
 from fastapi.testclient import TestClient
 
 import app.api as api_mod
-from app.agent.skills import SubAgentRunner
+from app.agent.tasks import SubAgentRunner
 from app.config import Settings
 from app.main import create_app
 from app.store import Store

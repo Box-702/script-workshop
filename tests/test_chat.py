@@ -188,7 +188,7 @@ def test_submit_videos_requires_approval(store, llm, sample_text):
 
 
 def test_check_background_tasks_reports_status(store, llm, sample_text):
-    from app.agent.skills import SubAgentRunner, SubAgentTask
+    from app.agent.tasks import SubAgentRunner, SubAgentTask
     from app.chat import build_chat_tools
 
     runner = SubAgentRunner()

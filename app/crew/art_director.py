@@ -17,17 +17,20 @@ from typing import Any
 
 from ..domain import Script, StyleGuide
 from ..llm import LLM
+from ..skills import render_skill
 from .base import CrewAgent, CrewTaskResult
 
 log = logging.getLogger(__name__)
 
 
 def art_system(language: str = "zh") -> str:
+    """美术指导的系统提示词（内容在 app/skills/style-guide/SKILL.md）。"""
     lang_note = (
         "所有描述用简体中文写（目标视频模型原生支持中文）"
         if language == "zh"
         else "Write every description in English"
     )
+    return render_skill("style-guide", lang_note=lang_note)
     return (
         "你是影视美术指导，负责为整部作品建立统一的视觉语言。\n\n"
         "你要产出五样东西：\n"

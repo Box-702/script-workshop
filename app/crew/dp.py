@@ -15,15 +15,18 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any
 
 from ..domain import SceneBreakdown, Script, Shot, StyleGuide
 from ..llm import LLM
+from ..skills import render_skill
 from .base import CrewAgent, CrewTaskResult
 from .dramaturgy import (
     audit_video_prompt,
+    find_negations,
     mentions_camera,
     mentions_lighting,
     strip_camera_moves,
@@ -46,118 +49,6 @@ _DEFAULT_STYLE = "写实电影质感，色调统一，轻微胶片颗粒，画�
 # 它都会自己瞎猜——镜头会无理由漂移、光线会一直黏在脸上、人物之间没有距离感、
 # 背景像复制粘贴。把「动作」之外的运镜、光影、空间、背景四类信息都写成文字，
 # 生成结果才可控。（沿用导演方案里已经拆好的字段，不要在这里新造设定。）
-_BODY_RULES_ZH = """**每个镜头的 prompt_body 要写什么**（这是给视频模型看的唯一文字依据，
-没写出来的部分它就会自己乱猜，所以要写得像一份可执行的拍摄指令）：
-
-1. **别只写画面里有什么——动作和运镜都要写**。画面里不只有人物的信息动机，摄影机的
-   运动本身也是信息动机。把摄影机理解成一台贴近人物飞行的虚拟无人机，它是观众的
-   眼睛：写清楚镜头怎么带观众进入现场，前进 / 后退 / 侧移 / 环绕 / 升降 / 偏航 / 俯仰
-   分别怎么走，以及运动规律（起步、刹车、加减速、惯性如何体感）。按导演给的
-   camera_path 与 camera_height 写，可以更具体，但不要改成另一种运镜，更不要加码：
-   一镜只保留一种主要运动，摄影机保持在主体同一侧（不越轴），镜头结尾停在原景别上——
-   结尾推近换构图这类二次变化要删掉。
-   **本镜的运镜只写 camera_path 指定的那一种**；即使风格指南里提到了别的运镜方式，
-   也不要跟着补写——风格段会被逐字拼进每个镜头，你在这里多写一种运动，
-   模型就会收到两条互相打架的运镜指令。
-2. **保留镜头的呼吸感**。真实拍摄时摄影师会略微提前或滞后于人物，允许镜头偶尔被
-   前景的人物或物体短暂遮挡，快速运镜之后有短暂的失焦或重新合焦。可以写出这类
-   不完美，但不要写"手持剧烈抖动""画面模糊"这种失控的描述。
-3. **光影要写方向与相对关系**。写清光从哪个方向来、主光源是什么、人物和光源的相对
-   位置，以及镜头运动过程中环境光和人物脸部光发生的变化。避免写成"光永远打在人物
-   脸上"——那样人物怎么走光都跟着脸走，画面立刻失真。
-4. **空间关系要写清楚**。给主要人物编上号（齐夏1号、人羊2号），写清人物与人物之间的
-   相对距离、人物离镜头有多远、离地面有多高，以及运镜从起点到终点这些相对位置
-   发生了怎样的变化。空间写实了，人物才不会漂浮在同一层纸面上。
-5. **背景人物要有自己的事**。背景人物要有各自独立、不完全同步的生活化行为，写出
-   谁在做什么；允许少数人短时间保持静止，不要求所有背景人物持续运动。避免出现
-   "所有人都朝同一个方向移动"这类整齐划一的假背景。
-6. **只写画面里看得见的东西**：不写旁白、心理活动或小说式描写，也不要写镜头编号、
-   剪辑指令、"切到"这类剪辑语言。
-7. **接触动作要写成物理过程，但预算只给主事件**。涉及手与道具接触的动作（掀警戒带、推门、
-   掀帘子、递东西），只写"掀开带子走过去"这类结果式表述，模型一定会让手和道具互相穿透。
-   每个镜头只挑**一个主事件**写物理过程，节拍最多两步（接触 → 完成，或试探 → 完成），
-   写清接触点与让位关系（道具从手的哪一侧经过、人物哪个部位在道具的上方还是下方通过）；
-   镜头里**其他人物不得再与同一道具发生第二次互动**——两个人先后操作同一道具，模型必然
-   把两次互动搅在一起；其余接触动作一笔带过。
-8. **只写正向描述，禁止否定句**。"手没有从带子里穿过去""没有碰到头"这类否定式防穿模
-   表述，等于把「穿过身体」这个概念喂给模型，它反而会画出来。不想要的东西直接不提；
-   必须交代的让位关系，改写成它应该怎样（如「带子从她头顶上方通过」）。
-   同类高发写法也要一并改掉（实测这两类最常漏）：
-   · 否定动作延续 → 写"低头快走掠过，没有停留"要改成"低头快走掠过，脚步不停，衣角翻飞"；
-   · 否定视线/神态 → 写"眼睛没有看任何地方"要改成"目光涣散，焦点落在虚空处"。
-   只要句子里出现「没有」「不」「避免」「禁止」「不是」「并非」，一律重写成正向描述。
-   **交稿前逐句自查一遍**：全文搜索「没有 / 不 / 避免 / 禁止 / 不是 / 并非」，
-   命中就改写；改不出来就把那句话整句删掉——不想要的细节，不提比否定更好。
-9. **台词不进提示词**。不要把角色说的话写成引用（「说道：『……』」「报告：『……』」）——
-   视频模型会把台词渲染成含混的假说话，观众完全听不懂。对白段只写说话的**姿态与口型动机**：
-   谁对谁说、语速与情绪、身体朝向与距离、手的动作；声音交给后期配音与对口型。
-10. **最终画面收尾**。每个镜头的 prompt_body 以导演给的 final_frame（结束帧的可见状态）
-   作最后一句——视频模型把最后一帧当情绪目的地，结尾停在哪一帧，镜头就朝哪驶去。
-   直接写可见状态本身，不要写「最终画面」「结束帧」这类标签词。
-11. **情绪只写身体，空洞词一概不写**。mood 里的情绪名词（紧张/悲伤/愤怒/压抑）不能直接
-   进提示词——模型渲染不了感情，渲染的是身体：把每次情绪转变翻译成 2-4 个可观察的
-   身体线索（下颌锁死、指节发白、呼吸变浅、眼神下沉），多了像演技过火。同样禁止
-   渲染不出来的占位词：电影感/大片感/史诗感/高级感/cinematic/epic/stunning/masterpiece/
-   high quality/4K——每一个都是「没写出细节」的占位符，一律换成具体的物理事实。
-
-这一镜只讲一段连贯的动作或一段连贯的对话剧情，不要跨场景跳跃。"""
-
-_BODY_RULES_EN = """**What each shot's prompt_body must contain** (this text is the only
-thing the video model sees — anything you leave out, it will invent):
-
-1. **Write the camera move, not just what is in frame.** Camera motion carries meaning
-   on its own. Treat the camera as a virtual drone flying close to the subject — it is
-   the audience's eyes: state how the move carries the viewer into the scene, how it
-   travels (forward / backward / lateral / orbit / rise / descend / yaw / tilt) and its
-   motion rules (start, stop, acceleration, inertia). Follow the camera_path and
-   camera_height from the shot plan; you may be more specific, but never change the move
-   and never escalate it: one primary move per shot, stay on one side of the subject
-   (no axis crossing), and end on the original framing — no late push-in that changes
-   the shot size.
-2. **Keep the lens breathing.** Real operators lead or lag the subject slightly, the
-   lens is occasionally blocked by foreground people or objects, and fast moves end with
-   a brief loss and recovery of focus. Such imperfection is welcome; uncontrolled
-   "violent handheld shake" or "blurry frame" is not.
-3. **State light direction and relations.** Where the light comes from, what the key
-   source is, how people are positioned relative to it, and how ambient light and facial
-   light shift as the camera moves. Never let the light follow the face wherever it goes.
-4. **State spatial relations.** Number the main characters (Qi Xia #1, Goat Man #2),
-   give their distances from each other, from the camera and from the ground, and how
-   those relations change from the start to the end of the move.
-5. **Give background extras their own business.** Independent, unsynchronized everyday
-   behavior — say who is doing what. A few may stay still for a while; not everyone has
-   to keep moving. Avoid a uniformly synchronized background.
-6. **Only what is visible on screen**: no narration, inner monologue, novelistic prose,
-   shot numbers, cut instructions or editing language.
-7. **Describe contact actions as a physical process — budget for the main event only.**
-   A result-style phrase ("she lifts the tape and walks through") makes hands and props
-   interpenetrate. Pick the ONE main event of the shot, give it at most two beats
-   (contact → complete, or test → complete), and state the contact point plus the
-   clearance relation (which side of the hand the prop passes, which body part goes
-   above/below it). No other character may touch the same prop a second time in this
-   shot; every other contact action gets one short clause.
-8. **Positive phrasing only — never negations.** "Her hand does not pass through the
-   tape" feeds the very concept into the model and it will draw it anyway. Leave out
-   what you don't want; phrase clearance as what should happen ("the tape passes above
-   her head").
-9. **Never put spoken lines into the prompt.** Quoted dialogue gets rendered as mumbled
-   fake speech nobody can understand. For dialogue beats, write the acting instead:
-   who addresses whom, pace and emotion, body orientation and distance, what the hands
-   do. Voice belongs to post-production dubbing and lip-sync.
-10. **End on the final frame.** Close every prompt_body with the shot's final_frame
-   (the visible state of the last frame) — the video model treats the last frame as
-   the emotional destination and drives toward it. Write the visible state itself;
-   never meta labels like "final frame".
-11. **Emotions are rendered by bodies only; slop words are banned.** Mood nouns
-   (tense / sad / angry) must not enter the prompt — the model cannot render feelings,
-   only bodies: translate each emotional shift into 2-4 observable body cues (jaw set,
-   knuckles white, breath shallow, gaze sinking); more reads as overacting. Likewise
-   never write unrenderable placeholder words: cinematic / epic / stunning /
-   masterpiece / high quality / 4K — each is a placeholder for missing detail.
-   Replace them with concrete physical facts.
-
-One shot carries one continuous action or one continuous stretch of dialogue."""
-
 # 导演方案里缺某类调度信息时的补位提示：空值不阻断生成，但要让 LLM 知道
 # 「这里确实没写，你可以按剧情补足」，而不是默默漏掉这类信息。
 # body 里是否提到了摄影机/镜头——用来判断 LLM 有没有把运镜写进去。
@@ -194,8 +85,61 @@ def language_for(provider: str, script_language: str) -> str:
     return "zh" if str(script_language or "").lower().startswith("zh") else "en"
 
 
+# 中/英两套提示词都外置成技能文件（app/skills/video-prompt-*/SKILL.md）。
+# 正文里的十一条写作规则改动频率不低，放 .md 里改完即生效，不必动代码。
+_SKILL_BY_LANGUAGE = {"zh": "video-prompt-zh", "en": "video-prompt-en"}
+
+# 否定句修复的系统提示词。
+#
+# 为什么需要这一轮：写作规则里已经写了「只写正向描述，禁止否定句」+ 交稿前逐句自查，
+# 但概率模型仍会漏（实测 10 条 case 里约 1 条稳定漏掉）。规则管不住的部分，
+# 用一次有界修复兜底——只改含否定词的句子，其余一个字不动。
+_NEGATION_REPAIR_SYSTEM = """你会收到若干条「镜头提示词草稿」，其中个别句子含否定式表述
+（「没有」「不」「避免」「禁止」「不是」「并非」）。
+
+视频模型会把被否定的内容照画出来——「视线扫过空椅子但没有停留」会被画成停在椅子上，
+「避免均匀平光」会被画成平光。
+
+请把每一条里**含否定词的句子**改写成正向描述，只改这些句子，其余一个字都不要动：
+- 「但没有停留」→「随即移开」
+- 「眼睛没有看任何地方」→「目光涣散，焦点落在虚处」
+- 「避免均匀平光」→「低调侧光，脸部一侧沉进阴影」
+- 改不出来就把那句话整句删掉——不想要的细节，不提比否定更好。
+
+只输出 JSON：{"shot_id": "改写后的完整 prompt_body"}
+不要输出解释，不要加 markdown 围栏。"""
+
+
+def _scene_list(raw: Any) -> list[dict[str, Any]]:
+    """把模型返回的 raw 规整成 scenes 列表（兼容 dict / list 两种形状）。"""
+    scenes = raw.get("scenes") if isinstance(raw, dict) else raw
+    if isinstance(scenes, dict):
+        return [scenes]
+    return [s for s in scenes if isinstance(s, dict)] if isinstance(scenes, list) else []
+
+
+def _bodies_by_shot(raw: Any) -> dict[str, str]:
+    """抽出 {shot_id: prompt_body}。"""
+    out: dict[str, str] = {}
+    for scene in _scene_list(raw):
+        for sh in scene.get("shots") or []:
+            if isinstance(sh, dict) and sh.get("shot_id") is not None:
+                out[str(sh["shot_id"])] = str(sh.get("prompt_body") or "")
+    return out
+
+
+def _set_body(raw: Any, shot_id: str, body: str) -> bool:
+    """就地替换某个镜头的 prompt_body，返回是否命中。"""
+    for scene in _scene_list(raw):
+        for sh in scene.get("shots") or []:
+            if isinstance(sh, dict) and str(sh.get("shot_id")) == shot_id:
+                sh["prompt_body"] = body
+                return True
+    return False
+
+
 def dp_system(*, language: str, provider_label: str, max_duration: float, has_anchors: bool) -> str:
-    """按目标模型生成摄影指导的系统提示词。"""
+    """按目标模型生成摄影指导的系统提示词（内容在 app/skills/video-prompt-{zh,en}）。"""
     if language == "zh":
         lang_rule = "用简体中文写（目标模型原生支持中文，中文描述更贴合画面）"
         json_note = "JSON 里的文本字段用中文"
@@ -204,34 +148,13 @@ def dp_system(*, language: str, provider_label: str, max_duration: float, has_an
         json_note = "JSON text fields in English"
     duration_note = f"单个镜头时长上限约 {max_duration:.0f} 秒" if max_duration else "单镜时长遵守镜头方案"
 
-    anchor_rule = (
-        "**已提供统一的美术风格指南（环境/人物锚已固定）**：\n"
-        "- 环境描述与人物造型由美术指导统一下发，本步骤不要改写它们；\n"
-        "- 你只需为每个镜头产出 `characters`（本镜出场人物名）与 `prompt_body`"
-        "（本镜画面调度 + 运镜，写法见下面十一条）。\n"
-        if has_anchors
-        else
-        "**未提供美术风格指南**：请额外为每个场景产出 `environment`（固定环境描述）"
-        "与 `characters`（人物名 -> 固定外貌描述），供本场所有镜头复用。\n"
-    )
-    body_rules = _BODY_RULES_ZH if language == "zh" else _BODY_RULES_EN
-    return (
-        "你是影视摄影指导（DP），负责把镜头方案构建成「直接喂给视频生成模型」的提示词。\n\n"
-        f"目标模型：{provider_label}\n"
-        f"输出语言：{lang_rule}\n"
-        f"时长约束：{duration_note}\n\n"
-        f"{anchor_rule}\n"
-        f"{body_rules}\n\n"
-        "**硬性要求**：\n"
-        f"- {lang_rule}；{json_note}。\n"
-        "- characters 必须是本场人物的子集，只列这一镜画面里真正出现的人。\n"
-        "- 不要输出额外说明或 Markdown，只输出 JSON。\n\n"
-        "输出 JSON：\n"
-        "```json\n"
-        '{"scenes": [{"scene_id": "scene_001", '
-        '"environment": "（仅有需要时填）", "characters": {"人物名": "（仅有需要时填）"}, '
-        '"shots": [{"shot_id": "shot_scene_001_000", "characters": ["人物名"], "prompt_body": "（本镜画面调度 + 运镜）"}]}]}\n'
-        "```"
+    return render_skill(
+        _SKILL_BY_LANGUAGE.get(language, "video-prompt-zh"),
+        provider_label=provider_label,
+        duration_note=duration_note,
+        lang_rule=lang_rule,
+        json_note=json_note,
+        has_anchors=has_anchors,
     )
 
 
@@ -284,6 +207,12 @@ class DPAgent(CrewAgent):
         try:
             raw = self._invoke_json(system, user_prompt)
             updated = self._apply(all_shots, raw, script, style, style_guide, language)
+
+            # 否定句有界修复（只修 1 轮）：装配完仍有否定描述时，让模型只把那些句子
+            # 改写成正向，再重新装配。规则层已经尽力，这里是确定性兜底。
+            if self._repair_negations(updated, raw):
+                updated = self._apply(all_shots, raw, script, style, style_guide, language)
+
             n = sum(1 for s in updated if s.video_prompt)
             flagged = sum(1 for s in updated if s.prompt_audit)
             audit_note = (
@@ -433,6 +362,45 @@ class DPAgent(CrewAgent):
         )
         return "\n".join(parts)
 
+    def _repair_negations(self, updated: list[Shot], raw: Any) -> bool:
+        """把仍有否定句的镜头的 prompt_body 改写成正向描述（就地改 raw）。
+
+        返回 raw 是否被修改。**只做一轮**：修不掉的就交给逐镜审计去提醒，
+        不要在模型调用上开无限循环——那会把一次出片变成三四次。
+        """
+        bodies = _bodies_by_shot(raw)
+        payload = {
+            s.id: bodies.get(s.id, "")
+            for s in updated
+            if bodies.get(s.id) and find_negations(f"{s.video_prompt or ''} {bodies.get(s.id, '')}")
+        }
+        if not payload:
+            return False
+
+        try:
+            fixed = self._invoke_json(
+                _NEGATION_REPAIR_SYSTEM,
+                json.dumps(payload, ensure_ascii=False, indent=2),
+            )
+        except Exception as e:  # noqa: BLE001
+            # 修复是增强而非必需：模型不配合时不能连累已经拿到的结果。
+            log.warning("否定句修复失败（保留原稿并交给审计提醒）：%s", e)
+            return False
+
+        changed = False
+        for shot_id, new_body in (fixed or {}).items():
+            text = str(new_body or "").strip()
+            if not text or text == payload.get(str(shot_id)):
+                continue
+            # 只接受「确实变好」的改写：仍然含否定词的不要，免得来回改更糟。
+            if find_negations(text):
+                continue
+            if _set_body(raw, str(shot_id), text):
+                changed = True
+        if changed:
+            log.info("否定句修复：改写了 %d 个镜头的提示词草稿", len(payload))
+        return changed
+
     def _apply(
         self,
         shots: list[Shot],
@@ -532,8 +500,7 @@ class DPAgent(CrewAgent):
                 if core and core not in _norm_key(body):
                     body = f"{body.strip().rstrip('。')}。{ff}".strip("。")
 
-            # 风格段按本镜 body 重算（填空不覆盖）：body 已经交代了光影/运镜的，
-            # 就不再贴全片风格段的同类描述，避免两套指令打架。
+            # 风格段按本镜 body 重算（填空不覆盖）：body 已经交代了光影/运镜的，            # 就不再贴全片风格段的同类描述，避免两套指令打架。
             # 没有风格指南时退回调用方传入的 style 字符串。
             eff_style = (
                 self._style_text(style_guide, body=body) if style_guide is not None else style

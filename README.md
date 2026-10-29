@@ -225,7 +225,14 @@ Script Workshop/
 │   │   ├── tools.py          #   ReAct 工具集
 │   │   ├── state.py          #   AgentState
 │   │   ├── runner.py         #   运行服务（启动 / 恢复 / 兜底）
-│   │   └── skills.py         #   后台任务运行器（剧组任务进度上报）
+│   │   └── tasks.py          #   后台任务运行器（剧组任务进度上报）
+│   │
+│   ├── skills/               # ★ 技能（长指令外置，按需加载）
+│   │   ├── loader.py         #   加载器（frontmatter + 渐进披露 + 轻量模板）
+│   │   ├── director-breakdown/SKILL.md   # 导演分镜方法论
+│   │   ├── video-prompt-zh/SKILL.md      # 摄影指导写作规则（中文）
+│   │   ├── video-prompt-en/SKILL.md      # 摄影指导写作规则（英文）
+│   │   └── style-guide/SKILL.md          # 美术指导方法论
 │   │
 │   ├── chat/
 │   │   └── conductor.py      # 对话式 Agent（ChatConductor）
@@ -271,7 +278,7 @@ Script Workshop/
 │   ├── runner.py             #   引擎
 │   └── fixtures/             #   录制的真实产出（离线回归用）
 │
-└── tests/                    # 测试套件（204 tests）
+└── tests/                    # 测试套件（227 tests）
 ```
 
 ## 环境变量
@@ -297,7 +304,7 @@ Script Workshop/
 
 ```bash
 python -m pytest tests -q
-# 204 passed
+# 227 passed
 ```
 
 ## 提示词质量 eval

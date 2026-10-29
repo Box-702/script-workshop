@@ -24,7 +24,7 @@
 | [D-09](#d-09-成片合成用-ffmpeg-命令行不引入-moviepy) | 成片 | FFmpeg 命令行直调 | 已定 |
 | [D-10](#d-10-配音用云端-tts-暂不自托管) | 配音 | MiniMax T2A v2 | 待复核 |
 | [D-11](#d-11-字幕时间轴双源-配音实测优先否则字数估算) | 字幕 | 双源 + 镜头窗口内估算 | 已定 |
-| [D-12](#d-12-不引-agent-框架做技能加载待定) | 技能 | 暂不引 deepagents，倾向自研 | **待决策** |
+| [D-12](#d-12-长指令外置成-skill-自研加载器不引-deepagents) | 技能 | 自研 SKILL.md 加载器，不引 deepagents | 已定 |
 | [D-13](#d-13-提示词质量回归自建轻量框架) | 评测 | 自建轻量框架（不引 deepeval） | 已定 |
 
 ---
@@ -243,30 +243,64 @@
 
 ---
 
-<a id="d-12-不引-agent-框架做技能加载待定"></a>
-## D-12 不引 Agent 框架做技能加载 —— **待决策**
+<a id="d-12-长指令外置成-skill-自研加载器不引-deepagents"></a>
+## D-12 长指令外置成 Skill：自研加载器，不引 deepagents —— 已定（2026-10-29）
 
-**背景**：现在所有长 prompt 都硬编码在 Python 常量里（导演规则、美术风格规范、摄影指导方言、三细节律）。改一条规则要改代码，每次调用全量进上下文。
+**背景**：剧组三个角色的系统提示词加起来约 2.2 万字符，全部硬编码在 `.py` 里。三个后果：
+① 改一条规则要改代码，非工程师改不了；② 改了什么、为什么改，混在代码 diff 里看不出来；
+③ 一个 skill 无法单独评测、单独替换。
 
-**选项**：① 引 `langchain-ai/deepagents`（MIT，30.7k★）的 `SkillsMiddleware`；② 抄它的设计自研（约 300–500 行）；③ 维持现状。
+**选项**：① 引 `langchain-ai/deepagents`（MIT，30.7k★）的 `SkillsMiddleware`；
+② 抄它的设计自研；③ 维持现状。
 
-**选项 ① 的代价**：`deepagents` 硬依赖 **LangChain ≥ 1.4.7**，我们当前锁的是 `langchain>=1.3,<1.4`，需要升级依赖，且迁移期新旧双轨。
+**决定**：选 ②。`app/skills/` 里 ~200 行加载器，零新依赖（用项目已有的 PyYAML）。
 
-**选项 ② 的依据**：Agent Skills 是 **Anthropic 已开源的开放标准**（2025-12-18 发布标准，2026-10-22 捐赠给 Agentic AI Foundation），机制是渐进式披露三级——**metadata → SKILL.md 正文 → 附属文件**。我们走 OpenAI 兼容 function calling，拿不到 Claude 原生的渐进披露，**等价物本来就要自己实现**；既然要实现，按开放标准做比引一个特定框架更稳。
+**为什么不是 ①**：`deepagents` 硬依赖 **LangChain ≥ 1.4.7**，我们锁的是 `langchain>=1.3,<1.4`，
+要升依赖并经历迁移期双轨——为了一个 200 行就能实现的东西付这个代价不划算。
+而且我们走 OpenAI 兼容 function calling，拿不到 Claude 原生的渐进披露，
+**等价物本来就要自己实现**；既然要实现，按 Anthropic 的开放标准（SKILL.md + frontmatter）做，
+比绑一个特定框架更稳。
 
-**倾向**：选 ②，顺带把 `app/agent/skills.py` 正名——它现在叫 skills，实际是**后台任务运行器**（`SubAgentRunner`），与 skill 毫无关系，是术语污染。
+**做法**：
 
-**为什么这条值得先做**：Anthropic 官方文章《When to fold subagents into your main agent loop》（2026-10-22）把「长指令外置成 skill 按需加载」列为从多 Agent 架构收敛的第一条建议，并说他们靠这个把 Claude Code 的 system prompt 砍了 80%+。我们 prompt 硬编码的问题，正好落在这条建议上。
+| 层 | 实现 |
+|---|---|
+| 目录（第一级） | `skill_index()` 只给 name + description |
+| 正文（第二级） | `load_skill(name)` / `render_skill(name, **vars)` |
+| 附属文件（第三级） | `skill_file(name, filename)` |
 
-**前置条件**：**eval 已就绪**（见 [D-13](#d-13-提示词质量回归自建轻量框架)）。官方明确"第一步是建 eval set，10 条 golden examples 就够"，且"折叠后分数更差才保留原结构"——现在这条已经满足，10 条 golden case + 确定性层 + judge 层都在 `evals/` 里。
+已迁出的四个技能：`director-breakdown`、`video-prompt-zh`、`video-prompt-en`、`style-guide`。
 
-**改造时的验证方式**（Anthropic 原文的做法）：
-1. 先记录当前基线：`python -m evals.run --judge --out baseline.json`
-2. 一次只折一个角色（导演 → 美术 → 摄影）
-3. 折完跑同样的 eval，**确定性层 critical 必须仍为 0，judge 均值不能掉超过 8 分**
-4. 分数更差就把这个角色留回去，再折下一个
+**模板只支持两种语法**：`{{var}}` 替换、`{% if x %}…{% else %}…{% endif %}` 条件块。
+**不用 `str.format()`**——提示词里全是 JSON 示例（`{"scene_id": ...}`），format 会把所有单花括号
+当占位符直接炸。也**不支持嵌套条件块**：我们的用法就是「有锚/无锚」二选一，
+支持嵌套只会让模板调试变复杂。
 
-**相关**：`app/agent/skills.py` · `app/chat/conductor.py::SYSTEM_PROMPT` · `app/crew/*.py` · `evals/`
+**缺变量必须报错**，不能静默留一个 `{{x}}` 在最终提示词里——那是比报错更糟的漂移。
+
+**顺带正名**：`app/agent/skills.py` → `app/agent/tasks.py`。它从来不是 skill，
+而是**后台任务运行器**（`SubAgentRunner`），挂在 `skills` 这个名字下是纯粹的术语污染，
+会让后来的人误以为它就是技能机制。
+
+**验证方式（这是重点）**：纯重构不能靠「看起来对」，要**逐字比对**。
+迁移时先把旧实现的输出抓成基线，迁完后用新实现渲染同样的四种组合（中/英 × 有锚/无锚）
+逐字比较——全部一致才继续。再跑 eval 确认质量指标没动：
+
+| | 迁移前 | 迁移后 |
+|---|---|---|
+| 确定性层 critical | 0 | 0 |
+| judge 均分 | 81.0 | 81.6 |
+
+**收益（不是口号，是可验证的）**：
+- 改写作规则只动 `.md`，git diff 干净，review 时不用在 Python 里找字符串；
+- 每个技能可单独定位——`grep` 一句规则就能找到它属于哪个角色；
+- 配合 D-13 的 eval，可以单独 A/B 某个技能的措辞。
+
+**什么时候该推翻**：如果要让**主对话 Agent** 也按需加载技能（而不是像现在这样把 flow 指令
+全写在 `SYSTEM_PROMPT` 里），需要再加一个 `load_skill` 工具 + 更细的触发条件。
+那时可以重新评估是否直接换 deepagents。
+
+**相关**：`app/skills/` · `app/crew/{director,art_director,dp}.py` · `tests/test_skills.py`
 
 ---
 

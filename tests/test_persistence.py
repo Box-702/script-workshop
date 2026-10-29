@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 
-from app.agent.skills import SubAgentRunner, SubAgentTask
+from app.agent.tasks import SubAgentRunner, SubAgentTask
 
 
 def _project(store):
