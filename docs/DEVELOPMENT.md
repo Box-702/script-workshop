@@ -795,6 +795,17 @@ DATABASE_URL="sqlite:///./data/smoke.db" CHECKPOINTER=memory \
 第 3 步是这次最有价值的：`Log.entryAdded` + `Network.loadingFailed` 一起看，
 才能拿到"404 的是哪个 URL""被 ORB 拦的是哪张图"——只看截图只能看出"这里有点空"。
 
+#### （6）测试清理用 `ignore_errors=True`，`data/` 悄悄堆了几十个目录
+
+- **现象**：`data/` 下有几十个 `test_*.db` 与 `workspace_test_*` 目录（几 MB）。
+- **根因**：两个夹具的 teardown 分别是 `unlink` 包 `except OSError: pass` 和
+  `shutil.rmtree(..., ignore_errors=True)`。Windows 上句柄释放有延迟，
+  删除偶尔失败 → **失败被完全吞掉**，跑一轮就留几个。
+- **修法**：重试 3–4 次（含 `-wal`/`-shm`），仍然失败就 `warnings.warn`，
+  让 pytest 摘要里看得见。
+- **教训**：清理代码里 `ignore_errors=True` 等于"以后没人知道这里漏了"。
+  要么重试，要么出声，别静默。
+
 ---
 
 ## 六、排查手册（症状 → 先查什么）

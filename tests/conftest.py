@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import time
+import warnings
 from pathlib import Path
 
 import pytest
@@ -27,10 +28,22 @@ def tmp_db_path(tmp_path_factory: pytest.TempPathFactory):
     d.mkdir(parents=True, exist_ok=True)
     path = d / f"test_{os.getpid()}_{time.time_ns()}.db"
     yield path.as_posix()
-    try:
-        Path(path).unlink(missing_ok=True)
-    except OSError:
-        pass
+    # Windows 上句柄释放有延迟（连接池 + 杀软扫描），unlink 偶尔会失败。
+    # 静默吞掉会导致 data/ 慢慢堆满 test_*.db（实测跑几轮就几十个），
+    # 所以重试几次，仍然失败就 **出声**——留垃圾可以，但要看得见。
+    leftovers = []
+    for suffix in ("", "-wal", "-shm"):
+        target = Path(str(path) + suffix)
+        for attempt in range(3):
+            try:
+                target.unlink(missing_ok=True)
+                break
+            except OSError:
+                if attempt == 2:
+                    leftovers.append(target.name)
+                time.sleep(0.05)
+    if leftovers:
+        warnings.warn(f"临时测试库未能删除（可手动清理 data/）：{leftovers}", stacklevel=1)
 
 
 @pytest.fixture()

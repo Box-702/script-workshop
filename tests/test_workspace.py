@@ -5,6 +5,7 @@
 import os
 import shutil
 import time
+import warnings
 from pathlib import Path
 
 import pytest
@@ -19,7 +20,16 @@ def ws_dir() -> Path:
     d.mkdir(parents=True, exist_ok=True)
     p = d / f"workspace_test_{os.getpid()}_{time.time_ns()}"
     yield p
-    shutil.rmtree(p, ignore_errors=True)
+    # Windows 下句柄释放有延迟，rmtree 偶尔会失败。以前用 ignore_errors=True，
+    # 于是 data/ 里悄悄堆了一堆 workspace_test_*（实测几十个）。现在重试 + 出声。
+    for attempt in range(4):
+        shutil.rmtree(p, ignore_errors=True)
+        if not p.exists():
+            break
+        time.sleep(0.05 * (attempt + 1))
+    else:
+        if p.exists():
+            warnings.warn(f"临时工作目录未能删除（可手动清理 data/）：{p}", stacklevel=1)
 
 
 def test_sanitize_folder_strips_illegal_chars():
