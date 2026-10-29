@@ -159,12 +159,15 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
 
 | Agent | 角色 | 职责 |
 |---|---|---|
-| **ChatConductor** | 前厅 / 调度 | 绑定 22 个工具理解用户意图，把请求路由到确定性流水线或后台剧组任务 |
+| **ChatConductor** | 前厅 / 调度 | 绑定 23 个工具理解用户意图，把请求路由到确定性流水线或后台剧组任务 |
 
 它是一个 ReAct 小图（`chat_agent` ↔ `tools`），工具循环上限 8 轮。
 关键设计：**审阅动作走确定性路径**（accept/reject 不经过 LLM），避免「对话式工具调用不可靠」导致误操作。
 
-工具按职责分四组：
+系统提示分两层：**触发器留在提示词**（决定该调哪个工具，每轮都要用），**执行细则进技能**
+（`audience: main` 的四个 SKILL.md，由 `load_skill` 工具按需拉）。见 [`DECISIONS.md` D-14](DECISIONS.md)。
+
+工具按职责分五组：
 
 | 组 | 工具 |
 |---|---|
@@ -172,10 +175,12 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
 | 剧组与素材 | `breakdown_scenes` `generate_style_guide` `generate_video_prompts` `generate_reference_assets` `add_asset` |
 | 出片 | `list_video_shots` `approve_video_prompts` `submit_videos` `get_video_jobs` `rerun_video` `finalize_film` `check_finalize` |
 | 状态与记忆 | `check_background_tasks` `remember` `recall` |
+| 技能 | `load_skill` |
 
 > 工具数量逼近 30–50 会开始出现「模型选不对工具」的退化（Anthropic 官方建议的阈值）。
-> 目前 22 个仍安全，但**新增工具前应先考虑合并到已有工具的参数**，而不是继续加新工具。
-> 详见 [`DECISIONS.md` D-12](DECISIONS.md)。
+> 目前 23 个仍安全，但**新增工具前应先考虑合并到已有工具的参数**，而不是继续加新工具。
+> 这也是 D-14 只加一个 `load_skill`（而不是给每个流程各做一个工具）的原因。
+> 详见 [`DECISIONS.md` D-12](DECISIONS.md) / [D-14](DECISIONS.md)。
 
 ### 3.2 剧组 Agent（3 个）—— `app/crew/`
 
@@ -220,14 +225,23 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
 ### 3.6 技能（Skill）—— `app/skills/`
 
 长指令外置成 `SKILL.md`，代码只留装配逻辑。剧组三个角色的系统提示词
-（合计约 2.2 万字符）都在这里，不再硬编码在 `.py` 里。
+（合计约 2.2 万字符）和主 Agent 的四套工作流细则都在这里，不再硬编码在 `.py` 里。
 
-| 文件 | 内容 | 谁用 |
-|---|---|---|
-| `director-breakdown/SKILL.md` | 导演分镜方法论（三工作、细节律、五锚点、连续性计划） | `crew/director.py` |
-| `video-prompt-zh/SKILL.md` | 摄影指导写作规则（中文，十一条） | `crew/dp.py` |
-| `video-prompt-en/SKILL.md` | 同上（英文，目标模型方言） | `crew/dp.py` |
-| `style-guide/SKILL.md` | 美术指导方法论（视觉锚的唯一来源） | `crew/art_director.py` |
+按 **`audience`** 分两组（frontmatter 字段，写错会直接报错跳过）：
+
+| 文件 | 受众 | 内容 | 谁用 |
+|---|---|---|---|
+| `director-breakdown/SKILL.md` | crew | 导演分镜方法论（三工作、细节律、五锚点、连续性计划） | `crew/director.py` |
+| `video-prompt-zh/SKILL.md` | crew | 摄影指导写作规则（中文，十一条） | `crew/dp.py` |
+| `video-prompt-en/SKILL.md` | crew | 同上（英文，目标模型方言） | `crew/dp.py` |
+| `style-guide/SKILL.md` | crew | 美术指导方法论（视觉锚的唯一来源） | `crew/art_director.py` |
+| `novel-serial/SKILL.md` | main | 长篇小说分段改编：建图 → 提弧 → 选段 → 连载续接 | 主 Agent 按需 |
+| `crew-pipeline/SKILL.md` | main | 剧组四件事的依赖顺序与人工审阅边界 | 主 Agent 按需 |
+| `production-delivery/SKILL.md` | main | 批准 → 提交 → 轮询 → 重跑 → 合成 | 主 Agent 按需 |
+| `script-review/SKILL.md` | main | 改编提议的审阅闭环与事实约束 | 主 Agent 按需 |
+
+两组的加载方式不同：**crew 是代码按名加载**（角色启动时整段进系统提示，人看不到目录）；
+**main 靠 `load_skill` 工具按需拉**（目录进系统提示，正文只在进入该领域时才进上下文）。
 
 **渐进披露三级**：`skill_index()` 只给 name + description（很便宜）→ `render_skill(name)`
 加载正文 → `skill_file(name, file)` 按需读附属文件。

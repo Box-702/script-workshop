@@ -134,3 +134,71 @@ def test_path_traversal_is_rejected():
 def test_skill_dir_is_inside_app():
     assert SKILLS_DIR.name == "skills"
     assert SKILLS_DIR.parent.name == "app"
+
+
+# ---------- 受众分组（crew / main） ----------
+
+
+def test_audience_splits_crew_and_main():
+    """两组技能井水不犯河水：剧组方法论不该进主 Agent 的目录，反之亦然。"""
+    crew = {s.name for s in list_skills("crew")}
+    main = {s.name for s in list_skills("main")}
+    assert crew == {"director-breakdown", "video-prompt-zh", "video-prompt-en", "style-guide"}
+    assert main == {"novel-serial", "crew-pipeline", "production-delivery", "script-review"}
+    assert not (crew & main)
+
+
+def test_every_skill_declares_a_known_audience():
+    for meta in list_skills():
+        assert meta.audience in ("crew", "main"), f"{meta.name} 的受众是 {meta.audience!r}"
+
+
+def test_main_skill_index_lists_only_main_skills():
+    idx = skill_index("main")
+    for name in ("novel-serial", "crew-pipeline", "production-delivery", "script-review"):
+        assert name in idx
+    # 主 Agent 不执行分镜，把导演方法论列进它的目录只会诱导它越位
+    assert "director-breakdown" not in idx
+
+
+def test_unknown_audience_is_loud(tmp_path, monkeypatch, caplog):
+    """audience 写成 mian 会让技能「存在但永远不加载」——必须吵，不能静默。"""
+    from app.skills import loader
+
+    d = tmp_path / "typo-skill"
+    d.mkdir()
+    (d / "SKILL.md").write_text(
+        "---\nname: typo-skill\ndescription: 打错受众\naudience: mian\n---\n正文\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(loader, "SKILLS_DIR", tmp_path)
+    loader.clear_cache()
+    try:
+        assert loader.list_skills() == []
+        assert "audience" in caplog.text
+    finally:
+        loader.clear_cache()
+
+
+# ---------- 主 Agent 技能的内容契约 ----------
+
+
+def test_main_skills_have_real_detail():
+    """主 Agent 技能装的是「步骤顺序 + 硬门槛 + 失败处理」，不能是空壳。"""
+    for meta in list_skills("main"):
+        body = load_skill(meta.name).body
+        assert len(body) >= 500, f"{meta.name} 正文只有 {len(body)} 字，细则太薄"
+
+
+def test_main_skills_are_not_templates():
+    """正文是整段塞回工具返回值的，留着 {{x}} / {% if %} 会原样出现在上下文里。"""
+    for meta in list_skills("main"):
+        body = load_skill(meta.name).body
+        assert "{{" not in body, f"{meta.name} 里有模板变量，但主 Agent 技能不做渲染"
+        assert "{%" not in body, f"{meta.name} 里有条件块，但主 Agent 技能不做渲染"
+
+
+def test_main_skills_end_with_related_tools():
+    """每个技能结尾都要有「相关工具」一节，方便对照代码里真实存在的工具。"""
+    for meta in list_skills("main"):
+        assert "# 相关工具" in load_skill(meta.name).body, f"{meta.name} 缺少「相关工具」一节"

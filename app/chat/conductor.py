@@ -39,6 +39,7 @@ from ..pipeline.generation import generate_script as run_generation
 from ..pipeline.knowledge import detect_genres, format_author_style
 from ..llm import LLM
 from ..pipeline.patch import validate_script
+from ..skills import list_skills, load_skill as _load_skill_body, skill_index
 from ..store import Project, Store
 from ..agent.tasks import SubAgentRunner
 
@@ -73,44 +74,65 @@ class _Collector(TypedDict, total=False):
     payloads: list[dict[str, Any]]
 
 
-SYSTEM_PROMPT = (
+# 系统提示分两层：
+#   · 触发器（每一轮都要用）留在提示词里——它决定「该调哪个工具」，是路由信息；
+#   · 执行细则（步骤顺序、硬门槛、失败怎么处理）外置成 app/skills/*（audience: main），
+#     由 load_skill 工具按需拉取。
+# 为什么不把触发器也搬进技能：路由每轮都要用，搬出去等于每轮多一次工具往返，
+# 模型一旦懒得加载就等于不会做事。技能只负责「进去之后怎么做」。
+SYSTEM_PROMPT_TEMPLATE = (
     "你是「剧本工坊」的改编协作者 Agent，工作形式类似 Codex / DSH：通过对话与作者协作，"
-    "把一部作品改编成结构化剧本，并持续打磨到成片。你的能力边界：\n"
-    "1. 新建剧本：用户说「新建项目 / 新建剧本 / 新开一部」时调用 create_project。"
-    "缺少标题、改编类型或原文时，先向用户问清楚再创建。\n"
-    "2. 生成初稿：用户要求「生成 / 初稿 / 第一版 / 出剧本」时调用 generate_script。\n"
-    "3. 改编：用户提出改编需求（改对白、改节奏、改标题、压缩、反转、口语化等）时调用 run_adaptation。"
-    "改编会走底层审阅工作流，结果以「审阅卡片」展示，请引导用户接受 / 拒绝 / 重新生成。\n"
-    "4. 咨询：用户问「剧本怎么样 / 这个结尾好不好」时调用 get_script_overview 或 ask，"
-    "基于剧本概况与作者风格给出有依据的回答，不要凭空编造。\n"
-    "5. 导演拆解：用户要求「拆镜头 / 分镜 / 设计镜头 / 场景拆解」时调用 breakdown_scenes，将场景拆解为镜头方案。\n"
-    "6. 美术指导：用户要求「风格指南 / 视觉风格 / 角色造型 / 画面风格」时调用 generate_style_guide。\n"
-    "7. 摄影指导：用户要求「视频 prompt / 生成 prompt / 镜头描述」时调用 generate_video_prompts，"
-    "先生成待人工审阅的 Prompt 草稿，不直接出片。\n"
-    "8. 参考资产：用户要求「定妆图 / 参考图 / 人物形象图 / 视觉参考」时调用 generate_reference_assets，"
-    "为角色与场景生成定妆图并质检注册，锁跨镜一致性。\n"
-    "9. 镜头盘点：用户问「进度 / 哪些镜头还没批准 / 出片了吗」时调用 list_video_shots 或 get_video_jobs，"
-    "用事实回答，不要凭记忆猜。\n"
-    "10. 批准提示词：用户明确说「批准」时调用 approve_video_prompts。这是用户的正式决定，"
-    "只在其明确表态时执行，绝不代替用户批准。\n"
-    "11. 出片：用户说「出片 / 生成视频 / 提交视频」时调用 submit_videos；"
-    "用户要求「重试 / 重roll 某个镜头」时调用 rerun_video。\n"
-    "12. 后台任务：用户问「拆好了吗 / 好了没」时调用 check_background_tasks 查询真实状态，不要凭记忆回答。\n"
-    "13. 记忆：系统提示里的「用户记忆」要主动遵循；用户说「记住… / 以后都…」时调用 remember；"
-    "用户问「你记得什么」时调用 recall。用户的长期习惯值得记下来时也可以主动建议保存。\n"
-    "14. 长篇小说：原文超过约 1.5 万字时不要直接生成初稿（只会覆盖开头一小段）。"
-    "先调用 map_novel 建章节地图，再用 propose_arcs 提候选故事弧，用户选定章节范围后"
-    "调用 generate_script(from_chapter, to_chapter) 按段生成；用户说「继续改编下一段」时"
-    "不要再提候选弧，直接调用 generate_script 且章节参数留空（自动从已改编进度续接约 1.2 万字），"
-    "前情提领会自动带上，生成后汇报本次范围与连载进度。\n"
-    "15. 汇报以工具返回为准：说「已生成 / 已建成 / 已挑出 / 已提交」之前，本轮必须真的调用过"
-    "对应工具；严禁凭对话历史编造版本号（ver_xxx）、场次、进度或任务结果。"
-    "没调工具就直说还没做，或者先做再说。\n"
-    "行为准则：回复简洁、口语化、用简体中文；不确定时先问；不要虚构剧本内容；"
-    "不要替用户做最终决定，审阅与落版决定永远交给用户。"
-    "剧组任务（5-8）会在后台运行，启动后告知用户可在右栏查看进度；"
-    "出片（11）走 MiniMax，需要用户先配置自己的 API Key。"
+    "把一部作品改编成结构化剧本，并持续打磨到成片。\n"
+    "所有动作都通过工具完成，不要凭空叙述已经做过的事。\n"
+    "\n"
+    "【触发 → 动作】\n"
+    "· 新建剧本（新建项目 / 新建剧本 / 新开一部）→ create_project；缺标题、改编类型或原文时先问清楚\n"
+    "· 生成初稿（生成 / 初稿 / 第一版 / 出剧本）→ generate_script\n"
+    "· 改编（改对白 / 改节奏 / 压缩 / 反转 / 口语化）→ run_adaptation，细则见 script-review 技能\n"
+    "· 咨询（剧本怎么样 / 这个结尾好不好）→ get_script_overview 或 ask，凭剧本概况与作者风格给有依据的回答\n"
+    "· 拆镜头（拆解 / 分镜 / 设计镜头 / 场景拆解）→ breakdown_scenes\n"
+    "· 风格指南（视觉风格 / 角色造型 / 画面风格）→ generate_style_guide\n"
+    "· 定妆图（参考图 / 人物形象图 / 视觉参考）→ generate_reference_assets\n"
+    "· 视频 prompt（生成 prompt / 镜头描述）→ generate_video_prompts\n"
+    "· 镜头盘点（进度 / 哪些镜头还没批准 / 出片了吗）→ list_video_shots，必要时再 get_video_jobs\n"
+    "· 批准提示词 → approve_video_prompts（只在用户明确说「批准」时）\n"
+    "· 出片（出片 / 生成视频 / 提交视频）→ submit_videos；重试或重 roll 某镜 → rerun_video\n"
+    "· 合成成片（拼成片 / 出完整视频）→ finalize_film；问合成好了没 → check_finalize\n"
+    "· 后台任务（拆好了吗 / 好了没 / 进度如何）→ check_background_tasks\n"
+    "· 记忆：系统提示里的「用户记忆」要主动遵循；说「记住… / 以后都…」→ remember；问「你记得什么」→ recall\n"
+    "· 长篇小说（原文超过约 1.4 万字）→ 先加载 novel-serial 技能，不要直接 generate_script\n"
+    "\n"
+    "【可用技能】触发器只告诉你该做哪件事，怎么做的细则在技能里，\n"
+    "   · 动手之前先 load_skill：只要本轮要执行某个领域的动作（生成 / 改编 / 拆解 / 提交 / 批准 / 合成），"
+    "本轮第一个工具调用就应该是 load_skill，拿完细则再动手；\n"
+    "   · 例外：纯只读的盘点（看镜头进度、看哪些提示词待批、查后台任务）可以先查，但一旦要动手，先补上 load_skill；\n"
+    "   · 只加载与本轮任务相关的那个技能，不要为求保险全加载一遍；同一轮加载过的不必重复。\n"
+    "{skill_index}\n"
+    "\n"
+    "【硬规矩】\n"
+    "1. 汇报以工具返回为准：说「已生成 / 已建成 / 已挑出 / 已提交 / 已出片」之前，本轮必须真的调用过对应工具；"
+    "严禁凭对话历史编造版本号（ver_xxx）、场次、进度或任务结果。没调工具就直说还没做，或者先做再说。\n"
+    "2. 不替用户做最终决定：接受、拒绝、批准永远由用户发起，你只负责解释影响和引导。\n"
+    "3. 剧组任务（拆解 / 风格 / 定妆图 / 提示词）与出片都在后台运行，启动后告知用户可在右栏查看进度。\n"
+    "4. 回复简洁、口语化、用简体中文；不确定时先问；不要虚构剧本内容。\n"
+    "5. 出片走 MiniMax，需要用户先配置自己的 API Key。\n"
 )
+
+
+def system_prompt() -> str:
+    """组装系统提示：静态部分 + 主 Agent 技能目录（渐进披露第一级）。
+
+    目录只有 name + description + when_to_use，正文要靠 load_skill 拉——
+    所以技能越多，提示词也只长几行。
+    """
+    # 用 replace 而不是 str.format：技能描述里可能出现花括号，format 会直接炸。
+    return SYSTEM_PROMPT_TEMPLATE.replace("{skill_index}", skill_index("main"))
+
+
+def main_skill_names() -> set[str]:
+    """主 Agent 能加载的技能名（供工具校验与测试断言，避免两处硬编码）。"""
+    return {m.name for m in list_skills("main")}
+
 
 # 改编类型 -> 中文名，用于提示模型填参数。
 _ADAPT_TYPE_LABELS = {
@@ -909,7 +931,23 @@ def build_chat_tools(
         ]
         return "当前生效的记忆：\n" + "\n".join(lines)
 
+    @tool
+    def load_skill(name: str) -> str:
+        """加载某个工作流的完整执行细则（步骤顺序、硬门槛、失败怎么处理）。只能加载系统提示「可用技能」里列出的名字；进入该领域做事之前先调用一次，同一轮里不必重复。参数：name=技能名。"""
+        key = (name or "").strip()
+        allowed = main_skill_names()
+        if key not in allowed:
+            # 不抛异常：工具报错会污染这一轮的消息流，返回可读提示让模型自己改口。
+            return f"没有这个技能：{key or '（空）'}。可加载：{'、'.join(sorted(allowed)) or '无'}。"
+        try:
+            skill = _load_skill_body(key)
+        except Exception as e:  # noqa: BLE001
+            return f"技能 {key} 读取失败：{e}"
+        extra = f"\n\n（该技能还有附属文件：{'、'.join(skill.files)}）" if skill.files else ""
+        return skill.body + extra
+
     return [
+        load_skill,
         create_project,
         map_novel,
         propose_arcs,
@@ -1088,7 +1126,7 @@ def _prepare_turn(
     input_state: dict[str, Any] = {
         "project_id": project_id,
         "messages": [
-            SystemMessage(content=SYSTEM_PROMPT + "\n" + note + memory_note),
+            SystemMessage(content=system_prompt() + "\n" + note + memory_note),
             *history,
             HumanMessage(content=message),
         ],

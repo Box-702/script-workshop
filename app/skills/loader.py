@@ -14,6 +14,11 @@
 #   ② 正文   —— SKILL.md 的 markdown 正文，需要时才加载；
 #   ③ 附属文件 —— 同目录下的其他文件，按需读取（`skill_file()`）。
 #
+# 受众（frontmatter 的 audience）：
+#   crew —— 剧组的三个角色，提示词由代码按名加载，人看不到目录；
+#   main —— 主对话 Agent，目录进系统提示词，正文靠 `load_skill` 工具按需拉。
+#   写错受众会「静默永不加载」，所以非法值直接报错（见 `_parse`）。
+#
 # 模板非常克制（只支持两种语法，够用即可）：
 #   {{var}}                      —— 变量替换
 #   {% if var %}…{% else %}…{% endif %} —— 条件块（不支持嵌套）
@@ -45,6 +50,15 @@ _IF_RE = re.compile(
 )
 
 
+#: 技能的两个「受众」。crew 是剧组的三个角色（提示词由代码按名加载），
+#: main 是主对话 Agent（通过 load_skill 工具按需加载）。
+#: 分受众的原因：主 Agent 的技能目录会进系统提示词，把剧组四个技能也列进去
+#: 等于每轮都白付一份用不上的目录，还会诱导主 Agent 去加载「导演分镜方法论」
+#: 这种它根本不该执行的东西。
+AUDIENCES = ("crew", "main")
+DEFAULT_AUDIENCE = "crew"
+
+
 @dataclass
 class SkillMeta:
     """技能的元数据（只读 frontmatter，不读正文）。"""
@@ -53,6 +67,7 @@ class SkillMeta:
     description: str
     when_to_use: str = ""
     path: Path | None = None
+    audience: str = DEFAULT_AUDIENCE
 
     def to_line(self) -> str:
         """渲染成目录里的一行（给模型看的短描述）。"""
@@ -92,6 +107,13 @@ def _parse(path: Path) -> Skill:
     desc = str(meta_raw.get("description") or "").strip()
     if not desc:
         raise ValueError(f"{path} 缺少 description（它决定模型会不会加载这个技能）")
+    # 受众写错必须吵：写成 "mian" 会让技能既进不了主 Agent 的目录、又混进剧组目录，
+    # 表现为「技能存在但永远不被加载」——这种静默失效最难查。
+    audience = str(meta_raw.get("audience") or DEFAULT_AUDIENCE).strip().lower()
+    if audience not in AUDIENCES:
+        raise ValueError(
+            f"{path} 的 audience={audience!r} 非法（只能是 {' / '.join(AUDIENCES)}）"
+        )
     body = m.group(2).strip()
     siblings = sorted(
         p.name for p in path.parent.iterdir()
@@ -103,6 +125,7 @@ def _parse(path: Path) -> Skill:
             description=desc,
             when_to_use=str(meta_raw.get("when_to_use") or "").strip(),
             path=path,
+            audience=audience,
         ),
         body=body,
         files=siblings,
@@ -131,9 +154,15 @@ def _all_skills() -> dict[str, Skill]:
     return found
 
 
-def list_skills() -> list[SkillMeta]:
-    """列出全部技能的**元数据**（渐进披露第一级，很便宜）。"""
-    return [s.meta for s in _all_skills().values()]
+def list_skills(audience: str | None = None) -> list[SkillMeta]:
+    """列出技能的**元数据**（渐进披露第一级，很便宜）。
+
+    传 audience 只列该受众的技能；不传列全部（向后兼容）。
+    """
+    metas = [s.meta for s in _all_skills().values()]
+    if audience is not None:
+        metas = [m for m in metas if m.audience == audience]
+    return metas
 
 
 def load_skill(name: str) -> Skill:
@@ -156,9 +185,9 @@ def skill_file(name: str, filename: str) -> str:
     return target.read_text(encoding="utf-8")
 
 
-def skill_index() -> str:
-    """技能目录（给主 Agent 看的短清单，不含正文）。"""
-    metas = list_skills()
+def skill_index(audience: str | None = None) -> str:
+    """技能目录（给模型看的短清单，不含正文）。"""
+    metas = list_skills(audience)
     if not metas:
         return "（没有可用技能）"
     return "\n".join(m.to_line() for m in metas)

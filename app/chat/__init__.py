@@ -15,6 +15,8 @@ from .conductor import (
     chat_once,
     chat_stream,
     load_history,
+    main_skill_names,
+    system_prompt,
     _handle_resume,
 )
 
@@ -24,5 +26,7 @@ __all__ = [
     "chat_once",
     "chat_stream",
     "load_history",
+    "main_skill_names",
+    "system_prompt",
     "_handle_resume",
 ]

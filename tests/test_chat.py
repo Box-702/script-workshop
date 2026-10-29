@@ -4,7 +4,14 @@
 # 无模型 key 环境下验证对话工具全链路。
 # =====================================================================
 
-from app.chat import _handle_resume, build_chat_tools, chat_once, load_history
+from app.chat import (
+    _handle_resume,
+    build_chat_tools,
+    chat_once,
+    load_history,
+    main_skill_names,
+    system_prompt,
+)
 
 
 def _make_tools(store, llm):
@@ -518,3 +525,91 @@ def test_add_asset_tool_registers_url(store, llm):
     # 非法链接拒绝
     r2 = tools["add_asset"].invoke({"project_id": pid, "url": "不是链接"})
     assert "http" in r2
+
+
+# ---------- 主 Agent 的按需技能加载 ----------
+
+#: 触发器 → 该行必须指向的工具。这张表是「改造时别把某条流程弄丢」的护栏：
+#: 提示词从 15 条编号规则改写成触发器表时，最容易的失误就是漏掉一条。
+TRIGGERS = [
+    ("新建剧本", "create_project"),
+    ("生成初稿", "generate_script"),
+    ("改编（", "run_adaptation"),
+    ("咨询（", "ask"),
+    ("拆镜头", "breakdown_scenes"),
+    ("风格指南", "generate_style_guide"),
+    ("定妆图", "generate_reference_assets"),
+    ("视频 prompt", "generate_video_prompts"),
+    ("镜头盘点", "list_video_shots"),
+    ("批准提示词", "approve_video_prompts"),
+    ("出片（", "submit_videos"),
+    ("合成成片", "finalize_film"),
+    ("后台任务", "check_background_tasks"),
+    ("记忆：", "remember"),
+]
+
+
+def test_load_skill_tool_loads_main_skill(store, llm):
+    tools, _ = _make_tools(store, llm)
+    assert "load_skill" in tools
+    body = tools["load_skill"].invoke({"name": "novel-serial"})
+    assert "章节地图" in body and "generate_script" in body
+
+
+def test_load_skill_rejects_crew_skill_and_typos(store, llm):
+    """工具报错会污染消息流，所以未知技能返回可读提示 + 可用清单，让模型自己改口。"""
+    tools, _ = _make_tools(store, llm)
+    for bad in ("director-breakdown", "novel-serail", ""):
+        out = tools["load_skill"].invoke({"name": bad})
+        assert "没有这个技能" in out
+        assert "novel-serial" in out
+
+
+def test_system_prompt_lists_every_main_skill():
+    prompt = system_prompt()
+    for name in main_skill_names():
+        assert name in prompt, f"技能 {name} 没进系统提示的目录，模型永远不会加载它"
+    # 占位符必须被真的替换掉，漏了等于把 {skill_index} 这串字喂给模型
+    assert "{skill_index}" not in prompt
+
+
+def test_system_prompt_keeps_hard_rules():
+    """提示词可以重写，铁律不能丢。"""
+    prompt = system_prompt()
+    for kw in (
+        "汇报以工具返回为准",
+        "严禁凭对话历史编造版本号",
+        "不替用户做最终决定",
+        "需要用户先配置自己的 API Key",
+    ):
+        assert kw in prompt, f"系统提示里丢了「{kw}」"
+
+
+def test_system_prompt_stays_within_budget():
+    """目录只放 name+description，正文靠 load_skill 拉——所以技能变多，提示词也只长几行。"""
+    assert len(system_prompt()) < 2400, f"系统提示 {len(system_prompt())} 字，超出预算"
+
+
+def test_every_trigger_points_at_a_real_tool(store, llm):
+    tools, _ = _make_tools(store, llm)
+    prompt = system_prompt()
+    lines = prompt.splitlines()
+    for kw, tool_name in TRIGGERS:
+        line = next((ln for ln in lines if kw in ln), "")
+        assert line, f"触发器「{kw}」不在系统提示里了"
+        assert tool_name in line, f"「{kw}」这条触发器没有指向 {tool_name}"
+        assert tool_name in tools, f"提示词点名了不存在的工具 {tool_name}"
+
+
+def test_main_skills_related_tools_exist(store, llm):
+    """技能末尾「相关工具」里点名的东西必须是真实工具，防止代码改名后文档悄悄失真。"""
+    import re
+
+    from app.skills import list_skills, load_skill
+
+    tools, _ = _make_tools(store, llm)
+    for meta in list_skills("main"):
+        tail = load_skill(meta.name).body.split("# 相关工具")[-1]
+        named = set(re.findall(r"`([a-z_]+)`", tail))
+        assert named, f"{meta.name} 的「相关工具」一节是空的"
+        assert named <= set(tools), f"{meta.name} 点名了不存在的工具：{named - set(tools)}"

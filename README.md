@@ -49,7 +49,9 @@
 
 ### 工具集
 
-**对话 Conductor 工具（22 个）**：剧本侧 `create_project`（超长原文主动提示）/ `map_novel` / `propose_arcs` / `generate_script` / `run_adaptation` / `get_script_overview` / `ask`；剧组 `breakdown_scenes` / `generate_style_guide` / `generate_video_prompts` / `generate_reference_assets`；素材 `add_asset`；视频侧 `list_video_shots` / `approve_video_prompts` / `submit_videos` / `get_video_jobs` / `rerun_video` / `finalize_film` / `check_finalize`；运维 `check_background_tasks`；记忆 `remember` / `recall`。从导入小说到出片的全流程都能在对话里完成；每轮的工具轨迹压缩后进入历史上下文，多轮不丢事实。
+**对话 Conductor 工具（23 个）**：剧本侧 `create_project`（超长原文主动提示）/ `map_novel` / `propose_arcs` / `generate_script` / `run_adaptation` / `get_script_overview` / `ask`；剧组 `breakdown_scenes` / `generate_style_guide` / `generate_video_prompts` / `generate_reference_assets`；素材 `add_asset`；视频侧 `list_video_shots` / `approve_video_prompts` / `submit_videos` / `get_video_jobs` / `rerun_video` / `finalize_film` / `check_finalize`；运维 `check_background_tasks`；记忆 `remember` / `recall`；技能 `load_skill`。从导入小说到出片的全流程都能在对话里完成；每轮的工具轨迹压缩后进入历史上下文，多轮不丢事实。
+
+**主 Agent 按需加载技能**：系统提示只放「触发 → 动作」的路由表 + 四个技能的目录，真正怎么做（步骤顺序、硬门槛、失败处理）在 `app/skills/{novel-serial,crew-pipeline,production-delivery,script-review}/SKILL.md` 里，进入该领域时由 `load_skill` 按需拉取。实测（每例连跑 3 次）：长篇直接要初稿 3/3 会先加载细则并拒绝整本生成，改编 3/3、出片 3/3 在动手前加载，「拆好了吗」3/3 不多花一次往返。改流程只动 `.md`，不碰代码。
 
 **长篇小说改编**：单次剧本生成的原文容量约 1.2 万字，超长文本不再静默砍头——`create_project` 会如实提示规模；先 `map_novel`（后台 map-reduce 逐章摘要+出场人物，存 `projects.novel_map_json`）建章节地图，再 `propose_arcs` 提 2-3 个候选故事弧（清单带每章字数，单弧约束在 1.2 万字生成容量内，大弧自动拆上下部）；用户选定后 `generate_script(from_chapter, to_chapter)` 按章生成，「继续改编下一段」直接按容量从进度续接；连载推进时自动携带已改编章节的「前情提要」保持人物与情节衔接（进度锚 `projects.adapted_until`，项目 API 已暴露地图与进度）。**可靠性护栏**（deepseek 实测驱动）：模型摘要/剧本输出不守格式时结构化容错解析而非整体回退；回复声称了「已生成/已建成」但本轮没有真实工具返回时，系统自动更正并带纠错指令重跑一次，杜绝凭对话历史编造版本号。
 
@@ -228,11 +230,15 @@ Script Workshop/
 │   │   └── tasks.py          #   后台任务运行器（剧组任务进度上报）
 │   │
 │   ├── skills/               # ★ 技能（长指令外置，按需加载）
-│   │   ├── loader.py         #   加载器（frontmatter + 渐进披露 + 轻量模板）
-│   │   ├── director-breakdown/SKILL.md   # 导演分镜方法论
-│   │   ├── video-prompt-zh/SKILL.md      # 摄影指导写作规则（中文）
-│   │   ├── video-prompt-en/SKILL.md      # 摄影指导写作规则（英文）
-│   │   └── style-guide/SKILL.md          # 美术指导方法论
+│   │   ├── loader.py         #   加载器（frontmatter + 渐进披露 + 轻量模板 + 受众分组）
+│   │   ├── director-breakdown/SKILL.md   # 导演分镜方法论（crew）
+│   │   ├── video-prompt-zh/SKILL.md      # 摄影指导写作规则（中文，crew）
+│   │   ├── video-prompt-en/SKILL.md      # 摄影指导写作规则（英文，crew）
+│   │   ├── style-guide/SKILL.md          # 美术指导方法论（crew）
+│   │   ├── novel-serial/SKILL.md         # 长篇分段改编（main，主 Agent 按需加载）
+│   │   ├── crew-pipeline/SKILL.md        # 剧组四件事的依赖与审阅边界（main）
+│   │   ├── production-delivery/SKILL.md  # 批准 → 出片 → 合成（main）
+│   │   └── script-review/SKILL.md        # 改编审阅闭环（main）
 │   │
 │   ├── chat/
 │   │   └── conductor.py      # 对话式 Agent（ChatConductor）
@@ -278,7 +284,7 @@ Script Workshop/
 │   ├── runner.py             #   引擎
 │   └── fixtures/             #   录制的真实产出（离线回归用）
 │
-└── tests/                    # 测试套件（227 tests）
+└── tests/                    # 测试套件（241 tests）
 ```
 
 ## 环境变量
@@ -304,7 +310,7 @@ Script Workshop/
 
 ```bash
 python -m pytest tests -q
-# 227 passed
+# 241 passed
 ```
 
 ## 提示词质量 eval
