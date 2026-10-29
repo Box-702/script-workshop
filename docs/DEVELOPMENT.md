@@ -737,6 +737,64 @@ MiniMax 按 token 计费（6s/768P ≈ 19.5 万 token/条）。反复「盲出�
 外加 `test_main_skills_related_tools_exist`：每个技能末尾"相关工具"点名的必须是真实工具，
 防止代码改名后技能文档悄悄失真。
 
+### 5.15 三个「静默失败」（2026-10 全链路体检）
+
+这一轮把服务真跑起来、用无头浏览器点了一遍界面，抓到的问题都属于同一类：
+**不报错、不崩溃，只是安静地坏着**。
+
+#### （1）静态资源只挂了 `/assets`，favicon 一直在 404
+
+- **现象**：`/` 正常、界面正常，只有控制台一条红：`favicon.svg 404`。
+  `dist/brand/` 同理——`public/` 里的东西是拷到 `dist/` 根目录的，不在 `/assets` 下。
+- **根因**：`main.py` 只 `mount("/assets", ...)`，`/favicon.svg` 与 `/brand/*` 没有任何路由。
+- **修法**：显式 `/favicon.svg` 路由 + 存在才挂 `/brand`。
+- **教训**：**只测 API 永远发现不了这类问题**——它只发生在浏览器里。
+  现在 `test_favicon_is_served` 兜住（CI 后端 job 没有 dist 时自动 skip）。
+
+#### （2）Postgres 连不上时，请求会**永久挂住**（不是报错）
+
+- **现象**：`.env` 指向的 Postgres 没起，`curl /api/projects` 等 70 秒没有任何响应，
+  进程日志里连一条错误都没有。界面上就是无限转圈。
+- **根因**：libpq 的 `connect_timeout` **默认是"一直等"**，而 `create_engine` 没传这个参数
+  （`store.py` 的注释里写着"需要连接超时等参数"，代码里是空 dict——注释骗了人）。
+- **修法**：`connect_args_for()` 按驱动给参数，Postgres 一律带
+  `connect_timeout`（默认 5 秒，`DB_CONNECT_TIMEOUT` 可覆盖）；
+  另外加 `OperationalError` 处理器，返回 **503 + 人话**（告诉用户去改 `DATABASE_URL` 或起容器），
+  而不是 500 + 堆栈。
+- **教训**：**超时要显式给**。`localhost` 会同时解析 v4/v6，两轮各 5 秒 → 实际约 10 秒才报错，
+  这个量级可以接受；但"无限等"是不可接受的。
+
+#### （3）导出文件名是 `雨夜归人_vver_xxx.txt`
+
+- **根因**：`f"{title}_v{version_id}"`，而 `version_id` 本身已经带 `ver_` 前缀。
+- **顺带**：`Content-Disposition` 的 ASCII 退路把所有中文替换成下划线，
+  纯中文标题会得到 `____.docx`——老客户端拿到一个没有名字的文件。
+  现在收敛连续下划线，去掉扩展名后没有 ASCII 字母数字就退成 `script.docx`。
+- **教训**：拼接 id 时**别假设它不带前缀**；`filename*` 之外那条退路也得看一眼。
+
+#### （4）首屏背景图链的是第三方博客图床
+
+- **现象**：`WelcomeHero.vue` 的 `.hero-image` 第一层 `url()` 指到一个博客图床的 webp，
+  浏览器以 `ERR_BLOCKED_BY_ORB` 拦掉——设计想要的底纹从来没有真正出现过，
+  首屏还一直在为一个死链发请求。
+- **修法**：改成自绘的 `public/brand/hero-texture.svg`（冷光 + 斜向光带 + 胶片颗粒），
+  零外部依赖：断网、内网、图床挂掉看到的是同一块光影。
+- **教训**：**首屏不要有外链资源**。这类失败在控制台里只是一行，在视觉上是"看起来就是黑的"。
+
+#### （5）体检方法本身值得复用
+
+```bash
+# 1) 起服务（SQLite 免部署）
+DATABASE_URL="sqlite:///./data/smoke.db" CHECKPOINTER=memory \
+  python -m uvicorn app.main:app --port 8124
+
+# 2) 真跑一遍：导入 → 生成 → 对话流式 → 版本/导出
+# 3) 真点一遍：Chrome CDP（--remote-debugging-port）无头截图 + 收集 console/Network 事件
+```
+
+第 3 步是这次最有价值的：`Log.entryAdded` + `Network.loadingFailed` 一起看，
+才能拿到"404 的是哪个 URL""被 ORB 拦的是哪张图"——只看截图只能看出"这里有点空"。
+
 ---
 
 ## 六、排查手册（症状 → 先查什么）
@@ -762,3 +820,7 @@ MiniMax 按 token 计费（6s/768P ≈ 19.5 万 token/条）。反复「盲出�
 | 技能文件明明在、模型从来不用 | `audience` 是否拼对（`crew`/`main`）；main 技能是否真的进了 `system_prompt()` 的目录（见 5.14(3)） |
 | 模型没加载细则就直接动手 | 提示词的排序规则是否被改回了软要求「进入领域前先加载」，要按**动作**写（见 5.14(2)） |
 | `load_skill` 报「没有这个技能」 | 是不是让主 Agent 去加载了剧组技能；或技能名拼错（返回里带可用清单） |
+| 界面能开、点一下就一直转圈 | 数据库没起。看 `connect_timeout`（`DB_CONNECT_TIMEOUT`）与 503 的说明文案（见 5.15(2)） |
+| 控制台一条 favicon/品牌资源 404 | 只挂了 `/assets`；`public/` 里的文件在 dist 根目录（见 5.15(1)） |
+| 首屏右侧一片死黑 / ORB 拦截 | `WelcomeHero.vue` 的外链背景图；应走本地 `brand/hero-texture.svg`（见 5.15(4)） |
+| 下载的剧本文件名出现 `vver_` | 版本号被拼了两次前缀（见 5.15(3)） |

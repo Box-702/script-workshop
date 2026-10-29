@@ -264,7 +264,11 @@ class EvalReport:
         lines: list[str] = []
         lines.append("=" * 68)
         lines.append("提示词质量 eval 报告")
-        lines.append(f"provider={self.provider} model={self.model or '(未记录)'}")
+        # provider 指的是「目标视频方言」，不是对话模型——两者分开写，
+        # 否则很容易读成「用 minimax 的模型跑 deepseek-flash」。
+        lines.append(
+            f"视频方言={self.provider}  对话模型={self.model or '(未记录)'}"
+        )
         lines.append("=" * 68)
 
         for r in self.results:

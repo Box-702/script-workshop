@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" role="img" aria-label="首屏氛围底纹">
+  <!--
+    首屏氛围底纹（本地资源，无外部依赖）。
+    之前这里链的是第三方博客图床的一张 webp，早已被浏览器按 ORB 拦掉，
+    等于首屏一直在为一个死链发请求。改成自绘：冷光 + 斜向光带 + 胶片颗粒，
+    断网也画得出来，且不牵扯版权。
+  -->
+  <defs>
+    <radialGradient id="glow" cx="0.76" cy="0.24" r="0.62">
+      <stop offset="0" stop-color="#7fc4e6" stop-opacity="0.46"/>
+      <stop offset="0.55" stop-color="#2f627c" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="warm" cx="0.12" cy="0.92" r="0.55">
+      <stop offset="0" stop-color="#8a7bd8" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="0.55" y2="1">
+      <stop offset="0" stop-color="#a9e2ff" stop-opacity="0.36"/>
+      <stop offset="0.7" stop-color="#a9e2ff" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#a9e2ff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="soften" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="26"/>
+    </filter>
+    <filter id="grain">
+      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" stitchTiles="stitch"/>
+      <feColorMatrix type="saturate" values="0"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="1000" fill="#0b0b12"/>
+  <rect width="1600" height="1000" fill="url(#glow)"/>
+  <rect width="1600" height="1000" fill="url(#warm)"/>
+
+  <!-- 斜向光带：像放映机漏进暗厅的一束光 -->
+  <g filter="url(#soften)" opacity="0.9">
+    <path d="M1180 -140 L1500 1020 L1880 1020 L1330 -140 Z" fill="url(#beam)"/>
+    <path d="M1040 -140 L1240 1020 L1340 1020 L1120 -140 Z" fill="url(#beam)" opacity="0.5"/>
+  </g>
+
+  <!-- 远处的一圈光斑，避免右侧完全是空的 -->
+  <circle cx="1240" cy="300" r="180" fill="#bfe6ff" opacity="0.05" filter="url(#soften)"/>
+  <rect width="1600" height="1000" filter="url(#grain)" opacity="0.08"/>
+</svg>

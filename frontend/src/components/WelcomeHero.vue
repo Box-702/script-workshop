@@ -111,12 +111,16 @@ function useTemplate(t) {
 }
 
 .hero-backdrop { z-index: -2; background: var(--bg); }
+/* 背景层次：底纹是本地的（public/brand/hero-texture.svg），冷光、光带与胶片颗粒都在里面。
+   之前这里链的是一个第三方博客图床的 webp，那张图早就被浏览器以 ORB 拦掉——
+   首屏一直在为一个死链发请求，设计想有的底纹反而从来没有出现过。
+   现在零外部依赖：断网、内网、图床挂掉，看到的都是同一块光影。 */
 .hero-image {
   background:
-    url('https://blog-bk.sondo.ai/upload/2025/06/6870109c1e04b.webp') center / cover,
-    url('https://images.unsplash.com/photo-1519608487953-e999c86e7455?auto=format&fit=crop&w=1400&q=80') center / cover;
-  opacity: .55;
-  filter: saturate(.88) contrast(1.04);
+    url('/brand/hero-texture.svg') center / cover,
+    linear-gradient(165deg, oklch(0.19 0.02 275) 0%, var(--bg) 62%);
+  opacity: .85;
+  filter: saturate(.92) contrast(1.02);
   transform: scale(1.025);
 }
 .hero-vignette {

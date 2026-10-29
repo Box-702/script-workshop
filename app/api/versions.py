@@ -143,7 +143,9 @@ def export_version(version_id: str, fmt: str = "txt") -> Response:
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
-    base = f"{common.proj_title(v.script.title)}_v{version_id}"
+    # version_id 本身已带 "ver_" 前缀，别再拼一个 v（否则导出的文件名是
+    # 「雨夜归人_vver_xxx.txt」这种看着像 bug 的东西）。
+    base = f"{common.proj_title(v.script.title)}_{version_id}"
     filename = f"{base}{ext}"
     headers = common.content_disposition(filename)
     media_type = EXPORT_FORMATS[fmt]["mime"]

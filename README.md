@@ -302,15 +302,15 @@ Script Workshop/
 | `DEEPSEEK_THINKING` | 推理模型是否开启思考链 | `false` |
 | `VISION_PROVIDER` / `VISION_MODEL` / `VISION_API_KEY` | 视觉质检单独配置（留空则自动复用支持视觉的厂商） | 自动 |
 | `IMAGE_PROVIDER` / `IMAGE_MODEL` / `IMAGE_API_KEY` | 文生图单独配置（`cogview` / `openai`） | `cogview` → `openai` |
-| `MINIMAX_API_KEY` | MiniMax 视频生成 key | - |
-| `DATABASE_URL` | 数据库连接串 | SQLite |
+| `DATABASE_URL` | 数据库连接串（`postgresql+psycopg://…` 或 `sqlite:///./data/dev.db`） | 与 `.env.example` 一致（Postgres） |
+| `DB_CONNECT_TIMEOUT` | 数据库连接超时（秒）。不给的话 libpq 会一直等，库没起来时请求永久挂住 | `5` |
 | `CHECKPOINTER` | checkpointer 类型（`memory` / `postgres`） | `memory` |
 
 ## 运行测试
 
 ```bash
 python -m pytest tests -q
-# 241 passed
+# 245 passed
 ```
 
 ## 提示词质量 eval

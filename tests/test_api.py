@@ -338,3 +338,55 @@ def test_scene_order_reorder_persists_as_new_version(client, store, sample_text)
     # 不完整的排列拒绝
     bad = client.post(f"/api/versions/{v.id}/scene_order", json={"scene_ids": ["scene_002"]})
     assert bad.status_code == 400
+
+
+# ---------- 静态资源 / 导出文件名 / 数据库超时 ----------
+
+
+def test_favicon_is_served(client):
+    """index.html 引用了 /favicon.svg，而服务端只挂载了 /assets —— 之前控制台一条 404。"""
+    from pathlib import Path
+
+    dist = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+    if not (dist / "favicon.svg").exists():
+        pytest.skip("前端未构建（CI 的后端 job 不产出 dist）")
+    resp = client.get("/favicon.svg")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("image/svg")
+
+
+def test_export_filename_has_single_version_prefix(client, store, sample_text):
+    """导出文件名不该出现「_vver_」：version_id 自己就带 ver_ 前缀。"""
+    from app.pipeline.patch import make_source_script
+
+    project = _import_project(client, sample_text)
+    p = store.get_project(project["id"])
+    v = store.create_version(
+        p, make_source_script("雨夜", sample_text),
+        source_type="generation", label="初始生成", set_current=True,
+    )
+    resp = client.get(f"/api/versions/{v.id}/export")
+    assert resp.status_code == 200
+    disp = resp.headers["content-disposition"]
+    assert "vver_" not in disp
+    assert f"_{v.id}." in disp
+
+
+def test_ascii_fallback_filename_is_readable():
+    """纯中文标题的 ASCII 退路不该是「____.docx」这种谁也读不出的名字。"""
+    from app.api.common import content_disposition
+
+    mixed = content_disposition("雨夜归人_ver_abc123.txt")["Content-Disposition"]
+    assert 'filename="ver_abc123.txt"' in mixed  # 有 ASCII 成分就保留
+    pure_cn = content_disposition("雨夜归人.docx")["Content-Disposition"]
+    assert 'filename="script.docx"' in pure_cn
+    assert "filename*=UTF-8''" in pure_cn  # 真名走 RFC 5987
+
+
+def test_postgres_connect_args_are_bounded():
+    """libpq 默认无限等：数据库没起来时请求会永久挂住，必须显式给超时。"""
+    from app.store import connect_args_for
+
+    pg = connect_args_for("postgresql+psycopg://u:p@localhost:5432/db")
+    assert pg.get("connect_timeout", 0) > 0
+    assert connect_args_for("sqlite:///:memory:") == {"check_same_thread": False}

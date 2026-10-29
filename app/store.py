@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from datetime import datetime, UTC
 from pathlib import Path
@@ -29,6 +30,10 @@ from sqlalchemy import ForeignKey, create_engine, desc
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 from .domain import Script
+
+#: Postgres 连接超时（秒）。libpq 默认「一直等」，数据库没起来时请求会永久挂住，
+#: 所以必须给一个上限：宁可 5 秒后报错，也不要让界面无限转圈。
+_DB_CONNECT_TIMEOUT_SEC: int = int(os.getenv("DB_CONNECT_TIMEOUT", "5"))
 
 
 def gen_id(prefix: str) -> str:
@@ -75,6 +80,20 @@ def _ensure_sqlite_dir(database_url: str) -> None:
     if not path_text or path_text == ":memory:":
         return
     Path(path_text).parent.mkdir(parents=True, exist_ok=True)
+
+
+def connect_args_for(database_url: str) -> dict[str, Any]:
+    """按驱动给出 create_engine 的 connect_args。
+
+    - SQLite：关掉单线程检查（FastAPI 线程池会跨线程用同一连接）；
+    - Postgres：给 connect_timeout。libpq 默认「一直等」，数据库没起来时
+      每个请求都会永久挂住——前端只能看到转圈，连报错都拿不到。
+    """
+    if database_url.startswith("sqlite"):
+        return {"check_same_thread": False}
+    if database_url.startswith(("postgresql", "postgres")):
+        return {"connect_timeout": _DB_CONNECT_TIMEOUT_SEC}
+    return {}
 
 
 class Base(DeclarativeBase):
@@ -409,9 +428,9 @@ class Store:
 
     def __init__(self, database_url: str) -> None:
         # 判断驱动：SQLite 需要单线程检查关闭，且父目录要存在；
-        # Postgres（psycopg）则需要连接超时等参数。
+        # Postgres 需要连接超时（见 connect_args_for）。
         is_sqlite = database_url.startswith("sqlite")
-        connect_args: dict[str, Any] = {"check_same_thread": False} if is_sqlite else {}
+        connect_args = connect_args_for(database_url)
         if is_sqlite:
             _ensure_sqlite_dir(database_url)
         # pool_pre_ping：连接前探活，避免数据库重启后拿到失效连接。

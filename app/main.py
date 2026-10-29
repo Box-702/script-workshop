@@ -12,11 +12,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
+from sqlalchemy.exc import OperationalError
 
 from .api import router as api_router
 from .config import apply_langsmith_env, get_settings
@@ -166,6 +167,33 @@ def create_app() -> FastAPI:
     # Vue 构建产物里的静态资源（js/css 等），存在才挂载。
     if (_DIST_DIR / "assets").is_dir():
         app.mount("/assets", StaticFiles(directory=_DIST_DIR / "assets"), name="assets")
+    # public/ 下的东西是原样拷进 dist 根目录的：favicon 与品牌页不在 /assets 里，
+    # 不单独挂载就会 404（浏览器控制台里能直接看到一条红色报错）。
+    if (_DIST_DIR / "brand").is_dir():
+        app.mount("/brand", StaticFiles(directory=_DIST_DIR / "brand"), name="brand")
+
+    @app.get("/favicon.svg", include_in_schema=False)
+    def favicon() -> FileResponse:
+        icon = _DIST_DIR / "favicon.svg"
+        if not icon.exists():
+            raise HTTPException(404, "favicon 未构建")
+        return FileResponse(icon, media_type="image/svg+xml")
+
+    @app.exception_handler(OperationalError)
+    def on_db_unavailable(_request: Request, exc: OperationalError) -> JSONResponse:
+        """数据库连不上时给一条人话，而不是 500 + 堆栈。
+
+        Postgres 没起是本地最常见的失败：没有这个处理器，前端拿到的是一坨
+        500 HTML，只会在界面上滚一圈「未知错误」。
+        """
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": "数据库连接失败：请确认 DATABASE_URL 指向的数据库已启动；"
+                "本机免部署可改成 sqlite:///./data/app.db（见 .env.example）。"
+                f"原始错误：{exc.orig}"[:400],
+            },
+        )
 
     @app.get("/", response_class=HTMLResponse)
     def home() -> HTMLResponse:

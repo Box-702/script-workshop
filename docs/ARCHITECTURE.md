@@ -339,6 +339,20 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
 | `app/agent/tasks.py` | 进行中的任务只有内存态（历史已落库） | 重启后运行中的任务面板清空——这是真实情况，不假装还活着 | 若要多实例部署再接队列 |
 | `app/api/` | 全部路由无鉴权，且默认可设置任意工作目录 | 仅限本机使用 | 已默认 `API_HOST=127.0.0.1`；若要做多用户需先加鉴权 |
 
+本轮（2026-10-29）全链路体检修掉的「静默失败」：
+
+| 位置 | 原问题 | 处理 |
+|---|---|---|
+| `app/main.py` | 只 `mount("/assets")`，`/favicon.svg`、`/brand/*` 全 404（只挂 `/` 与 `/assets`） | 显式 favicon 路由 + 存在才挂 `/brand` |
+| `app/store.py` | `create_engine` 没传 `connect_timeout`，Postgres 没起时请求**永久挂住**且无日志 | `connect_args_for()` 按驱动给参数（Postgres 带 5s 超时，`DB_CONNECT_TIMEOUT` 可覆盖） |
+| `app/main.py` | 数据库不可用返回 500 + 堆栈 | `OperationalError` → 503 + 说明怎么改 `DATABASE_URL` |
+| `app/api/versions.py` | 导出文件名 `雨夜归人_vver_xxx.txt`（`version_id` 自带 `ver_`，又拼了个 `v`） | 去掉多余前缀；ASCII 退路纯中文时退成 `script.txt` |
+| `frontend/src/components/WelcomeHero.vue` | 首屏底纹链第三方博客图床（已被 ORB 拦），设计想有的底纹从未出现 | 改本地 `public/brand/hero-texture.svg`，零外部依赖 |
+
+> 静态资源托管是单进程三条路由：`/`（读 `dist/index.html`）、`/assets`（构建产物）、
+> `/favicon.svg` + `/brand`（`public/` 原样拷贝的部分）。**新加 `public/` 下的目录时，
+> 记得同步在 `main.py` 挂一个 mount**，否则只会在浏览器控制台里以 404 出现。
+
 
 ---
 
@@ -347,7 +361,7 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
 | 想做什么 | 改哪里 |
 |---|---|
 | 加一个模型厂商 | `app/llm/providers.py` 加一条 `ProviderSpec`；需要 `.env` 配置就同时在 `config.py` 与 `registry._from_settings()` 补字段 |
-| 加一个能力维度（如 TTS） | `app/llm/base.py` 的 `Modality` 加枚举 + 新客户端文件 + `LLM` 门面加方法 |
+| 换首屏底纹 / 品牌图 | 放 `frontend/public/brand/`（构建时原样拷到 `dist/brand/`）；新目录要同时在 `app/main.py` 补一个 `mount` |
 | 加一个剧组 Agent | `app/crew/` 新建继承 `CrewAgent` 的文件 → `crew/__init__.py` 导出 → 要在对话里触发就在 `chat/conductor.py` 的 `build_chat_tools()` 加工具 |
 | 加一个视频 Provider | `app/video/providers/` 新建继承 `VideoProvider` 的适配器 → `video/registry.py` 的 `_register_builtins()` 注册 → 先跑「Provider 体检」（见 DEVELOPMENT.md 5.1） |
 | 加一个 API 路由 | 在 `app/api/` 对应域模块里加 `@router.xxx`；新域就新建文件并在 `api/__init__.py` 的列表里注册 |

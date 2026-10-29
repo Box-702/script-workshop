@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
@@ -36,9 +37,21 @@ def get_project(project_id: str) -> Any:
 
 
 def content_disposition(filename: str, *, inline: bool = False) -> dict[str, str]:
-    """构造 RFC 5987 Content-Disposition 头（中文文件名兼容）。"""
-    ascii_name = re.sub(r"[^\x20-\x7e]", "_", filename) or filename
-    encoded = quote(filename)
+    """构造 RFC 5987 Content-Disposition 头（中文文件名兼容）。
+
+    `filename=` 是给老客户端的纯 ASCII 退路：中文标题会被替换成下划线。
+    收敛规则：连续下划线压成一个、去掉首尾下划线；如果去掉扩展名后连一个
+    ASCII 字母数字都不剩（纯中文标题就是这种情况），退成 `script<扩展名>`，
+    而不是「____.docx」这种谁也读不出来的名字。真名由 `filename*` 承载。
+    """
+    suffix = Path(filename).suffix or ""
+    stem = Path(filename).stem if suffix else filename
+    ascii_stem = re.sub(r"[^\x20-\x7e]", "_", stem)
+    ascii_stem = re.sub(r"_{2,}", "_", ascii_stem).strip("_ ")
+    if not re.search(r"[A-Za-z0-9]", ascii_stem):
+        ascii_stem = "script"
+    ascii_name = ascii_stem + re.sub(r"[^\x20-\x7e]", "", suffix)
+    encoded = quote(filename, safe="")
     disp = "inline" if inline else "attachment"
     return {"Content-Disposition": f'{disp}; filename="{ascii_name}"; filename*=UTF-8\'\'{encoded}'}
 
