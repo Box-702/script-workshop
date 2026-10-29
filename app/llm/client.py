@@ -32,6 +32,86 @@ from .vision import VisionClient
 T = TypeVar("T", bound=BaseModel)
 
 
+class _JsonPromptStructured:
+    """不支持 json_object 的厂商用的结构化输出降级实现。
+
+    语义与 ``with_structured_output(schema, method="json_mode")`` 等价：
+    接受消息、返回 ``schema`` 实例。差别只在于——
+      1. 用提示词要求模型只输出 JSON（而不是请求参数 response_format）；
+      2. 自己解析 JSON（容忍 markdown 围栏、前后缀文字）；
+      3. 解析失败会带上错误信息重采样一次。
+
+    用在 MiniMax 这类「标准路径可用但不支持 response_format」的厂商上。
+    """
+
+    def __init__(self, model: BaseChatModel, schema: type[T]) -> None:
+        self._model = model
+        self._schema = schema
+
+    def _json_hint(self) -> str:
+        try:
+            fields = ", ".join(self._schema.model_fields.keys())
+        except Exception:  # noqa: BLE001
+            fields = ""
+        return (
+            "只输出一个 JSON 对象，不要任何解释文字、不要 markdown 代码围栏。\n"
+            f"字段：{fields}\n"
+            "所有值都要符合下面的 JSON Schema：\n"
+            f"{self._schema.model_json_schema()}"
+        )
+
+    @staticmethod
+    def _parse(text: str) -> dict[str, Any]:
+        import json
+        import re
+
+        raw = (text or "").strip()
+        m = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", raw, flags=re.DOTALL)
+        if m:
+            raw = m.group(1)
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            for i, ch in enumerate(raw):
+                if ch in "{[":
+                    try:
+                        return json.loads(raw[i:])
+                    except json.JSONDecodeError:
+                        continue
+            raise ValueError(f"无法解析 JSON：{raw[:200]}") from None
+
+    def invoke(self, messages: Any, **kwargs: Any) -> T:
+        hint = self._json_hint()
+        prepared = _append_json_hint(messages, hint)
+        last_error: Exception | None = None
+        for attempt in range(2):
+            resp = self._model.invoke(prepared, **kwargs)
+            text = str(getattr(resp, "content", "") or "")
+            try:
+                return self._schema.model_validate(self._parse(text))
+            except Exception as e:  # noqa: BLE001
+                last_error = e
+                prepared = _append_json_hint(
+                    messages,
+                    hint + f"\n\n（上一次输出无法解析成 JSON：{e}。请只输出合法 JSON。）",
+                )
+        raise RuntimeError(f"结构化输出失败：{last_error}") from last_error
+
+
+def _append_json_hint(messages: Any, hint: str) -> list[Any]:
+    """把 JSON 要求追加到消息列表末尾（不改原消息对象）。"""
+    from langchain_core.messages import HumanMessage
+
+    if isinstance(messages, str):
+        return [HumanMessage(content=f"{messages}\n\n{hint}")]
+    if isinstance(messages, dict):
+        items = [messages]
+    else:
+        items = list(messages)
+    items.append(HumanMessage(content=hint))
+    return items
+
+
 class LLM:
     """对话模型 + 视觉 + 文生图的统一入口（单例，见 app/deps.py）。"""
 
@@ -77,13 +157,31 @@ class LLM:
     def structured(self, schema: type[T]) -> Any:
         """返回一个接受消息、输出 ``schema`` 实例的结构化可运行对象。
 
-        用 ``json_mode``（response_format=json_object）做结构化输出：
+        默认用 ``json_mode``（response_format=json_object）：
         对 OpenAI 兼容服务最稳，且 DeepSeek 的思考模式不支持强制
         tool_choice，不能走 function_calling。
+
+        **降级路径**：MiniMax 的 /chat/completions 不支持 json_object
+        （实测报 2013 unknown response_format type）。这类厂商在
+        ProviderSpec 里声明 ``supports_json_mode=False``，此处自动降级为
+        「提示词要求只输出 JSON + 容错解析 + 失败重采样」——
+        语义等价，只多一次重试的机会。
         """
         if self._model is None:
             raise RuntimeError("模型未配置，无法进行结构化输出。")
-        return self._model.with_structured_output(schema, method="json_mode")
+        if self._supports_json_mode():
+            return self._model.with_structured_output(schema, method="json_mode")
+        return _JsonPromptStructured(self._model, schema)
+
+    def _supports_json_mode(self) -> bool:
+        """当前厂商是否支持 response_format=json_object。"""
+        from .providers import get_provider_spec
+
+        if not self.config:
+            return True
+        spec = get_provider_spec(self.config.provider)
+        # 未登记的厂商（自建网关）默认按支持处理，保持旧行为。
+        return True if spec is None else spec.supports_json_mode
 
     def system_prompt(self) -> str:
         """构造统一的系统提示词，包括语言约束与输出规范。"""

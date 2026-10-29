@@ -75,6 +75,11 @@ def _from_settings(provider: str, settings: Any) -> ModelConfig | None:
         model = _settings_attr(settings, "deepseek_model")
         # 推理模型：由 .env 控制是否开启思考链（默认关闭，直出 content）。
         extra_body = {"_thinking": bool(getattr(settings, "deepseek_thinking", False))}
+    elif name == "minimax":
+        # 一把 key 打通对话 / 视频（H3）/ 配音（T2A）。
+        api_key = _settings_attr(settings, "minimax_api_key")
+        base_url = _settings_attr(settings, "minimax_base_url")
+        model = _settings_attr(settings, "minimax_model")
     elif name == "ollama":
         # 本地服务无需 key；端点与模型可由环境变量覆盖。
         api_key = _settings_attr(settings, "ollama_api_key") or "not-needed"

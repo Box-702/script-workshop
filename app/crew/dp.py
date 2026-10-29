@@ -24,6 +24,9 @@ from ..llm import LLM
 from .base import CrewAgent, CrewTaskResult
 from .dramaturgy import (
     audit_video_prompt,
+    mentions_camera,
+    mentions_lighting,
+    strip_camera_moves,
     strip_slop,
     strip_spoken_quotes,
 )
@@ -53,6 +56,9 @@ _BODY_RULES_ZH = """**每个镜头的 prompt_body 要写什么**（这是给视�
    camera_path 与 camera_height 写，可以更具体，但不要改成另一种运镜，更不要加码：
    一镜只保留一种主要运动，摄影机保持在主体同一侧（不越轴），镜头结尾停在原景别上——
    结尾推近换构图这类二次变化要删掉。
+   **本镜的运镜只写 camera_path 指定的那一种**；即使风格指南里提到了别的运镜方式，
+   也不要跟着补写——风格段会被逐字拼进每个镜头，你在这里多写一种运动，
+   模型就会收到两条互相打架的运镜指令。
 2. **保留镜头的呼吸感**。真实拍摄时摄影师会略微提前或滞后于人物，允许镜头偶尔被
    前景的人物或物体短暂遮挡，快速运镜之后有短暂的失焦或重新合焦。可以写出这类
    不完美，但不要写"手持剧烈抖动""画面模糊"这种失控的描述。
@@ -80,6 +86,8 @@ _BODY_RULES_ZH = """**每个镜头的 prompt_body 要写什么**（这是给视�
    · 否定动作延续 → 写"低头快走掠过，没有停留"要改成"低头快走掠过，脚步不停，衣角翻飞"；
    · 否定视线/神态 → 写"眼睛没有看任何地方"要改成"目光涣散，焦点落在虚空处"。
    只要句子里出现「没有」「不」「避免」「禁止」「不是」「并非」，一律重写成正向描述。
+   **交稿前逐句自查一遍**：全文搜索「没有 / 不 / 避免 / 禁止 / 不是 / 并非」，
+   命中就改写；改不出来就把那句话整句删掉——不想要的细节，不提比否定更好。
 9. **台词不进提示词**。不要把角色说的话写成引用（「说道：『……』」「报告：『……』」）——
    视频模型会把台词渲染成含混的假说话，观众完全听不懂。对白段只写说话的**姿态与口型动机**：
    谁对谁说、语速与情绪、身体朝向与距离、手的动作；声音交给后期配音与对口型。
@@ -296,11 +304,24 @@ class DPAgent(CrewAgent):
     # ---- 组装 ----
 
     @staticmethod
-    def _style_text(style_guide: StyleGuide | None) -> str:
-        """把风格指南压成一句可拼进提示词的话。
+    def _style_text(style_guide: StyleGuide | None, *, body: str = "") -> str:
+        """把风格指南压成一句可拼进提示词的话——**只补本镜没写的部分**。
 
-        各段先去掉自带的句末标点再拼接，否则会出现「……呼吸感。，#3a4a5a」这种
-        句号逗号叠在一起的碎片，拼在每个镜头末尾很难看。
+        风格指南是给「写这个镜头的人」看的设计依据，不是要逐字贴给视频模型的文本。
+        整段贴进去会和本镜自己的描述打架，judge 实测的典型冲突：
+        「镜头固定不动」的镜头，末尾又被贴上「保留细微的手持浮动」「偶尔略高俯看」；
+        「冷绿日光灯为主光」的镜头，末尾又贴「暖黄灯为主光」。
+        视频模型拿到两套矛盾的指令，只能随机挑一套执行。
+
+        所以按「填空不覆盖」处理：
+          - body 已经写了光影 → 不贴 `lighting_style`
+          - body 已经写了摄影机/运镜 → 不贴 `camera_style`
+          - 色调永远贴（配色不与单镜描述冲突，且是跨镜统一的必要信息）
+
+        `camera_style` 本身还会再剥掉「列举具体运镜方式」的子句——它若写着
+        「以缓慢横移、推近为主」，贴到哪里都会变成多运动指令。
+
+        `body` 为空时（降级路径）全部贴上，此时没有本镜描述可冲突。
         """
         if not style_guide:
             return _DEFAULT_STYLE
@@ -309,10 +330,10 @@ class DPAgent(CrewAgent):
             return str(text).strip().rstrip("。，；;,.")
 
         bits: list[str] = []
-        if style_guide.lighting_style:
+        if style_guide.lighting_style and not mentions_lighting(body):
             bits.append(_clean(style_guide.lighting_style))
-        if style_guide.camera_style:
-            bits.append(_clean(style_guide.camera_style))
+        if style_guide.camera_style and not mentions_camera(body):
+            bits.append(_clean(strip_camera_moves(style_guide.camera_style)))
         if style_guide.color_palette:
             bits.append("主色调 " + "、".join(style_guide.color_palette[:4]))
         return "，".join(b for b in bits if b) or _DEFAULT_STYLE
@@ -475,6 +496,19 @@ class DPAgent(CrewAgent):
             if not (isinstance(names, list) and names):
                 sc = scene_map.get(shot.scene_id)
                 names = [char_map.get(cid, cid) for cid in (sc.characters if sc else [])]
+            names = [str(n) for n in names if str(n).strip()]
+
+            # 补漏：body 里**点名出现**的本场人物，即使 LLM 的 characters 列表漏了，
+            # 也要把锚补进去。否则这个角色在画面里露脸却没有外观锚，跨镜必然长相漂移
+            # ——「视觉锚只产一次、下游逐字复用」这条原则不能靠模型自觉。
+            sc = scene_map.get(shot.scene_id)
+            if sc is not None:
+                present = set(names)
+                for cid in sc.characters:
+                    cname = char_map.get(cid, cid)
+                    if cname and cname not in present and cname in body:
+                        names.append(cname)
+                        present.add(cname)
 
             # 人物锚：风格指南（按名）优先，其次本步骤 LLM 产出
             llm_cast = cast_by_scene.get(shot.scene_id, {})
@@ -498,6 +532,13 @@ class DPAgent(CrewAgent):
                 if core and core not in _norm_key(body):
                     body = f"{body.strip().rstrip('。')}。{ff}".strip("。")
 
+            # 风格段按本镜 body 重算（填空不覆盖）：body 已经交代了光影/运镜的，
+            # 就不再贴全片风格段的同类描述，避免两套指令打架。
+            # 没有风格指南时退回调用方传入的 style 字符串。
+            eff_style = (
+                self._style_text(style_guide, body=body) if style_guide is not None else style
+            )
+
             pieces: list[str] = []
             if env:
                 pieces.append(env.strip().rstrip("。"))
@@ -506,15 +547,17 @@ class DPAgent(CrewAgent):
                 pieces.append(shift + "；".join(c.strip().rstrip("。") for c in cast))
             if body:
                 pieces.append(body.strip().rstrip("。"))
-            if style:
-                pieces.append(style.strip().rstrip("。"))
+            if eff_style:
+                pieces.append(eff_style.strip().rstrip("。"))
             prompt = "。".join(p for p in pieces if p) + "。" if pieces else ""
             if prompt:
                 shot.video_prompt = prompt
             # 第二道审计（出厂前双重审计）：结论随镜头落库，人工审阅时逐镜可见。
-            # 传入 style（全片风格段）以排除「本镜没有的运镜」——风格段每个镜头都带一遍，
+            # 传入风格段以排除「本镜没有的运镜」——风格段每个镜头都带一遍，
             # 不排除会把所有镜头都误判成「一镜多运镜」。
-            shot.prompt_audit = audit_video_prompt({"video_prompt": prompt}, style_context=style)
+            shot.prompt_audit = audit_video_prompt(
+                {"video_prompt": prompt}, style_context=eff_style
+            )
             updated.append(shot)
         return updated
 

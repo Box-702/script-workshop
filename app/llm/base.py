@@ -67,6 +67,10 @@ class ProviderSpec:
     vision_model: str = ""  # 该厂商用于质检的视觉模型
     supports_image: bool = False
     image_model: str = ""  # 该厂商用于文生图的模型
+    # 该厂商是否支持 response_format=json_object。
+    # 不支持时（如 MiniMax，实测报 2013 unknown response_format type），
+    # 结构化输出自动降级为「提示词要求 JSON + 容错解析」。
+    supports_json_mode: bool = True
     # 部分厂商（如 DeepSeek 推理模型）需要额外的请求体参数。
     extra_body: Callable[[ModelConfig], dict[str, Any]] | None = None
 

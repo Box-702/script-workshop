@@ -150,6 +150,67 @@ def strip_style_block(prompt: str, style: str) -> str:
     return prompt
 
 
+def mentions_lighting(text: str) -> bool:
+    """文本里有没有写光影（用于判断风格段还要不要补光）。
+
+    没有就补、有就不补——同一段提示词里出现两套互相矛盾的光源描述，
+    视频模型会随机挑一套执行（judge 实测：前文写冷绿日光灯，末尾又贴暖黄灯）。
+    """
+    return _has_any(text or "", _LIGHT_WORDS)
+
+
+# 判定「这段文字有没有交代摄影机」用的词表。
+# 比 _CAMERA_CONTEXT_WORDS 窄：不看「画面/视角/构图」——它们几乎每句都有，
+# 会让「没写运镜」永远判成「写了」。
+_CAMERA_MENTION_WORDS = (
+    "镜头", "摄影机", "摄像机", "机位", "运镜", "camera", "lens", "shot",
+)
+
+
+def mentions_camera(text: str) -> bool:
+    """文本里有没有写摄影机/运镜（用于判断风格段还要不要补摄影风格）。"""
+    return _has_any(text or "", _CAMERA_MENTION_WORDS)
+
+
+def strip_camera_moves(text: str) -> str:
+    """剥掉文本里**列举具体运镜方式**的子句，保留其余风格描述。
+
+    背景：`camera_style` 会被逐字拼进每一个镜头。它如果写着「以缓慢横移、推近、
+    推拉为主」「跟随人物时提前或滞后」，那每个镜头都会收到一串**互相冲突的运镜指令**——
+    本镜明明是固定机位或单一推进，视频模型却同时被要求做三四种运动。
+    这不是风格问题，是给模型的矛盾指令。
+
+    做法：按标点切成子句，丢掉含运镜动词的子句，其余原样拼回。
+    保留下来的是「客观机位」「机位高度」「手持呼吸感」「允许轻微失焦」这类
+    **不与具体镜头冲突**的风格身份；丢掉的是「本片常用哪些运动」这种运动清单。
+
+    用的是不带语境要求的原始正则（`_CAMERA_MOVE_RE`）——在风格段里，
+    孤零零一个「推近」本身就是一条运镜指令，不该因为附近没有「镜头」二字就放过。
+    """
+    if not text:
+        return text
+    # 切分要细：中文顿号/逗号也可能是子句边界（「客观机位，稳定为主，关键处缓慢推近」
+    # 拆开后「客观机位」才能留下）。
+    # re.split 带捕获组 → [子句, 分隔符, 子句, 分隔符, ...]
+    parts = re.split(r"([。；;，,、：:])", text)
+    kept: list[str] = []
+    for i in range(0, len(parts), 2):
+        clause = parts[i]
+        if not clause:
+            continue
+        sep = parts[i + 1] if i + 1 < len(parts) else ""
+        if _CAMERA_MOVE_RE.search(clause):
+            # 含运镜动词 → 整句丢掉（连同它后面的分隔符，否则会留下悬空标点）
+            continue
+        kept.append(clause + sep)
+    result = "".join(kept)
+    # 收拾标点：连续的分隔符合并，句首句尾多余标点去掉
+    result = re.sub(r"[，,、；;：:]{2,}", "，", result)
+    result = re.sub(r"^[，,、；;：:]+", "", result)
+    result = re.sub(r"[，,、；;：:]+$", "", result)
+    return result.strip()
+
+
 # ---------- 基础检测 ----------
 
 

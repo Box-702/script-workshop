@@ -274,6 +274,10 @@ def assert_dp(
                 appear = canon_char.get(cid, "")
                 if not appear:
                     continue
+                # 只查**真的出现在这一镜里**的角色：场景人物表里的人在某一镜可能根本不出场，
+                # 没出场自然不该有锚。判据是「提示词里点了他的名」。
+                if cid not in prompt:
+                    continue
                 ratio = _anchor_similarity(appear, prompt)
                 if appear not in prompt and ratio < 0.85:
                     res.add(
@@ -286,7 +290,6 @@ def assert_dp(
                         "DPT-12", "warn", where,
                         f"人物锚「{cid}」被轻微改写（相似度 {ratio:.0%}）：锚应原样复用",
                     )
-                break  # 一镜只报一次，别刷屏
 
     return res
 

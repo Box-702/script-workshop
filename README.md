@@ -39,6 +39,7 @@
 - **镜头级视频生成**：镜头数由导演按剧情内容决定（分镜 = 一段连贯的角色动作或一段连贯的角色对话剧情）。摄影指导只提出 Prompt 草稿，用户可逐镜编辑、保存、标记需修改或批准；只有批准后的 Prompt 才能提交视频任务。首尾帧接力 + 参考图/参考视频锁一致性，最后 FFmpeg 拼接。
 - **成片合成（最后一公里）**：`finalize` 把成功镜头下载后**逐镜实测时长校准**（provider 产出常与计划时长有偏差，不校准则字幕/配音越往后越飘），再拼装 → 配音（TTS 真实语音，模型本身产不出人声）→ ASS 字幕烧录，成片与字幕注册为项目素材直接播放。降级阶梯：配音失败交静片+估算字幕，烧录失败交无字幕成片，单镜失败跳过并警告。
 - **视频 Provider 抽象层**：产品统一走 MiniMax（自带 Key，模型名可换）；底层保留统一接口的多厂商适配（Runway / Kling / CogVideoX / Sora），需要时可扩展启用。
+- **一把 key 全链路**：MiniMax 同时接了对话（`MiniMax-Text-01`）、视频（H3）与配音（T2A）——已有 MiniMax key 的用户零配置即可跑通。
 - **人审环节**：剧本改编走 `interrupt` 暂停 / `Command.resume` 恢复的四决策闭环（接受 / 编辑 / 重新生成 / 拒绝）；视频侧先审 Prompt，再审成片，所有决定都进入「分镜版本 → 提示词版本 → 成片版本」的链式快照。
 - **版本迭代**：视频版本链式快照，支持回溯/分叉/里程碑标记。
 
@@ -270,7 +271,7 @@ Script Workshop/
 │   ├── runner.py             #   引擎
 │   └── fixtures/             #   录制的真实产出（离线回归用）
 │
-└── tests/                    # 测试套件（195 tests）
+└── tests/                    # 测试套件（204 tests）
 ```
 
 ## 环境变量
@@ -280,10 +281,11 @@ Script Workshop/
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `CHAT_PROVIDER` | 强制指定对话厂商（`openai` / `deepseek` / `zhipu` / `ollama` / `moonshot` / `qwen`） | 按优先级链自动选 |
+| `CHAT_PROVIDER` | 强制指定对话厂商（`openai` / `deepseek` / `zhipu` / `minimax` / `ollama` / `moonshot` / `qwen`） | 按优先级链自动选 |
 | `ZHIPUAI_API_KEY` | 智谱 key（GLM 对话 / CogView 文生图 / CogVideoX 视频共用） | - |
 | `DEEPSEEK_API_KEY` | DeepSeek key（也用于默认视觉质检模型） | - |
 | `OPENAI_API_KEY` | OpenAI 或任意兼容服务的 key | - |
+| `MINIMAX_API_KEY` | MiniMax key（**对话 / 视频 H3 / 配音 T2A 一把 key 全链路**） | - |
 | `DEEPSEEK_THINKING` | 推理模型是否开启思考链 | `false` |
 | `VISION_PROVIDER` / `VISION_MODEL` / `VISION_API_KEY` | 视觉质检单独配置（留空则自动复用支持视觉的厂商） | 自动 |
 | `IMAGE_PROVIDER` / `IMAGE_MODEL` / `IMAGE_API_KEY` | 文生图单独配置（`cogview` / `openai`） | `cogview` → `openai` |
@@ -295,7 +297,7 @@ Script Workshop/
 
 ```bash
 python -m pytest tests -q
-# 195 passed
+# 204 passed
 ```
 
 ## 提示词质量 eval

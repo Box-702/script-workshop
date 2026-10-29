@@ -212,6 +212,46 @@ def test_dp_reuses_anchors_verbatim_and_filters_cast_per_shot():
     assert "戴山羊头面具的黑西服男人" in out[0].video_prompt         # 人物锚来自风格指南（逐字）
 
 
+def test_dp_backfills_anchor_for_named_but_unlisted_character():
+    """body 里点了名的角色，即使 LLM 的 characters 列表漏了，也必须补上外观锚。
+
+    否则这个角色在画面里露脸却没有锚，跨镜必然长相漂移——
+    「视觉锚只产一次、下游逐字复用」不能靠模型自觉。
+    """
+    script = _script()
+    guide = StyleGuide(
+        character_appearances={"齐夏": "黑色短发、深灰卫衣的年轻男性。", "人羊": "戴山羊头面具的黑西服男人。"},
+        environment_descriptions={"密室": "密闭的方形房间，钨丝灯昏黄。"},
+    )
+    shots = [Shot(id="shot_scene_001_000", scene_id="scene_001", order=0, camera=CameraMovement())]
+    # LLM 只报了「齐夏」，但 body 里实际还有「人羊」出场
+    llm_out = {"scenes": [{"scene_id": "scene_001", "shots": [
+        {"shot_id": "shot_scene_001_000", "characters": ["齐夏"],
+         "prompt_body": "齐夏后退半步，人羊挡在门口。"},
+    ]}]}
+    out = _dp()._apply(shots, llm_out, script, "", guide)
+    prompt = out[0].video_prompt
+    assert "人羊" in prompt
+    assert "戴山羊头面具的黑西服男人" in prompt, f"漏了补锚：{prompt}"
+    assert "黑色短发、深灰卫衣的年轻男性" in prompt
+
+
+def test_dp_does_not_add_anchor_for_absent_character():
+    """没在画面里点名的角色不该被塞进提示词。"""
+    script = _script()
+    guide = StyleGuide(
+        character_appearances={"齐夏": "黑色短发。", "人羊": "戴山羊头面具。"},
+        environment_descriptions={"密室": "密闭的方形房间。"},
+    )
+    shots = [Shot(id="shot_scene_001_000", scene_id="scene_001", order=0, camera=CameraMovement())]
+    llm_out = {"scenes": [{"scene_id": "scene_001", "shots": [
+        {"shot_id": "shot_scene_001_000", "characters": ["齐夏"], "prompt_body": "齐夏翻开卡片。"},
+    ]}]}
+    prompt = _dp()._apply(shots, llm_out, script, "", guide)[0].video_prompt
+    assert "齐夏" in prompt
+    assert "人羊" not in prompt, f"无关角色被塞进来了：{prompt}"
+
+
 def test_dp_system_carries_the_five_prompt_rules():
     """图里那套提示词逻辑要固化成系统提示词，漏掉任何一条都会让画面失控。"""
     zh = dp_system(language="zh", provider_label="MiniMax", max_duration=10, has_anchors=True)
@@ -353,6 +393,100 @@ def test_dp_style_text_does_not_double_punctuate():
     text = _dp()._style_text(guide)
     assert "。，" not in text
     assert text == "低调暖光，手持纪实，保留呼吸感，主色调 #3a4a5a、#6b7b8b"
+
+
+def test_dp_style_text_only_fills_gaps_in_shot_body():
+    """风格段只补本镜没写的部分——不能拿全片风格覆盖本镜的具体描述。
+
+    实测冲突：镜头写「固定不动」，末尾又被贴上「保留细微的手持浮动」「偶尔略高俯看」；
+    镜头写「冷绿日光灯」，末尾又贴「暖黄灯为主光」。
+    """
+    guide = StyleGuide(
+        lighting_style="低调暖光为主，钨丝灯从头顶压下来。",
+        camera_style="客观机位，机位高度与视线齐平。",
+        color_palette=["#111", "#222"],
+    )
+    # body 已经把光影和运镜都写了 → 风格段只剩色调
+    body = "日光灯从正上方打下，镜头固定在桌前不动，他的下颌慢慢锁死。"
+    text = _dp()._style_text(guide, body=body)
+    assert "低调暖光" not in text, text
+    assert "机位高度" not in text, text
+    assert "主色调 #111、#222" in text, text
+
+
+def test_dp_style_text_fills_lighting_when_body_is_silent():
+    """body 没写光影时，风格段要把光线基调补上（填空）。"""
+    guide = StyleGuide(
+        lighting_style="低调暖光为主。",
+        camera_style="客观机位。",
+        color_palette=["#111"],
+    )
+    text = _dp()._style_text(guide, body="他站在门口。")
+    assert "低调暖光" in text, text
+    assert "客观机位" in text, text
+
+
+def test_dp_style_text_strips_camera_movement_list():
+    """camera_style 会被逐字拼进每个镜头——里面不能带运动清单。
+
+    带了等于给每个镜头同时下三四种运动的指令，与本镜的运镜打架。
+    """
+    guide = StyleGuide(
+        lighting_style="低调暖光。",
+        camera_style=(
+            "客观机位，稳定为主，关键处缓慢推近。"
+            "摄影机高度大致与坐姿人物视线齐平。"
+            "跟随人物时以缓慢横移和轻微推拉为主，保留真实拍摄的呼吸感。"
+        ),
+    )
+    text = _dp()._style_text(guide)
+    assert "推近" not in text, text
+    assert "横移" not in text, text
+    assert "跟随" not in text, text
+    # 风格身份要留住
+    assert "客观机位" in text, text
+    assert "呼吸感" in text, text
+
+
+def test_dp_prompt_has_no_conflicting_camera_moves():
+    """端到端不变量：组装出的提示词里，风格段不能带第二套运镜指令。
+
+    本镜的运镜由导演的 camera_path 决定；风格段若还带着别的运动清单，
+    视频模型就会收到互相打架的指令。
+    """
+    from app.crew.dramaturgy import find_camera_moves
+
+    guide = StyleGuide(
+        lighting_style="低调暖光。",
+        camera_style=(
+            "客观机位，稳定为主，关键处缓慢推近。"
+            "摄影机高度大致与坐姿人物视线齐平。"
+            "跟随人物时以缓慢横移和轻微推拉为主，保留真实拍摄的呼吸感。"
+        ),
+    )
+    script = _script()
+    shots = [Shot(
+        id="shot_scene_001_000", scene_id="scene_001", order=0,
+        camera=CameraMovement(type="static", path="固定机位，人物轻微前倾时镜头不动"),
+    )]
+    llm_out = {"scenes": [{
+        "scene_id": "scene_001",
+        "environment": "昏暗房间，墙上一盏钨丝灯。",
+        "characters": {"齐夏": "年轻男性，黑色短发。"},
+        "shots": [{
+            "shot_id": "shot_scene_001_000", "characters": ["齐夏"],
+            "prompt_body": "齐夏站在桌前，手指在杯沿上敲了一下。",
+        }],
+    }]}
+    style = _dp()._style_text(guide)
+    out = _dp()._apply(shots, llm_out, script, style, guide)
+    prompt = out[0].video_prompt or ""
+
+    # 提示词整体不应出现多种运镜
+    moves = set(find_camera_moves(prompt))
+    assert len(moves) <= 1, f"提示词里出现了多种运镜：{moves}｜{prompt}"
+    # 风格段本身已不含运动清单
+    assert "横移" not in style and "推近" not in style
 
 
 def test_dp_without_style_guide_falls_back_to_llm_anchors():

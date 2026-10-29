@@ -101,6 +101,7 @@ ProviderSpec(
 | 智谱 GLM | ✅ | ✅ | ✅ | 同一个 key 同时可调 GLM / CogView / CogVideoX |
 | Moonshot Kimi | ✅ | — | — | 用真实环境变量 `MOONSHOT_API_KEY` 配置 |
 | 通义千问 Qwen | ✅ | ✅ | — | 走 DashScope 兼容模式 |
+| MiniMax | ✅ | — | — | **一把 key 打通对话 / 视频（H3）/ 配音（T2A）**；`/chat/completions` 不支持 `response_format=json_object`，结构化输出走降级路径（见 2.5） |
 | Ollama（本地） | ✅ | ✅ | — | 无需 key；仅在 `CHAT_PROVIDER=ollama` 时启用 |
 | 视频（独立体系） | — | — | — | 产品统一 MiniMax（用户自带 Key + 模型名，存 `api_providers.config_json.model`）；抽象层另适配 Runway / Kling / CogVideoX / Sora，见 `app/video/` |
 
@@ -130,6 +131,22 @@ ProviderSpec(
 2. 若该厂商需要额外请求体，给 `extra_body` 传一个函数。
 3. 若它要能在 `.env` 里配置，在 `config.py` 加对应字段，并在 `registry._from_settings()` 里接上。
 4. 若它提供新的能力形态（例如 TTS），在 `base.py` 的 `Modality` 加维度 + 新客户端文件。
+5. 若它**不支持 `response_format=json_object`**，把 `ProviderSpec.supports_json_mode` 设为 `False`——
+   `LLM.structured()` 会自动降级为「提示词要求 JSON + 容错解析 + 失败重采样」。
+
+### 2.5 结构化输出的降级路径
+
+`LLM.structured(schema)` 默认用 `json_mode`（`response_format=json_object`）。但不是所有
+OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_format type`**。
+
+声明 `supports_json_mode=False` 的厂商会走降级实现（`client._JsonPromptStructured`）：
+
+1. 把「只输出 JSON + 字段清单 + JSON Schema」追加到消息末尾；
+2. 自己解析 JSON（容忍 markdown 围栏、前后缀文字）；
+3. 解析失败带着错误信息重采样一次。
+
+语义与 `json_mode` 等价，只多一次重试的机会。剧组链路本来就不用 `json_mode`
+（走的是 `_invoke_json()` 的「普通对话 + 容错解析」），所以不受影响。
 
 ---
 

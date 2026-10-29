@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     deepseek_base_url: str = Field(default="https://api.deepseek.com", alias="DEEPSEEK_BASE_URL")
     deepseek_model: str = Field(default="deepseek-chat", alias="DEEPSEEK_MODEL_NAME")
     deepseek_thinking: bool = Field(default=False, alias="DEEPSEEK_THINKING")
+    # MiniMax：一把 key 打通对话 / 视频（H3）/ 配音（T2A）。
+    # 注意：其 /chat/completions 不支持 response_format=json_object，
+    # 结构化输出走 client.LLM.structured() 的降级路径。
+    minimax_api_key: str = Field(default="", alias="MINIMAX_API_KEY")
+    minimax_base_url: str = Field(default="https://api.minimax.cn/v1", alias="MINIMAX_BASE_URL")
+    minimax_model: str = Field(default="MiniMax-Text-01", alias="MINIMAX_MODEL_NAME")
     # 本地模型（无 key，仅当 CHAT_PROVIDER=ollama 时启用）。
     ollama_base_url: str = Field(default="http://127.0.0.1:11434/v1", alias="OLLAMA_BASE_URL")
     ollama_model: str = Field(default="qwen2.5:7b", alias="OLLAMA_MODEL")

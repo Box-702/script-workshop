@@ -149,6 +149,21 @@ def _register_builtins() -> None:
         supports_image=True,
         image_model="cogview-3-flash",
     ))
+    register_provider(ProviderSpec(
+        name="minimax",
+        label="MiniMax",
+        default_base_url="https://api.minimax.cn/v1",
+        default_model="MiniMax-Text-01",
+        env_key="MINIMAX_API_KEY",
+        docs="https://platform.minimaxi.com/",
+        # 同一个 key 同时可调 MiniMax-Text（对话）/ H3（视频）/ T2A（配音）——
+        # 一把 key 打通全链路的选项。
+        #
+        # ⚠️ MiniMax 的 /chat/completions **不支持 response_format=json_object**
+        # （实测报 2013 unknown response_format type），所以结构化输出必须走
+        # 「提示词 + 容错解析」这条路，见 client.LLM.structured()。
+        supports_json_mode=False,
+    ))
 
 
 _register_builtins()

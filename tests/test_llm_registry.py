@@ -94,3 +94,66 @@ def test_provider_table_exposes_modalities():
     assert "image" in providers["zhipu"]["modalities"]
     # 本地模型不需要 key
     assert get_provider_spec("ollama").requires_key is False
+
+
+def test_minimax_chat_uses_same_key_as_video_and_tts():
+    """MiniMax：一个 key 同时打通对话 / 视频（H3）/ 配音（T2A）。"""
+    cfg = resolve_chat(_settings(CHAT_PROVIDER="minimax", MINIMAX_API_KEY="mm"))
+    assert cfg is not None
+    assert cfg.provider == "minimax"
+    assert cfg.model == "MiniMax-Text-01"
+    assert cfg.api_key == "mm"
+    assert cfg.base_url.startswith("https://api.minimax.cn")
+
+
+def test_minimax_declares_no_json_mode():
+    """MiniMax 的 /chat/completions 不支持 response_format=json_object。
+
+    实测报 2013 unknown response_format type——所以结构化输出必须走降级路径。
+    """
+    spec = get_provider_spec("minimax")
+    assert spec is not None
+    assert spec.supports_json_mode is False
+    # 其他厂商不受影响
+    assert get_provider_spec("deepseek").supports_json_mode is True
+    assert get_provider_spec("zhipu").supports_json_mode is True
+
+
+def test_structured_falls_back_when_provider_has_no_json_mode():
+    """不支持 json_mode 的厂商，structured() 要降级成「提示词 + 容错解析」。"""
+    from pydantic import BaseModel
+
+    from app.llm.client import LLM
+
+    class Tiny(BaseModel):
+        title: str
+
+    llm = LLM(_settings(CHAT_PROVIDER="minimax", MINIMAX_API_KEY="mm"))
+    assert llm.config is not None
+    llm.config.provider = "minimax"
+    calls: list[list] = []
+
+    class FakeModel:
+        def invoke(self, messages, **kwargs):
+            calls.append(messages)
+            return type("R", (), {"content": '{"title": "夜街"}'})()
+
+    llm._model = FakeModel()  # type: ignore[assignment]
+    out = llm.structured(Tiny).invoke([{"role": "user", "content": "给个标题"}])
+    assert isinstance(out, Tiny)
+    assert out.title == "夜街"
+    # 降级路径必须把 JSON 要求追加到消息里
+    assert calls, "降级路径应该真的调了一次模型"
+
+    def _text(m) -> str:
+        return str(m.get("content", "")) if isinstance(m, dict) else str(getattr(m, "content", ""))
+
+    assert any("JSON" in _text(m) for m in calls[-1])
+
+
+def test_structured_uses_json_mode_for_normal_providers():
+    """普通厂商仍走 json_mode（行为不变）。"""
+    from app.llm.client import LLM
+
+    llm = LLM(_settings(CHAT_PROVIDER="deepseek", DEEPSEEK_API_KEY="ds"))
+    assert llm._supports_json_mode() is True

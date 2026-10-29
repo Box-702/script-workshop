@@ -19,6 +19,7 @@ from app.crew.dramaturgy import (
     find_slop_words,
     find_spoken_quotes,
     refresh_prompt_audits,
+    strip_camera_moves,
     strip_slop,
     strip_spoken_quotes,
     strip_style_block,
@@ -209,3 +210,43 @@ def test_refresh_prompt_audits_updates_shot_dicts_in_place():
     refresh_prompt_audits(shots)
     assert any("引用台词" in i for i in shots[0]["prompt_audit"])
     assert shots[1]["prompt_audit"] == []
+
+
+# ---------- 运镜剥离（camera_style 逐字进每个镜头，不能带运动清单） ----------
+
+
+def test_strip_camera_moves_removes_movement_list_but_keeps_identity():
+    """风格段要剥掉「列举具体运镜」的子句，保留不冲突的风格身份。
+
+    背景：camera_style 会被逐字拼进每个镜头。若它写着「以缓慢横移、推近、推拉为主」，
+    每个镜头都会收到三四种运动的矛盾指令——而每个镜头本来就只有一种运镜。
+    """
+    style = (
+        "客观机位，稳定为主，关键处缓慢推近。"
+        "摄影机高度大致与坐姿人物视线齐平（约1.1米），偶尔略高于桌面俯看两人。"
+        "跟随人物时略微提前或滞后半拍，镜头偶尔被前景的碗筷、蒸汽或路过的人短暂遮挡；"
+        "快速摇移后有短暂失焦再合焦。"
+        "运动节奏克制，以缓慢推近、轻微横移为主，保留真实拍摄的呼吸感，不做零瑕疵的机械运动。"
+    )
+    out = strip_camera_moves(style)
+
+    # 运动清单必须没了
+    for verb in ("推近", "横移", "跟随"):
+        assert verb not in out, f"「{verb}」应被剥掉：{out}"
+    # 风格身份必须还在
+    for keep in ("客观机位", "视线齐平", "呼吸感", "失焦"):
+        assert keep in out, f"「{keep}」不该被剥掉：{out}"
+    # 不留悬空标点
+    assert "，。" not in out and "。。" not in out, out
+
+
+def test_strip_camera_moves_is_idempotent_and_safe_on_empty():
+    assert strip_camera_moves("") == ""
+    text = "客观机位，稳定为主。"
+    assert strip_camera_moves(text) == strip_camera_moves(strip_camera_moves(text))
+
+
+def test_strip_camera_moves_keeps_style_without_movements_intact():
+    """不含运镜的风格描述不该被动过。"""
+    style = "客观旁观视点，机位高度大致与坐姿视线齐平，保留细微的手持浮动。"
+    assert strip_camera_moves(style) == style
