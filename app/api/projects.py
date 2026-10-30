@@ -25,6 +25,27 @@ from .schemas import GenerateRequest, NotesSet, ProjectCreate
 router = APIRouter()
 
 
+#: 模型失败的原因 → 人话。返回空串表示「就是没配模型」。
+def _fallback_reason(artifacts: dict[str, Any]) -> str:
+    """把回退时的异常翻译成用户能照做的提示。
+
+    「未配置可用模型，配置 key 可生成真实剧本」这句话在**已经配了 key** 的场景下是错的：
+    余额耗尽（402）、key 无效（401）、限流（429）都会走到同一个 local-fallback，
+    此时让用户去「配置 key」等于让他去修一个没坏的东西。
+    """
+    err = str(artifacts.get("error") or "")
+    low = err.lower()
+    if "insufficient" in low or "402" in low or "余额" in err:
+        return "模型余额不足"
+    if "401" in low or "unauthorized" in low or "invalid api key" in low or "invalid_api_key" in low:
+        return "模型 key 无效或无权限"
+    if "429" in low or "rate limit" in low:
+        return "模型限流"
+    if "timeout" in low or "timed out" in low:
+        return "模型调用超时"
+    return ""
+
+
 # ---------- 项目 ----------
 
 
@@ -100,9 +121,16 @@ def generate(project_id: str, payload: GenerateRequest) -> dict[str, Any]:
     common.persist_version(p, version)
     warnings = []
     if artifacts.get("mode") == "local-fallback":
-        warnings.append(
-            "未配置可用模型，本次生成的是本地演示剧本；配置 OPENAI/DEEPSEEK key 可生成真实剧本。"
-        )
+        reason = _fallback_reason(artifacts)
+        if reason:
+            warnings.append(
+                f"{reason}，本次落库的是本地规则剧本（不是模型产出）。"
+                "充值或换一个可用的 key 后重新生成即可。"
+            )
+        else:
+            warnings.append(
+                "未配置可用模型，本次生成的是本地演示剧本；配置 OPENAI/DEEPSEEK key 可生成真实剧本。"
+            )
     return {
         "version_id": version.id,
         "mode": artifacts.get("mode"),

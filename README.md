@@ -315,7 +315,7 @@ Script Workshop/
 
 ```bash
 python -m pytest tests -q
-# 247 passed
+# 248 passed
 ```
 
 ## 提示词质量 eval

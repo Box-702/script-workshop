@@ -390,3 +390,41 @@ def test_postgres_connect_args_are_bounded():
     pg = connect_args_for("postgresql+psycopg://u:p@localhost:5432/db")
     assert pg.get("connect_timeout", 0) > 0
     assert connect_args_for("sqlite:///:memory:") == {"check_same_thread": False}
+
+
+def test_fallback_warning_names_the_real_reason(client, monkeypatch, sample_text):
+    """余额耗尽时不能提示「配置 key」——用户早就配了，坏的是余额。
+
+    三种失败（余额 402 / key 失效 401 / 限流 429）都走同一个 local-fallback，
+    提示必须能区分，否则用户会去修一个没坏的东西。
+    """
+    from app.api import projects as projects_api
+
+    def _fallback(error: str):
+        def _fake(*args, **kwargs):
+            return _fake_script(), {"mode": "local-fallback", "error": error}
+        return _fake
+
+    def _fake_script():
+        from app.pipeline.patch import make_source_script
+
+        return make_source_script("雨夜", "第一章 雨夜\n老周在修表。", adaptation_type="短剧")
+
+    p = _import_project(client, sample_text)
+
+    cases = {
+        "Error code: 402 - {'type': 'insufficient_balance_error'}": "余额不足",
+        "Error code: 401 - invalid_api_key": "key 无效",
+        "Error code: 429 - rate limit exceeded": "限流",
+    }
+    for error, expect in cases.items():
+        monkeypatch.setattr(projects_api, "generate_script", _fallback(error))
+        resp = client.post(f"/api/projects/{p['id']}/generate", json={})
+        assert resp.status_code == 200, resp.text
+        warnings = " ".join(resp.json().get("warnings") or [])
+        assert expect in warnings, f"{error} 应提示「{expect}」，实际：{warnings}"
+
+    # 没配模型（error 为空）时仍然给原来那句
+    monkeypatch.setattr(projects_api, "generate_script", _fallback(""))
+    resp = client.post(f"/api/projects/{p['id']}/generate", json={})
+    assert "未配置可用模型" in " ".join(resp.json().get("warnings") or [])
