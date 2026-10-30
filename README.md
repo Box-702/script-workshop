@@ -304,6 +304,8 @@ Script Workshop/
 | `DEEPSEEK_API_KEY` | DeepSeek key（也用于默认视觉质检模型） | - |
 | `OPENAI_API_KEY` | OpenAI 或任意兼容服务的 key | - |
 | `MINIMAX_API_KEY` | MiniMax key（**对话 / 视频 H3 / 配音 T2A 一把 key 全链路**） | - |
+| `MINIMAX_API_KEY_FALLBACKS` | 备用 key（逗号分隔，可多把）。主 key 欠费/失效时自动顶上，顺序即优先级；坏 key 冷却期间不再试 | - |
+| `KEY_COOLDOWN_SEC` | key 被判失效后的冷却时长（秒），到期自动复活，无需重启 | `600` |
 | `DEEPSEEK_THINKING` | 推理模型是否开启思考链 | `false` |
 | `VISION_PROVIDER` / `VISION_MODEL` / `VISION_API_KEY` | 视觉质检单独配置（留空则自动复用支持视觉的厂商） | 自动 |
 | `IMAGE_PROVIDER` / `IMAGE_MODEL` / `IMAGE_API_KEY` | 文生图单独配置（`cogview` / `openai`） | `cogview` → `openai` |

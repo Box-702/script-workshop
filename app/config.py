@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     # 注意：其 /chat/completions 不支持 response_format=json_object，
     # 结构化输出走 client.LLM.structured() 的降级路径。
     minimax_api_key: str = Field(default="", alias="MINIMAX_API_KEY")
+    # 备用 key（逗号/分号分隔）：主 key 欠费或失效时自动顶上，
+    # 轮换逻辑见 app/keys.py；顺序即优先级，冷却时长由 KEY_COOLDOWN_SEC 控制。
+    minimax_api_keys: str = Field(default="", alias="MINIMAX_API_KEY_FALLBACKS")
     minimax_base_url: str = Field(default="https://api.minimax.cn/v1", alias="MINIMAX_BASE_URL")
     minimax_model: str = Field(default="MiniMax-Text-01", alias="MINIMAX_MODEL_NAME")
     # 本地模型（无 key，仅当 CHAT_PROVIDER=ollama 时启用）。
@@ -147,6 +150,13 @@ class Settings(BaseSettings):
     def model_available(self) -> bool:
         """是否配置了有效的对话模型 key。"""
         return bool(self.openai_api_key.strip() or self.zhipuai_api_key.strip() or self.deepseek_api_key.strip())
+
+    @property
+    def minimax_key_list(self) -> list[str]:
+        """MiniMax 的 key 列表（主 key + 备用 key，去重保序）。"""
+        from .keys import merge_keys
+
+        return merge_keys(self.minimax_api_key, self.minimax_api_keys)
 
     @property
     def effective_checkpoint_dsn(self) -> str:

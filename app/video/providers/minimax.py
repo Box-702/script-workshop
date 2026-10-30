@@ -15,9 +15,37 @@ from typing import Any
 
 import httpx
 
+from ...keys import error_message, key_failure, minimax_keys, mask, ring_for
 from ..base import VideoJobParams, VideoJobResponse, VideoJobStatus, VideoProvider
 
 log = logging.getLogger(__name__)
+
+
+def _payload(resp: httpx.Response) -> Any:
+    """尽量解析响应体；非 JSON 时退回文本，供错误分类使用。"""
+    try:
+        return resp.json()
+    except Exception:  # noqa: BLE001
+        return resp.text
+
+
+def _invalid_task(data: Any) -> bool:
+    """响应是否表示「这个账号查不到该任务」（2013 / 2014）。
+
+    跨账号轮换时会出现：key 本身是好的，只是任务属于另一个账号。
+    这种情形要换 key 继续查，但绝不能把那把好 key 判成失效。
+    """
+    if not isinstance(data, dict):
+        return False
+    base = data.get("base_resp")
+    if isinstance(base, dict):
+        if base.get("status_code") in (2013, 2014):
+            return True
+    err = data.get("error")
+    if isinstance(err, dict):
+        message = str(err.get("message", ""))
+        return "(2013)" in message or "(2014)" in message or "invalid task" in message.lower()
+    return False
 
 
 class MiniMaxProvider(VideoProvider):
@@ -32,12 +60,86 @@ class MiniMaxProvider(VideoProvider):
     supported_resolutions = ["480P", "768P", "2K"]
     chinese_prompt_support = True
 
+    # 任务 → 提交时用的 key。跨账号轮换后，查询必须用「提交它的那个账号」的
+    # key，否则会拿到 invalid task_id。进程内字典足够：任务在同一个进程里轮询。
+    _TASK_KEYS: dict[str, str] = {}
+    _TASK_KEYS_CAP = 512
+
     def __init__(self, api_key: str = "", base_url: str = "", **kwargs: Any) -> None:
         import os
         api_key = api_key or os.environ.get("MINIMAX_API_KEY", "")
         super().__init__(api_key, base_url, **kwargs)
+        self._last_key = ""
         if not self.base_url:
             self.base_url = "https://api.minimax.cn"
+
+    # ---- key 轮换 ----
+
+    def _ring(self):
+        """候选 key 环：本实例的 key 优先，其后是 .env 里的备用 key。"""
+        return ring_for("minimax", minimax_keys(self.api_key))
+
+    @classmethod
+    def _remember(cls, task_id: str, key: str) -> None:
+        cls._TASK_KEYS[task_id] = key
+        if len(cls._TASK_KEYS) > cls._TASK_KEYS_CAP:
+            # 粗暴但够用：超限时丢掉最早写入的一批。
+            for stale in list(cls._TASK_KEYS)[: cls._TASK_KEYS_CAP // 4]:
+                cls._TASK_KEYS.pop(stale, None)
+
+    async def _send(
+        self,
+        method: str,
+        url: str,
+        *,
+        body: dict[str, Any] | None = None,
+        timeout: float = 60.0,
+        action: str = "请求",
+        task_id: str = "",
+    ) -> Any:
+        """带 key 轮换的请求：key 级错误（401/402/1004/1008）就换下一把重试。
+
+        参数错误（400/2013 等）不换 key——换 key 也没用，直接抛出去让上层看见。
+        """
+        ring = self._ring()
+        candidates = ring.candidates()
+        bound = self._TASK_KEYS.get(task_id) if task_id else ""
+        if bound and bound in candidates:
+            candidates = [bound] + [k for k in candidates if k != bound]
+        if not candidates:
+            raise RuntimeError(f"MiniMax {action}失败：没有配置 API Key")
+
+        failures: list[str] = []
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            for key in candidates:
+                headers = {"Authorization": f"Bearer {key}"}
+                if method.upper() == "GET":
+                    resp = await client.get(url, headers=headers)
+                else:
+                    headers["Content-Type"] = "application/json"
+                    resp = await client.post(url, headers=headers, json=body)
+
+                data = _payload(resp)
+                if key_failure(resp.status_code, data):
+                    reason = error_message(data, resp.status_code)
+                    ring.mark_bad(key, reason)
+                    failures.append(f"{mask(key)} {reason}")
+                    continue
+                # 账号里查不到这个任务：可能是换了账号，继续试下一把，不判 key 坏。
+                if task_id and resp.status_code < 400 and _invalid_task(data):
+                    failures.append(f"{mask(key)} 查不到该任务")
+                    continue
+
+                resp.raise_for_status()
+                ring.mark_ok(key)
+                self._last_key = key  # 供 create_job 记录「这笔任务属于哪个账号」
+                if task_id:
+                    self._remember(task_id, key)
+                return data
+
+        raise RuntimeError(
+            f"MiniMax {action}失败：所有 key 都不可用（{'；'.join(failures)}）"
+        )
 
     # ---- 多模态 content 组装（V2 接口：文本 / 图片 / 视频 / 音频） ----
 
@@ -105,34 +207,39 @@ class MiniMaxProvider(VideoProvider):
         }
         body.update(extra)
 
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                f"{self.base_url}/v2/video_generation",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        data = await self._send(
+            "POST",
+            f"{self.base_url}/v2/video_generation",
+            body=body,
+            timeout=60,
+            action="提交",
+        )
+        if not isinstance(data, dict):
+            raise RuntimeError(f"MiniMax 提交失败：响应不是 JSON（{str(data)[:120]}）")
 
         # V2 的错误返回 {"type":"error","error":{"message":...}}，HTTP 状态也可能是 4xx。
         if data.get("type") == "error" or not data.get("task_id"):
             message = (data.get("error") or {}).get("message") if isinstance(data.get("error"), dict) else str(data)
             raise RuntimeError(f"MiniMax 提交失败：{message}")
 
+        task_id = str(data["task_id"])
+        # 记下提交用的 key：跨账号轮换后查询必须回到同一个账号，否则查不到任务。
+        if self._last_key:
+            self._remember(task_id, self._last_key)
+
         cost = self.estimate_cost(body["duration"])
-        return VideoJobResponse(external_task_id=str(data["task_id"]), status="queued", cost_estimate=cost)
+        return VideoJobResponse(external_task_id=task_id, status="queued", cost_estimate=cost)
 
     async def poll_job(self, external_task_id: str) -> VideoJobStatus:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(
-                f"{self.base_url}/v2/query/video_generation/{external_task_id}",
-                headers={"Authorization": f"Bearer {self.api_key}"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        data = await self._send(
+            "GET",
+            f"{self.base_url}/v2/query/video_generation/{external_task_id}",
+            timeout=30,
+            action="查询",
+            task_id=external_task_id,
+        )
+        if not isinstance(data, dict):
+            raise RuntimeError(f"MiniMax 查询失败：响应不是 JSON（{str(data)[:120]}）")
 
         if data.get("type") == "error":
             err = data.get("error") or {}

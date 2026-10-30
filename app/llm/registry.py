@@ -17,6 +17,7 @@ import logging
 import os
 from typing import Any
 
+from ..keys import minimax_keys, ring_for
 from .base import ModelConfig
 from .providers import all_provider_specs, get_provider_spec
 
@@ -77,7 +78,13 @@ def _from_settings(provider: str, settings: Any) -> ModelConfig | None:
         extra_body = {"_thinking": bool(getattr(settings, "deepseek_thinking", False))}
     elif name == "minimax":
         # 一把 key 打通对话 / 视频（H3）/ 配音（T2A）。
-        api_key = _settings_attr(settings, "minimax_api_key")
+        # 多把 key 并存时取「当前最该用」的那把（见 app/keys.py）。
+        # 注意：对话链路不像视频/配音那样能中途换 key 重试，这里只是开局选优。
+        # 优先用 Settings 里的完整列表（它自己读 .env，不依赖 load_dotenv 是否跑过）。
+        keys = list(getattr(settings, "minimax_key_list", None) or []) or minimax_keys(
+            _settings_attr(settings, "minimax_api_key")
+        )
+        api_key = ring_for("minimax", keys).pick()
         base_url = _settings_attr(settings, "minimax_base_url")
         model = _settings_attr(settings, "minimax_model")
     elif name == "ollama":
@@ -298,7 +305,9 @@ def resolve_tts(settings: Any, store: Any = None) -> ModelConfig | None:
     api_key = _settings_attr(settings, "tts_api_key")
     base_url = _settings_attr(settings, "tts_base_url")
     if not api_key and provider == "minimax":
-        api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
+        # 与视频 Provider 共用一个 key 环：坏掉的 key 在这里也跳过。
+        keys = list(getattr(settings, "minimax_key_list", None) or []) or minimax_keys()
+        api_key = ring_for("minimax", keys).pick()
     if not api_key:
         return None
     return ModelConfig(

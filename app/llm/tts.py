@@ -22,6 +22,7 @@ from typing import Any
 
 import httpx
 
+from ..keys import error_message, key_failure, mask, minimax_keys, ring_for
 from .base import ModelConfig
 
 log = logging.getLogger(__name__)
@@ -83,18 +84,41 @@ class MiniMaxTTSClient(TTSClient):
             },
         }
         with httpx.Client(trust_env=False, timeout=timeout) as client:
-            resp = client.post(
-                self.config.endpoint("v1/t2a_v2"),
-                headers={
-                    "Authorization": f"Bearer {self.config.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+            ring = ring_for("minimax", minimax_keys(self.config.api_key))
+            candidates = ring.candidates()
+            if not candidates:
+                raise RuntimeError("MiniMax TTS 失败：没有配置 API Key")
+            failures: list[str] = []
+            for key in candidates:
+                resp = client.post(
+                    self.config.endpoint("v1/t2a_v2"),
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=body,
+                )
+                try:
+                    data = resp.json()
+                except Exception:  # noqa: BLE001
+                    data = resp.text
+                # key 级错误（401/402/1004/1008）换下一把；参数错误直接抛。
+                if key_failure(resp.status_code, data):
+                    reason = error_message(data, resp.status_code)
+                    ring.mark_bad(key, reason)
+                    failures.append(f"{mask(key)} {reason}")
+                    continue
+                resp.raise_for_status()
+                ring.mark_ok(key)
+                return self._parse_audio(data)
 
-        # 错误形态：{"base_resp": {"status": 1xxx, "status_msg": "..."}}
+        raise RuntimeError(f"MiniMax TTS 失败：所有 key 都不可用（{'；'.join(failures)}）")
+
+    @staticmethod
+    def _parse_audio(data: object) -> bytes:
+        """从 T2A 响应里取出音频字节；错误走 base_resp。"""
+        if not isinstance(data, dict):
+            raise RuntimeError(f"MiniMax TTS 响应不是 JSON：{str(data)[:200]}")
         base_resp = data.get("base_resp") or {}
         if base_resp.get("status") not in (0, None):
             raise RuntimeError(f"MiniMax TTS 失败：{base_resp.get('status_msg')}")

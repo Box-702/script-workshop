@@ -598,6 +598,9 @@ def test_resolve_continuity_builds_reference_videos():
 class _FakeResp:
     def __init__(self, data: dict):
         self._data = data
+        # Provider 的 key 轮换会读状态码判断「该不该换 key」，桩里给全字段。
+        self.status_code = 200
+        self.text = ""
 
     def raise_for_status(self) -> None:
         pass
