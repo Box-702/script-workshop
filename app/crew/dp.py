@@ -163,6 +163,34 @@ def _norm_key(text: str) -> str:
     return re.sub(r"[\s，,。；;、·「」『』\"'！!？?．.]+", "", str(text or ""))
 
 
+def _covers(anchor: str, text: str) -> bool:
+    """`text` 是否已经写过 `anchor` 这层意思（允许改写措辞，不允许只是碰巧同开头）。
+
+    旧实现只比 `_norm_key(anchor)[:8]`：模型只要在锚前面加个主语
+    （「他推开门的瞬间，雨水顺着伞骨……**雨停了**」），前 8 字就对不上，
+    于是兜底逻辑把整句锚又追一遍——实测出现过同一句「最终画面」连着两遍，
+    视频模型会把它当成两个连续动作。
+
+    这里改成滑窗覆盖率：4 字窗命中 ≥60% 算写过（原样或接近原样）；
+    4 字窗对小改动的容忍度不够（「冷光熄在他脸上」只命中 20%），
+    所以再挂一条 2 字窗 ≥65% 的兜底——实测「已写过」与「真没写」在 2 字窗上
+    分得很开（0.71 对 0.14），不会把该补的漏掉。
+    """
+    a, t = _norm_key(anchor), _norm_key(text)
+    if not a:
+        return True
+    if a in t:
+        return True
+    if len(a) < 4:
+        return False
+
+    def _ratio(n: int) -> float:
+        grams = {a[i : i + n] for i in range(len(a) - n + 1)}
+        return sum(1 for g in grams if g in t) / len(grams)
+
+    return _ratio(4) >= 0.6 or _ratio(2) >= 0.65
+
+
 class DPAgent(CrewAgent):
     """摄影指导 Agent：构建模型感知的视频提示词。"""
 
@@ -495,10 +523,8 @@ class DPAgent(CrewAgent):
             # 最终画面兜底（U11）：模型把最后一帧当情绪目的地，body 必须以
             # final_frame 收尾；LLM 漏写时把导演方案里的结束帧补成最后一句。
             ff = str(shot.final_frame or "").strip()
-            if ff:
-                core = _norm_key(ff)[:8]
-                if core and core not in _norm_key(body):
-                    body = f"{body.strip().rstrip('。')}。{ff}".strip("。")
+            if ff and not _covers(ff, body):
+                body = f"{body.strip().rstrip('。')}。{ff}".strip("。")
 
             # 风格段按本镜 body 重算（填空不覆盖）：body 已经交代了光影/运镜的，            # 就不再贴全片风格段的同类描述，避免两套指令打架。
             # 没有风格指南时退回调用方传入的 style 字符串。

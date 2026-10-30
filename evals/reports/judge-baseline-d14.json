@@ -1,0 +1,829 @@
+{
+  "provider": "minimax",
+  "model": "deepseek-flash",
+  "cases": 10,
+  "critical_total": 0,
+  "warn_total": 1,
+  "blocked_total": 0,
+  "failed_total": 0,
+  "judge_average": 82.5,
+  "passed": true,
+  "by_rule": {
+    "DPT-06": 1
+  },
+  "avg_dims": {
+    "dramatic": 81.6,
+    "renderable": 86.9,
+    "consistency": 83.1,
+    "specificity": 85.2,
+    "restraint": 73.1
+  },
+  "results": [
+    {
+      "case": "single_pressure",
+      "name": "单人压迫戏",
+      "ok": true,
+      "blocked": false,
+      "error": "",
+      "note": "",
+      "shots": 3,
+      "critical": 0,
+      "warn": 0,
+      "judge_total": 78.6,
+      "judge_dims": {
+        "dramatic": 78.0,
+        "renderable": 86.0,
+        "consistency": 73.0,
+        "specificity": 85.0,
+        "restraint": 68.7
+      },
+      "failures": [],
+      "judge": [
+        {
+          "shot_id": "shot_scene_001_000",
+          "total": 73.0,
+          "dims": {
+            "dramatic": 78.0,
+            "renderable": 82.0,
+            "consistency": 55.0,
+            "specificity": 85.0,
+            "restraint": 62.0
+          },
+          "evidence": {
+            "dramatic": "他先把门往外推开，雨声瞬间灌入……随后手腕往回一收，把门拉回到只剩一条缝，身体重心从脚尖退回脚跟，肩膀塌下来",
+            "renderable": "右手五指扣在门把手3号上，指节绷紧发白……水珠沿下颌线往下滴，落在电话机2号的金属外壳上",
+            "consistency": "光源来自头顶那盏闪烁的暖黄灯泡……亭外街灯的青白色冷光透过雨痕玻璃从左侧斜切进来",
+            "specificity": "雨声瞬间灌入，冷风掀起他湿透的衣领……水珠沿下颌线往下滴，落在电话机2号的金属外壳上",
+            "restraint": "镜头推进时略微滞后于他的动作，越过门框后有一次短暂的重新合焦"
+          },
+          "critical_issues": [
+            "提示词内光源自相矛盾：暖黄灯泡与冷白荧光灯并存，且亭外街灯与'亭外没有路灯'冲突",
+            "运镜含'重新合焦'等抽象指令，模型难以稳定执行"
+          ],
+          "error": ""
+        },
+        {
+          "shot_id": "shot_scene_001_001",
+          "total": 85.0,
+          "dims": {
+            "dramatic": 78.0,
+            "renderable": 88.0,
+            "consistency": 92.0,
+            "specificity": 85.0,
+            "restraint": 82.0
+          },
+          "evidence": {
+            "dramatic": "他的喉结上下动了一下，嘴唇张开又闭上，口型停在半张的状态",
+            "renderable": "指尖先碰到听筒的胶布缠裹处，停顿一拍，再整只手把听筒从挂钩上拿起，举到耳边，听筒线被拉直，胶布处微微绷紧",
+            "consistency": "黑色短发油腻打绺，额前碎发被雨水黏在皮肤上；穿深灰色起球针织开衫",
+            "specificity": "听筒的胶布泛出脏兮兮的灰白色；他的脸大部分沉在阴影里，只有颧骨和鼻尖被频闪扫到",
+            "restraint": "镜头固定，机位略低于林晚面部，仰角约十度，贴近电话机面板，离他的手约四十厘米"
+          },
+          "critical_issues": [
+            "提示词写「听筒线被扯断垂落」，动作却要求拿起听筒并拉直听筒线，物理矛盾",
+            "提示词写「目光落在玻璃外雨幕深处」，最终画面却要求「盯着电话机面板裂缝」，视线方向冲突"
+          ],
+          "error": ""
+        },
+        {
+          "shot_id": "shot_scene_001_002",
+          "total": 78.0,
+          "dims": {
+            "dramatic": 78.0,
+            "renderable": 88.0,
+            "consistency": 72.0,
+            "specificity": 85.0,
+            "restraint": 62.0
+          },
+          "evidence": {
+            "dramatic": "他的膝盖先弯下去，后背沿着玻璃往下滑……直到臀部碰到地面",
+            "renderable": "右手攥着听筒，听筒线在他手边晃荡。他的头往后仰，后脑勺抵住玻璃",
+            "consistency": "湿透的开衫在玻璃上留下一道水痕",
+            "specificity": "荧光灯频闪把他的脸切成明暗交替的碎片，玻璃上的雨痕在他身后流动",
+            "restraint": "背景人行道上偶有撑黑伞的夜归行人低头快步经过，街对面便利店门口站着两个抽烟的年轻人"
+          },
+          "critical_issues": [
+            "提示词把前序信息中『听筒线被扯断垂落』与动作描述『右手攥着听筒』并列，物理逻辑矛盾",
+            "背景人物动作在分镜中标注为空，但提示词新增『两个年轻人各自靠着墙抽烟』，与前序信息及分镜字段不一致"
+          ],
+          "error": ""
+        }
+      ]
+    },
+    {
+      "case": "dialogue_tension",
+      "name": "对峙对话戏",
+      "ok": true,
+      "blocked": false,
+      "error": "",
+      "note": "",
+      "shots": 4,
+      "critical": 0,
+      "warn": 0,
+      "judge_total": 86.5,
+      "judge_dims": {
+        "dramatic": 84.7,
+        "renderable": 88.3,
+        "consistency": 93.0,
+        "specificity": 85.7,
+        "restraint": 78.3
+      },
+      "failures": [],
+      "judge": [
+        {
+          "shot_id": "shot_scene_001_000",
+          "total": 83.5,
+          "dims": {
+            "dramatic": 78.0,
+            "renderable": 88.0,
+            "consistency": 92.0,
+            "specificity": 85.0,
+            "restraint": 72.0
+          },
+          "evidence": {
+            "dramatic": "筷尖在碗里拨了两下，指节泛白；勺子碰到碗沿发出一声轻响后停住，喉结动了一下",
+            "renderable": "机位离桌面约40厘米，略高于碗沿，平视两人胸口；周野1号在画面左侧、离镜头约1.2米",
+            "consistency": "周野：四十岁上下男性，偏黄的小麦色皮肤……何清：三十七八岁女性，冷白皮肤",
+            "specificity": "灯管每隔几秒闪一次，闪时两人脸部同时暗半档；椅子腿刮地一声；碗里热气在亮区里翻卷",
+            "restraint": "画面边缘有轻微呼吸般的浮动；主色调 #2b2b2b、#8a6a3f、#c9b89a、#5a6b5d"
+          },
+          "critical_issues": [],
+          "error": ""
+        },
+        {
+          "shot_id": "shot_scene_001_001",
+          "total": 85.7,
+          "dims": {
+            "dramatic": 88.0,
+            "renderable": 85.0,
+            "consistency": 92.0,
+            "specificity": 82.0,
+            "restraint": 78.0
+          },
+          "evidence": {
+            "dramatic": "先往碗沿试探着靠了一下，再完全松手让筷子落平；同时下颌咬肌鼓起又松开，嘴唇压成一条线，眼睛抬起来第一次直视对面",
+            "renderable": "拇指与食指捏住筷子上段，先往碗沿试探着靠了一下，再完全松手让筷子落平；机位高度从离桌40厘米降到25厘米",
+            "consistency": "下颌线方正带短硬胡茬……穿深藏青色立领夹克……坐姿前倾；何清2号在焦外右侧边缘，只剩一个肩膀的轮廓",
+            "specificity": "后厨帘子被掀开一角又落下；灯管在他瞳孔里闪了一下；下颌咬肌鼓起又松开",
+            "restraint": "镜头从周野胸口高度起步，沿桌面斜向缓慢推进约半米，机位高度从离桌40厘米降到25厘米，略微俯向桌面"
+          },
+          "critical_issues": [],
+          "error": ""
+        },
+        {
+          "shot_id": "shot_scene_001_002",
+          "total": 90.2,
+          "dims": {
+            "dramatic": 88.0,
+            "renderable": 92.0,
+            "consistency": 95.0,
+            "specificity": 90.0,
+            "restraint": 85.0
+          },
+          "evidence": {
+            "dramatic": "瓶底贴着桌面滑到正中，正好压住周野1号横放的筷子尖；推完指尖还搭在瓶身上，肩膀往后靠了半寸",
+            "renderable": "掌心包住瓶身中段，先往回带了半寸试探，再整个推出去，瓶底贴着桌面滑到正中",
+            "consistency": "何清：三十七八岁女性，冷白皮肤……坐姿端正，双肩收拢；周野：四十岁上下男性……坐姿前倾",
+            "specificity": "后厨传出水龙头放水声；窗外一辆电动车驶过，车灯扫过玻璃；瓶身玻璃把灯管的光折成一小条亮线",
+            "restraint": "镜头静止，机位离桌面约45厘米，平视，略偏何清一侧"
+          },
+          "critical_issues": [],
+          "error": ""
+        }
+      ]
+    },
+    {
+      "case": "contact_action",
+      "name": "接触动作戏",
+      "ok": true,
+      "blocked": false,
+      "error": "",
+      "note": "",
+      "shots": 3,
+      "critical": 0,
+      "warn": 0,
+      "judge_total": 85.8,
+      "judge_dims": {
+        "dramatic": 88.0,
+        "renderable": 86.3,
+        "consistency": 94.0,
+        "specificity": 85.7,
+        "restraint": 70.3
+      },
+      "failures": [],
+      "judge": [
+        {
+          "shot_id": "shot_scene_001_000",
+          "total": 89.2,
+          "dims": {
+            "dramatic": 88.0,
+            "renderable": 92.0,
+            "consistency": 95.0,
+            "specificity": 90.0,
+            "restraint": 78.0
+          },
+          "evidence": {
+            "dramatic": "转过转角时他上身先探出去，随即整个人向后一顿，后脚跟磕在上一级台阶边缘",
+            "renderable": "右手攥着一张揉皱的欠条贴在胯侧，左手扶着斑驳的铁扶手往下冲，鞋底在水泥台阶上蹭出急停的摩擦",
+            "consistency": "徐姐2号在下一层平台，离镜头约5米、离马三垂直落差约2.5米，站在楼梯口正中偏左，双手插在大衣口袋里",
+            "specificity": "空气里浮着细尘，应急灯偶尔轻微闪烁，铁扶手被触碰时发出低沉的震颤声",
+            "restraint": "镜头随下行有轻微滞后，起步略慢半拍再跟上，刹车时带一点惯性前倾"
+          },
+          "critical_issues": [],
+          "error": ""
+        },
+        {
+          "shot_id": "shot_scene_001_001",
+          "total": 85.7,
+          "dims": {
+            "dramatic": 88.0,
+            "renderable": 85.0,
+            "consistency": 92.0,
+            "specificity": 82.0,
+            "restraint": 78.0
+          },
+          "evidence": {
+            "dramatic": "攥欠条的手往身后藏了半寸，喉结上下滚了一下，右脚往后退了半步，鞋跟悬在台阶边缘",
+            "renderable": "徐姐2号在画面左下前景，离镜头约2米……马三1号在画面右上、高约2.5米的台阶上，离镜头约4米",
+            "consistency": "穿深棕色旧皮夹克，内搭洗得发灰的黑色圆领棉T恤……右手腕戴一串深色木珠",
+            "specificity": "应急灯偶尔轻微闪烁，铁扶手被触碰时发出低沉的震颤声；空气里浮着细尘",
+            "restraint": "镜头保持静止，只有极缓慢的呼吸式微动"
+          },
+          "critical_issues": [],
+          "error": ""
+        },
+        {
+          "shot_id": "shot_scene_001_002",
+          "total": 82.5,
+          "dims": {
+            "dramatic": 88.0,
+            "renderable": 82.0,
+            "consistency": 95.0,
+            "specificity": 85.0,
+            "restraint": 55.0
+          },
+          "evidence": {
+            "dramatic": "掌心先抵住马三胸口把他往后推，随即前臂横压上去；马三后背撞上墙面，后脑勺磕到墙皮",
+            "renderable": "徐姐2号左手从口袋里抽出，掌心先抵住马三胸口把他往后推，随即前臂横压上去；马三后背撞上墙面，后脑勺磕到墙皮",
+            "consistency": "马三：四十岁上下男性，偏黄的小麦色皮肤……穿深棕色旧皮夹克",
+            "specificity": "应急灯偶尔轻微闪烁，铁扶手被触碰时发出低沉的震颤声；徐姐的前臂在马三脸上投下一道横向暗带",
+            "restraint": "背景偶有住户拎着垃圾袋匆匆上下楼、外卖员靠墙低头看手机"
+          },
+          "critical_issues": [
+            "提示词包含背景人物动作（住户上下楼、外卖员看手机），与特写镜头及7秒时长冲突，易导致画面混乱",
+            "运镜描述包含从起步到压近再到收住的完整轨迹，但未明确起始构图与结束构图，模型可能无法准确执行"
+          ],
+          "error": ""
+        }
+      ]
+    },
+    {
+      "case": "crowd_background",
+      "name": "公共场合群戏",
+      "ok": true,
+      "blocked": false,
+      "error": "",
+      "note": "",
+      "shots": 3,
+      "critical": 0,
+      "warn": 1,
+      "judge_total": 84.6,
+      "judge_dims": {
+        "dramatic": 88.0,
+        "renderable": 86.3,
+        "consistency": 94.0,
+        "specificity": 84.0,
+        "restraint": 64.0
+      },
+      "failures": [
+        {
+          "rule": "DPT-06",
+          "severity": "warn",
+          "where": "scene_001/shot_scene_001_000",
+          "message": "疑似一镜多运镜（推进、跟随）：一镜只保留一种主要运动"
+        }
+      ],
+      "judge": [
+        {
+          "shot_id": "shot_scene_001_000",
+          "total": 82.2,
+          "dims": {
+            "dramatic": 88.0,
+            "renderable": 85.0,
+            "consistency": 92.0,
+            "specificity": 82.0,
+            "restraint": 55.0
+          },
+          "evidence": {
+            "dramatic": "他的步频比周围人慢半拍，左脚落地时明显迟疑了一下；两侧穿深色外套的通勤者从他左右肩侧擦过，有人背包带蹭过他的手臂，他身体被带得微微偏了一下又回正",
+            "renderable": "镜头从苏桥1号右后方约一米处起步，离地约1.5米，略低于他的肩线，微微仰拍，跟着人流向前缓推，推进约两米后在他侧后方停住",
+            "consistency": "身穿深灰色棉质连帽卫衣，外罩一件洗得发白的藏青色薄款夹克，下身深色直筒牛仔裤，脚穿灰白色旧运动鞋，肩上斜挎一只磨旧的黑色帆布单肩包",
+            "specificity": "空气中浮着细微灰尘，地面有被鞋底反复踩出的湿痕与水渍反光；前方一个穿灰色大衣的男人边走边低头看手机，侧身绕开立柱",
+            "restraint": "快速跟移后有一次短暂的重新合焦"
+          },
+          "critical_issues": [
+            "提示词含“快速跟移后有一次短暂的重新合焦”，属一镜多运镜，易导致模型运镜混乱"
+          ],
+          "error": ""
+        },
+        {
+          "shot_id": "shot_scene_001_001",
+          "total": 89.0,
+          "dims": {
+            "dramatic": 88.0,
+            "renderable": 92.0,
+            "consistency": 95.0,
+            "specificity": 85.0,
+            "restraint": 82.0
+          },
+          "evidence": {
+            "dramatic": "右手五指收拢，把工牌挂绳往掌心攥紧，指节泛白，挂绳被拉直绷紧",
+            "renderable": "右脚先落地定住，左脚跟上并拢；右手五指收拢……指节泛白，挂绳被拉直绷紧",
+            "consistency": "身穿深灰色棉质连帽卫衣，外罩一件洗得发白的藏青色薄款夹克",
+            "specificity": "顶灯从正上方打在他手背和挂绳上，指节高光明显；他的脸在画面上缘只露出下颌，落在阴影里",
+            "restraint": "镜头固定在离地约1.2米的高度……机位静止"
+          },
+          "critical_issues": [],
+          "error": ""
+        },
+        {
+          "shot_id": "shot_scene_001_002",
+          "total": 82.5,
+          "dims": {
+            "dramatic": 88.0,
+            "renderable": 82.0,
+            "consistency": 95.0,
+            "specificity": 85.0,
+            "restraint": 55.0
+          },
+          "evidence": {
+            "dramatic": "他松开攥紧的手，挂绳垂回胯侧……整个身体转过来……逆着人流走",
+            "renderable": "一个女人的挎包擦过他的左臂，他侧了一下身让过去",
+            "consistency": "黑色短发略长、额前碎发自然垂落……深灰色棉质连帽卫衣，外罩一件洗得发白的藏青色薄款夹克",
+            "specificity": "顶灯在他正面形成顶光，眉骨阴影压下来，眼睛藏在暗处",
+            "restraint": "镜头从苏桥1号正面约两米处起步……缓慢后退……后退约三米后停住"
+          },
+          "critical_issues": [
+            "提示词同时包含后退运镜与人物从2米走到1米，模型可能无法同时执行",
+            "7秒内包含转身、逆流走、侧身避让、下巴抬起多个动作，动作过载"
+          ],
+          "error": ""
+        }
+      ]
+    },
+    {
+      "case": "two_scenes_chain",
+      "name": "两场戏 + 接力",
+      "ok": true,
+      "blocked": false,
+      "error": "",
+      "note": "",
+      "shots": 4,
+      "critical": 0,
+      "warn": 0,
+      "judge_total": 85.4,
+      "judge_dims": {
+        "dramatic": 80.7,
+        "renderable": 88.0,
+        "consistency": 93.0,
+        "specificity": 85.0,
+        "restraint": 79.3
+      },
+      "failures": [],
+      "judge": [
+        {
+          "shot_id": "shot_scene_001_000",
+          "total": 86.0,
+          "dims": {
+            "dramatic": 82.0,
+            "renderable": 88.0,
+            "consistency": 95.0,
+            "specificity": 85.0,
+            "restraint": 78.0
+          },
+          "evidence": {
+            "dramatic": "翻到第三下时手指突然停住，指尖在抽屉底板的一道夹缝上试探性地抠了一下，随即整只手探进去，从夹层里抽出一把黄铜钥匙",
+            "renderable": "左手撑住抽屉边缘、右手在衣物堆里快速翻拨；翻到第三下时手指突然停住，指尖在抽屉底板的一道夹缝上试探性地抠了一下",
+            "consistency": "黑色中长发，发尾微卷，额前碎发用一枚黑色发夹别向耳后；穿灰米色粗针织开衫",
+            "specificity": "窗缝漏风，白纱帘持续轻微鼓动，台灯灯丝偶尔发出细微的电流嗡声",
+            "restraint": "机位全程固定，只做极缓慢的呼吸式微沉"
+          },
+          "critical_issues": [],
+          "error": ""
+        },
+        {
+          "shot_id": "shot_scene_001_001",
+          "total": 85.0,
+          "dims": {
+            "dramatic": 78.0,
+            "renderable": 88.0,
+            "consistency": 92.0,
+            "specificity": 85.0,
+            "restraint": 82.0
+          },
+          "evidence": {
+            "dramatic": "指节逐渐发白；她的下颌同时锁死，嘴唇压成一条线，喉结轻轻动了一下",
+            "renderable": "手1号占画面下半部中央，离镜头约零点四米；她的下颌2号在画面上缘，离镜头约零点五米，两者在同一焦平面上",
+            "consistency": "黑色中长发，发尾微卷，额前碎发用一枚黑色发夹别向耳后；穿灰米色粗针织开衫",
+            "specificity": "窗缝漏风，白纱帘持续轻微鼓动，台灯灯丝偶尔发出细微的电流嗡声",
+            "restraint": "机位固定，画面有极轻微的呼吸浮动"
+          },
+          "critical_issues": [],
+          "error": ""
+        },
+        {
+          "shot_id": "shot_scene_002_002",
+          "total": 85.3,
+          "dims": {
+            "dramatic": 82.0,
+            "renderable": 88.0,
+            "consistency": 92.0,
+            "specificity": 85.0,
+            "restraint": 78.0
+          },
+          "evidence": {
+            "dramatic": "敲完手停在半空，随即又敲了两下更重的；他的身体重心从左脚换到右脚，头微微偏向门缝的方向",
+            "renderable": "右手抬起，用指节在门板上敲了三下，敲完手停在半空，随即又敲了两下更重的；他的身体重心从左脚换到右脚",
+            "consistency": "齐夏：三十五岁上下男性，东亚肤色偏黄……穿深藏青色立领夹克，内搭深灰色棉质T恤",
+            "specificity": "声控灯亮起后约二十秒自动熄灭……灯管启动时有短促的电流杂音；门缝底下是一条细窄的暖色横线",
+            "restraint": "主色调 #2b2b2e、#4a4038、#8c7a63、#c9b89a"
+          },
+          "critical_issues": [],
+          "error": ""
+        }
+      ]
+    },
+    {
+      "case": "emotion_flip",
+      "name": "情绪骤变",
+      "ok": true,
+      "blocked": false,
+      "error": "",
+      "note": "",
+      "shots": 1,
+      "critical": 0,
+      "warn": 0,
+      "judge_total": 90.2,
+      "judge_dims": {
+        "dramatic": 88.0,
+        "renderable": 92.0,
+        "consistency": 95.0,
+        "specificity": 90.0,
+        "restraint": 85.0
+      },
+      "failures": [],
+      "judge": [
+        {
+          "shot_id": "shot_scene_001_000",
+          "total": 90.2,
+          "dims": {
+            "dramatic": 88.0,
+            "renderable": 92.0,
+            "consistency": 95.0,
+            "specificity": 90.0,
+            "restraint": 85.0
+          },
+          "evidence": {
+            "dramatic": "她的下颌起初是松的，随后咬肌绷起，嘴唇压成一条线，眼睛睁着，视线从校门方向慢慢下沉到地面某一点",
+            "renderable": "右手食指关节抵着手机背面，指节微微发白",
+            "consistency": "阴天散射光从画面左上方高处均匀落下",
+            "specificity": "拇指在钥匙串的钥匙齿金属边缘上来回摩挲，一下、两下，第三下停住",
+            "restraint": "全程保持水平，机位离地约一点五五米，与她下颌齐平"
+          },
+          "critical_issues": [],
+          "error": ""
+        }
+      ]
+    },
+    {
+      "case": "object_carry",
+      "name": "物件承担戏剧",
+      "ok": true,
+      "blocked": false,
+      "error": "",
+      "note": "",
+      "shots": 3,
+      "critical": 0,
+      "warn": 0,
+      "judge_total": 88.7,
+      "judge_dims": {
+        "dramatic": 84.7,
+        "renderable": 90.7,
+        "consistency": 95.0,
+        "specificity": 88.3,
+        "restraint": 84.0
+      },
+      "failures": [],
+      "judge": [
+        {
+          "shot_id": "shot_scene_001_000",
+          "total": 85.5,
+          "dims": {
+            "dramatic": 78.0,
+            "renderable": 88.0,
+            "consistency": 95.0,
+            "specificity": 85.0,
+            "restraint": 82.0
+          },
+          "evidence": {
+            "dramatic": "视线从地板移到右前方约3米处靠窗并排放着的两把椅子2号……一把落着薄灰，一把干净",
+            "renderable": "右手捏着钥匙串进门，拇指把钥匙串绕一圈收进掌心，抬手把门在身后虚掩上；上身微微前倾，肩线慢慢沉下来",
+            "consistency": "殷路：三十四岁男性，偏白肤色，皮肤有真实毛孔与细微纹理，颧骨处有淡淡雀斑",
+            "specificity": "浮尘在窗光里缓慢翻滚，偶尔一粒被气流带得偏一下方向",
+            "restraint": "低调自然光为主，午后斜阳从窗户低角度切入，室内大面积沉入灰调阴影"
+          },
+          "critical_issues": [],
+          "error": ""
+        },
+        {
+          "shot_id": "shot_scene_001_001",
+          "total": 90.2,
+          "dims": {
+            "dramatic": 88.0,
+            "renderable": 92.0,
+            "consistency": 95.0,
+            "specificity": 90.0,
+            "restraint": 85.0
+          },
+          "evidence": {
+            "dramatic": "指尖在杯沿上停一下……下颌线绷了一下，喉结动了一次……窗台上留着一圈干净的圆印",
+            "renderable": "右手伸出去，指尖在杯沿上停一下……拇指和食指捏住杯口两侧……高度从0.9米升到约1.2米……杯底翻向镜头时，茶渍被侧光照出干涸的哑光质感",
+            "consistency": "窗光从画面右后方来……午后阳光从窗户左侧低角度斜射进来……殷路：三十四岁男性，偏白肤色……灰蓝色棉质圆领长袖衫",
+            "specificity": "空气中有细微浮尘在光柱里缓慢飘动……浮尘在他抬手时被搅动，绕着手腕打一个旋……窗外远处晾衣绳在风里轻晃",
+            "restraint": "机位固定……主色调 #2b2b2b、#8a8578、#c9c2b4、#5a6b6e"
+          },
+          "critical_issues": [],
+          "error": ""
+        },
+        {
+          "shot_id": "shot_scene_001_002",
+          "total": 90.2,
+          "dims": {
+            "dramatic": 88.0,
+            "renderable": 92.0,
+            "consistency": 95.0,
+            "specificity": 90.0,
+            "restraint": 85.0
+          },
+          "evidence": {
+            "dramatic": "门合到一半时他侧过身，用右手把钥匙串从掌心翻出来，捏住其中一把，插回门内侧的锁孔",
+            "renderable": "殷路1号在门框内侧，离镜头约 1.8 米；门框2号在画面左侧，门扇从右向左合拢；杯子3号在他左手，高度约 1.1 米",
+            "consistency": "黑色短发略长于耳际、发梢微乱，身穿灰蓝色棉质圆领长袖衫，外罩一件洗旧的深灰色薄针织开衫",
+            "specificity": "空气中有细微浮尘在光柱里缓慢飘动，窗外隐约传来街道车流声",
+            "restraint": "机位固定，画面随门扇合拢而逐渐收窄"
+          },
+          "critical_issues": [],
+          "error": ""
+        }
+      ]
+    },
+    {
+      "case": "chain_action",
+      "name": "连续动作链",
+      "ok": true,
+      "blocked": false,
+      "error": "",
+      "note": "",
+      "shots": 2,
+      "critical": 0,
+      "warn": 0,
+      "judge_total": 68.5,
+      "judge_dims": {
+        "dramatic": 78.0,
+        "renderable": 82.0,
+        "consistency": 37.5,
+        "specificity": 85.0,
+        "restraint": 55.0
+      },
+      "failures": [],
+      "judge": [
+        {
+          "shot_id": "shot_scene_001_000",
+          "total": 68.0,
+          "dims": {
+            "dramatic": 78.0,
+            "renderable": 82.0,
+            "consistency": 35.0,
+            "specificity": 85.0,
+            "restraint": 55.0
+          },
+          "evidence": {
+            "dramatic": "往外抽出半截，停住，头微微偏向床上熟睡的孩子2号，目光在孩子身上落了一瞬",
+            "renderable": "右手先捏住书包侧袋里露出的作业本一角，往外抽出半截，停住",
+            "consistency": "光线来自房间右侧的窗户，午后斜阳穿过半拉的浅色窗帘",
+            "specificity": "指节在书包布面上压出一道褶；被子滑下一角又停住；车灯扫过天花板",
+            "restraint": "镜头行进中床沿的毛绒玩具短暂掠过前景，遮住画面下缘一角，随即让开"
+          },
+          "critical_issues": [
+            "光线自相矛盾：前序为右侧窗户午后斜阳，提示词却写唯一主光是床头小夜灯",
+            "运镜动机与动作不符：动机写弯腰去够书包，实际动作是站立抽本子",
+            "前景遮挡与dolly前进同时发生，易导致穿模或主体被挡"
+          ],
+          "error": ""
+        },
+        {
+          "shot_id": "shot_scene_001_001",
+          "total": 69.0,
+          "dims": {
+            "dramatic": 78.0,
+            "renderable": 82.0,
+            "consistency": 40.0,
+            "specificity": 85.0,
+            "restraint": 55.0
+          },
+          "evidence": {
+            "dramatic": "拇指在拉链头上停住、来回摩挲了两下，指节绷了一下，才继续把拉链拉到底",
+            "renderable": "左手从画面上方入画，捏住书包两侧把口对齐，右手拇指和食指捏住拉链头",
+            "consistency": "夜灯从画面右下方斜打上来",
+            "specificity": "拉链金属头在拉动过程中反复接住那一点暖光、形成移动的高光；手背在光里，手心与书包底部落在阴影中",
+            "restraint": "镜头有极轻微的呼吸式浮动，焦点在拉链头上短暂虚了一下又合实"
+          },
+          "critical_issues": [
+            "光线方向与前序信息矛盾：前序为右侧窗户午后斜阳，提示词改为右下方夜灯",
+            "运镜标注为static，提示词却加入呼吸式浮动与焦点虚化"
+          ],
+          "error": ""
+        }
+      ]
+    },
+    {
+      "case": "night_exterior",
+      "name": "室外夜景",
+      "ok": true,
+      "blocked": false,
+      "error": "",
+      "note": "",
+      "shots": 3,
+      "critical": 0,
+      "warn": 0,
+      "judge_total": 71.0,
+      "judge_dims": {
+        "dramatic": 67.3,
+        "renderable": 81.3,
+        "consistency": 55.0,
+        "specificity": 79.7,
+        "restraint": 72.7
+      },
+      "failures": [],
+      "judge": [
+        {
+          "shot_id": "shot_scene_001_000",
+          "total": 68.5,
+          "dims": {
+            "dramatic": 62.0,
+            "renderable": 78.0,
+            "consistency": 55.0,
+            "specificity": 82.0,
+            "restraint": 68.0
+          },
+          "evidence": {
+            "dramatic": "他先低头看向左手腕上的旧钢表……随后抬头望向街对面，喉结上下动了一下",
+            "renderable": "双手插在深灰夹克口袋里，重心压在左脚，肩背微驼",
+            "consistency": "主光是画面右前方招牌的粉绿色霓虹",
+            "specificity": "街尾一盏接触不良的白色日光灯管持续明灭……表盘反光扫过他的下颌",
+            "restraint": "只有极缓慢的呼吸式微移"
+          },
+          "critical_issues": [
+            "光线方向与前序信息矛盾：前序为左前方洋红主光，提示词改为右前方粉绿主光",
+            "人物编号「梁述1号」与前序单一人物设定不符，易致模型生成重复人物"
+          ],
+          "error": ""
+        },
+        {
+          "shot_id": "shot_scene_001_001",
+          "total": 77.5,
+          "dims": {
+            "dramatic": 78.0,
+            "renderable": 88.0,
+            "consistency": 55.0,
+            "specificity": 85.0,
+            "restraint": 82.0
+          },
+          "evidence": {
+            "dramatic": "他低头，下巴几乎贴到胸口，眼睛盯着表盘，持续三秒；随后松开表带，用拇指把表带又扣紧一格，扣紧时指节发白",
+            "renderable": "拇指和食指捏住右手腕的表带，把表盘转到自己面前；他低头，下巴几乎贴到胸口",
+            "consistency": "霓虹粉光从右后方来，勾出他后颈和肩的轮廓",
+            "specificity": "白光在他扣表带时达到最亮，随后开始衰减；玻璃门缓慢回弹；信号灯由红转绿",
+            "restraint": "固定机位，离地约1.4米，与人物胸口齐平，正面偏侧30度，镜头保持静止"
+          },
+          "critical_issues": [
+            "光线方向与前序锚点矛盾：前序为洋红从左前方、琥珀从背后，提示词改为粉光从右后方",
+            "人物造型写『左手腕一块旧钢表』，动作却捏右手腕表带，左右手矛盾"
+          ],
+          "error": ""
+        },
+        {
+          "shot_id": "shot_scene_001_002",
+          "total": 67.0,
+          "dims": {
+            "dramatic": 62.0,
+            "renderable": 78.0,
+            "consistency": 55.0,
+            "specificity": 72.0,
+            "restraint": 68.0
+          },
+          "evidence": {
+            "dramatic": "他吸了一口，把烟从嘴边拿下来，按在栏杆顶端的金属面上，来回碾两下",
+            "renderable": "左手拢住打火机，拇指擦了两下点着，火苗从下方照亮他的下颌和拢火的手",
+            "consistency": "霓虹粉光从画面右前方来，打在他背影的右肩和栏杆上",
+            "specificity": "烟头火星在湿金属上发出轻微嘶声",
+            "restraint": "街尾一盏接触不良的白色日光灯管持续明灭，把整条街的节奏切成一段段忽明忽暗的呼吸"
+          },
+          "critical_issues": [
+            "光线方向与前序信息矛盾：前序为霓虹从左前方来，提示词写右前方",
+            "人物背对镜头，但提示词详述面部特征与目光，模型无法呈现"
+          ],
+          "error": ""
+        }
+      ]
+    },
+    {
+      "case": "slow_threat",
+      "name": "慢节奏威胁",
+      "ok": true,
+      "blocked": false,
+      "error": "",
+      "note": "",
+      "shots": 3,
+      "critical": 0,
+      "warn": 0,
+      "judge_total": 85.8,
+      "judge_dims": {
+        "dramatic": 81.3,
+        "renderable": 89.3,
+        "consistency": 94.0,
+        "specificity": 86.7,
+        "restraint": 75.3
+      },
+      "failures": [],
+      "judge": [
+        {
+          "shot_id": "shot_scene_001_000",
+          "total": 84.0,
+          "dims": {
+            "dramatic": 78.0,
+            "renderable": 88.0,
+            "consistency": 95.0,
+            "specificity": 85.0,
+            "restraint": 72.0
+          },
+          "evidence": {
+            "dramatic": "窦连的肩膀往下塌了一寸，白老板的眼睛仍钉在他脸上",
+            "renderable": "白老板1号在画面右侧、背对落地窗，离镜头约3米，靠椅背坐着，双手交叠放在腹前，指节静止",
+            "consistency": "白老板坐在光带里，半边脸被照亮、半边沉在暗处；窦连坐在光带外，整个人偏灰",
+            "specificity": "百叶窗光带横切桌面中段……墙角饮水机指示灯一闪一闪",
+            "restraint": "镜头保持静止，画面有轻微呼吸般的浮动"
+          },
+          "critical_issues": [
+            "最终画面句在提示词中重复出现两次",
+            "“画面有轻微呼吸般的浮动”与固定机位矛盾"
+          ],
+          "error": ""
+        },
+        {
+          "shot_id": "shot_scene_001_001",
+          "total": 89.8,
+          "dims": {
+            "dramatic": 88.0,
+            "renderable": 92.0,
+            "consistency": 95.0,
+            "specificity": 90.0,
+            "restraint": 82.0
+          },
+          "evidence": {
+            "dramatic": "他的眼睛抬起来第一次对上白老板",
+            "renderable": "指尖先悬在桌沿上方停了一拍，然后落下，在桌面上敲出第一下，指节发白",
+            "consistency": "百叶窗斜光从画面右后方来",
+            "specificity": "喉结上下动了一下，下颌锁死，嘴唇压成一条线",
+            "restraint": "全程不改变构图意图"
+          },
+          "critical_issues": [],
+          "error": ""
+        },
+        {
+          "shot_id": "shot_scene_001_002",
+          "total": 83.5,
+          "dims": {
+            "dramatic": 78.0,
+            "renderable": 88.0,
+            "consistency": 92.0,
+            "specificity": 85.0,
+            "restraint": 72.0
+          },
+          "evidence": {
+            "dramatic": "窦连双手撑住桌沿把身体推起来，椅子腿向后刮过地面发出一声；他站直后没有看白老板，侧身从桌角绕出去",
+            "renderable": "双手撑住桌沿把身体推起来，椅子腿向后刮过地面发出一声；他站直后侧身从桌角绕出去，肩膀擦过百叶窗光带",
+            "consistency": "与前一镜同机位同高度，保持空间对应；百叶窗斜光不变；白老板1号仍在画面右侧原位",
+            "specificity": "椅子腿向后刮过地面发出一声；百叶窗光带扫过那杯没动过的茶；饮水机指示灯闪",
+            "restraint": "他站直后没有看白老板；空椅子上方，百叶窗光带扫过那杯没动过的茶（重复出现两次）"
+          },
+          "critical_issues": [
+            "最终画面描述重复出现两次，可能导致模型理解混乱",
+            "否定式描述“没有看白老板”可能被模型误读为注视"
+          ],
+          "error": ""
+        }
+      ]
+    }
+  ]
+}

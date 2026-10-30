@@ -31,12 +31,19 @@ thing the video model sees — anything you leave out, it will invent):
    lens is occasionally blocked by foreground people or objects, and fast moves end with
    a brief loss and recovery of focus. Such imperfection is welcome; uncontrolled
    "violent handheld shake" or "blurry frame" is not.
-3. **State light direction and relations.** Where the light comes from, what the key
-   source is, how people are positioned relative to it, and how ambient light and facial
-   light shift as the camera moves. Never let the light follow the face wherever it goes.
+3. **State light direction and relations — but never swap the source.** When the shot
+   plan gives a lighting line, keep its source and direction ("late sun through the
+   window from front-right"), don't invent a bedside lamp instead; all shots in one scene
+   must share the same key-light direction. Viewers see one continuous scene, not stills.
+   Only when the plan gives no lighting may you choose one — and then keep it for the
+   rest of the scene. Say where the light comes from, what the key source is, how people
+   sit relative to it, and how ambient and facial light shift as the camera moves. Never
+   let the light follow the face wherever it goes.
 4. **State spatial relations.** Number the main characters (Qi Xia #1, Goat Man #2),
    give their distances from each other, from the camera and from the ground, and how
-   those relations change from the start to the end of the move.
+   those relations change from the start to the end of the move. **Numbering only earns
+   its keep when several look-alike characters share the frame** — a solo shot with
+   "X #1" just tells the model a second person should be there.
 5. **Give background extras their own business.** Independent, unsynchronized everyday
    behavior — say who is doing what. A few may stay still for a while; not everyone has
    to keep moving. Avoid a uniformly synchronized background.

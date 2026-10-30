@@ -814,3 +814,33 @@ def test_reroll_if_needed_bounded_and_records_verdict(monkeypatch):
     assert qa.reroll_if_needed("j1", {"status": "succeeded"}, store=store,
                                submit=submit, max_reroll=1) is None
     assert not created and updates[0]["params"]["qa"]["verdict"] == "pass"
+
+
+def test_dp_final_frame_not_duplicated_when_body_paraphrases_it():
+    """兜底不能因为「模型换了开头几个字」就把整句再追一遍。
+
+    旧判定是 `_norm_key(final_frame)[:8] in body`：模型写成
+    「他退到门口，冷光这才从他脸上熄下去」时前 8 字对不上，于是同一句
+    「最终画面」连着出现两遍——视频模型会当成两个连续动作。
+    """
+    script = _script()
+    shots = [Shot(id="shot_scene_001_000", scene_id="scene_001", order=0,
+                  final_frame="冷光熄灭在他脸上", camera=CameraMovement())]
+    llm_out = {"scenes": [{"scene_id": "scene_001", "shots": [
+        {"shot_id": "shot_scene_001_000", "characters": ["齐夏"],
+         "prompt_body": "他退到门口，冰箱的冷光这才一点一点熄灭在他脸上。"},
+    ]}]}
+    prompt = _dp()._apply(shots, llm_out, script, "", None)[0].video_prompt
+    assert prompt.count("冷光") == 1, prompt
+
+
+def test_dp_final_frame_still_backfilled_when_truly_missing():
+    """改写不等于覆盖：真没写结束帧时必须补上（别把兜底也一起废掉）。"""
+    from app.crew.dp import _covers
+
+    # 同一句的轻微省字 / 语序变化都算写过
+    assert _covers("冷光熄灭在他脸上", "冷光熄在他脸上")
+    assert _covers("冷光熄灭在他脸上", "熄灭在他脸上的，是冰箱那点冷光")
+    # 只提到「冷光」但没写结束状态，不算写过
+    assert not _covers("冷光熄灭在他脸上", "冷光从冰箱里漏出来，照亮地板")
+    assert not _covers("冷光熄灭在他脸上", "齐夏推开门走进走廊，脚步声很轻")

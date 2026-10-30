@@ -301,3 +301,113 @@ def test_blocked_case_is_not_counted_as_failure():
     # 报告里必须显式列出 blocked，否则「跑不动」会被误读成「跑过了且通过」
     assert "被基础设施挡住" in report.render()
     assert report.to_dict()["blocked_total"] == 1
+
+
+def test_assertions_flag_light_source_swap():
+    """光源被换掉要报 DPT-13：分镜写窗光，提示词写台灯，同一场就忽明忽暗。
+
+    2026-10-30 的 judge 基线里这类最伤连贯性（chain_action 37.5 / night_exterior 55）：
+    单镜都通顺，连起来人物脸光全在跳。
+    """
+    shot = Shot(
+        id="shot_scene_001_000", scene_id="scene_001", order=0,
+        subject="梁述", action="他站在床边", lighting="右侧窗户午后斜阳",
+        video_prompt="床头小夜灯是唯一主光，暖黄的光在他脸上压出一道硬边，"
+                     "他慢慢解开袖扣，影子在墙上拉得很长，手指在发抖。",
+    )
+    res = assert_dp([shot])
+    assert "DPT-13" in {f.rule for f in res.failures}, [str(f) for f in res.failures]
+
+
+def test_assertions_flag_light_direction_flip():
+    """光位从左边翻到右边要报 DPT-14——这才是「光被重写」而不是「光被补全」。"""
+    shot = Shot(
+        id="shot_scene_001_001", scene_id="scene_001", order=0,
+        subject="梁述", action="他靠在栏杆上", lighting="洋红主光从左前方打进来",
+        video_prompt="粉绿的冷光从右后方扫过来，他侧过脸，指节抵着栏杆慢慢泛白，"
+                     "身后的霓虹在积水里碎成一片。",
+    )
+    res = assert_dp([shot])
+    assert "DPT-14" in {f.rule for f in res.failures}, [str(f) for f in res.failures]
+
+
+def test_assertions_flag_repeated_clause():
+    """同一句写两遍要报 DPT-15（拼装层重复追加的典型症状）。"""
+    dup = "巷口第一缕阳光落在湿漉漉的青石板上"
+    shot = Shot(
+        id="shot_scene_001_002", scene_id="scene_001", order=0,
+        subject="老周", action="他推开门", lighting="清晨的窗光",
+        video_prompt=f"门被推开，{dup}。他站着没动，手指还搭在门框上。{dup}。",
+    )
+    res = assert_dp([shot])
+    assert "DPT-15" in {f.rule for f in res.failures}, [str(f) for f in res.failures]
+
+
+def test_production_audit_reports_repeated_clause():
+    """审阅时也要看得见：生产审计器和 eval 共用同一份检测，别只在一个层修。"""
+    from app.crew.dramaturgy import audit_video_prompt
+
+    dup = "雨停之后巷口的第一缕阳光落下来"
+    issues = audit_video_prompt(
+        {"video_prompt": f"他推开门，{dup}。他站着没动，手指还搭在门框上。{dup}。"}
+    )
+    assert any("同一句写了两遍" in s for s in issues), issues
+
+
+def test_production_audit_keeps_legit_refrain():
+    """「他推门。门开了。」这种正当回环不能被判成重复。"""
+    from app.crew.dramaturgy import audit_video_prompt
+
+    issues = audit_video_prompt(
+        {"video_prompt": "他抬手推门。门开了。走廊尽头的灯忽明忽暗，"
+                         "他的影子被拉长又缩短，像有人在原地踱步。"}
+    )
+    assert not any("同一句写了两遍" in s for s in issues), issues
+
+
+def test_report_verdict_is_three_state():
+    """一条都没跑起来时不能报「通过」——余额耗尽那天 CI 会亮假绿灯。"""
+    from .runner import CaseResult, EvalReport
+
+    case = get_case("single_pressure")
+    r_all_blocked = EvalReport(provider="minimax", model="m")
+    r_all_blocked.results = [
+        CaseResult(case=case, ok=False, blocked=True, blocked_reason="Insufficient Balance")
+    ]
+    assert "无法评估" in r_all_blocked.render()
+
+    r_partial = EvalReport(provider="minimax", model="m")
+    ok = CaseResult(case=case, ok=True)
+    blocked = CaseResult(case=case, ok=False, blocked=True, blocked_reason="402")
+    r_partial.results = [ok, blocked]
+    assert "有 1 条未评估" in r_partial.render()
+
+    r_clean = EvalReport(provider="minimax", model="m")
+    r_clean.results = [CaseResult(case=case, ok=True)]
+    assert r_clean.render().rstrip().endswith("结论：通过")
+
+
+def test_pipeline_flags_light_conflict_between_roles():
+    """美术指导与导演对同一空间的光各定一次、且互相矛盾时，必须报 LNG-04。
+
+    这条不是构造的例子：`dialogue_tension` 的录制样本里美术指导写「钨丝灯泡、暖黄」，
+    导演分镜写「冷白日光灯管」。提示词照抄了环境锚，所以锚复用检查全绿——
+    两层物理设定打架这件事，只有跨链路能看见。
+    """
+    fx = _load_fixture("dialogue_tension")
+    shots = [Shot(**s) for s in fx["shots"]]
+    res = assert_pipeline([], shots, style_guide=StyleGuide(**fx["style_guide"]))
+    assert "LNG-04" in {f.rule for f in res.failures}, [str(f) for f in res.failures]
+
+
+def test_pipeline_light_check_silent_when_consistent():
+    """光源同属一类时不报——否则每一条都会亮黄灯，审阅者很快就不看了。"""
+    sg = StyleGuide(lighting_style="头顶一盏裸露的钨丝灯泡，暖黄，桌面亮出一圈光斑")
+    shot = Shot(
+        id="shot_scene_001_000", scene_id="scene_001", order=0,
+        subject="何清", action="他把钱推过去",
+        lighting="钨丝灯泡从头顶偏后打下，桌面亮出一圈暖黄",
+        video_prompt="钨丝灯泡从头顶偏后打下，桌面亮出一圈暖黄，他把钱推过去，手指在桌沿停住。",
+    )
+    res = assert_pipeline([], [shot], style_guide=sg)
+    assert "LNG-04" not in {f.rule for f in res.failures}, [str(f) for f in res.failures]

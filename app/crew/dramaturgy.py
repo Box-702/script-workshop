@@ -57,6 +57,9 @@ _NEGATION_RE = re.compile(
 _SPEECH_VERBS = ("说", "问", "答", "喊", "叫", "念", "读", "道", "开口", "报告", "低声", "大声", "嘀咕", "嘟囔")
 _QUOTE_SPAN = re.compile(r"[「『“\"]([^」』”\"]*)[」』”\"]")
 
+#: 子句切分：中文顿号也算——「A、B、A」这种重复前面常挂着顿号。
+_CLAUSE_SPLIT_RE = re.compile(r"[，。；;、\n]")
+
 # ---------------------------------------------------------------------
 # 三细节词库（细节律：环境压力 / 身体微动作 / 声音锚点·视觉母题）。
 # 词库法是尽力而为的保守判定：命中算有，没命中不算没有——但
@@ -232,6 +235,29 @@ def find_negations(text: str) -> list[str]:
         return []
     clean = _QUOTE_SPAN.sub("”", text)
     return [m.group(0) for m in _NEGATION_RE.finditer(clean)]
+
+
+def find_repeated_clause(text: str, *, min_len: int = 8) -> str:
+    """找出同一段提示词里被写了两遍的子句（返回重复的那一句，没有则空串）。
+
+    典型来源不是模型啰嗦，而是拼装层的兜底逻辑重复追加：最终画面句按
+    「锚的前几个字有没有出现过」判断，模型换个开头就被判成没写，于是整句又追一遍。
+    视频模型看到同一句两次，会当成两个连续动作或两次运镜。
+
+    只抓**逐字重复**：改写式重复交给 judge。宁可漏报，也不要把
+    「他推门。门开了。」这种正当的回环判成重复。
+    """
+    if not text:
+        return ""
+    seen: set[str] = set()
+    for part in _CLAUSE_SPLIT_RE.split(text):
+        key = re.sub(r"\s+", "", part)
+        if len(key) < min_len:
+            continue
+        if key in seen:
+            return part.strip()
+        seen.add(key)
+    return ""
 
 
 def find_spoken_quotes(text: str) -> list[str]:
@@ -440,6 +466,13 @@ def audit_video_prompt(shot: dict[str, Any], *, style_context: str = "") -> list
         issues.append(
             "疑似一镜多运镜（" + "、".join(sorted(flat)[:3]) + "）："
             "一镜只保留一种主要运动，其余删掉或另起一镜"
+        )
+
+    # 同一句写两遍：多半是兜底逻辑重复追加，模型会当成两个连续动作。
+    dup = find_repeated_clause(own_text)
+    if dup:
+        issues.append(
+            f"同一句写了两遍（「{dup[:18]}」）：视频模型会当成两个连续动作或两次运镜，删掉一处"
         )
     return issues
 

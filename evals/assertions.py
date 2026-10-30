@@ -15,7 +15,9 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
+from difflib import SequenceMatcher
 from typing import Any
 
 from app.crew.dramaturgy import (
@@ -23,6 +25,7 @@ from app.crew.dramaturgy import (
     audit_breakdowns,
     find_camera_moves,
     find_negations,
+    find_repeated_clause,
     find_slop_words,
     find_spoken_quotes,
     strip_style_block,
@@ -291,7 +294,87 @@ def assert_dp(
                         f"人物锚「{cid}」被轻微改写（相似度 {ratio:.0%}）：锚应原样复用",
                     )
 
+        # 光影与分镜的一致性。
+        #
+        # judge 基线（2026-10-30）里最扎眼的一类：分镜写「右侧窗户午后斜阳」，
+        # 提示词改成「床头小夜灯」；下一镜又变成「右下方夜灯」。单个镜头看都通顺，
+        # 连起来就是同一场戏忽明忽暗、人物脸光乱跳。光源是分镜给的硬信息，
+        # 模型只该补方向与相对关系，不该换掉它。
+        if s.lighting:
+            want_src, want_side = _light_profile(s.lighting)
+            got_src, got_side = _light_profile(own_text)
+            if want_src and got_src and not (want_src & got_src):
+                res.add(
+                    "DPT-13", "warn", where,
+                    f"光源被换掉（分镜写「{'、'.join(sorted(want_src))}」，"
+                    f"提示词写「{'、'.join(sorted(got_src))}」）："
+                    "同一场的光源变了，跨镜脸光会跳",
+                )
+            elif want_side and got_side and not (want_side & got_side):
+                res.add(
+                    "DPT-14", "warn", where,
+                    f"光位方向相反（分镜 {_side_label(want_side)}，"
+                    f"提示词 {_side_label(got_side)}）："
+                    "光从反面来，同一场的光影关系会翻转",
+                )
+
+        # 同一句写两遍：多半是兜底逻辑重复追加（如最终画面句被补了两次）。
+        dup = find_repeated_clause(own_text)
+        if dup:
+            res.add(
+                "DPT-15", "warn", where,
+                f"提示词里同一句出现两遍：「{dup[:24]}」——"
+                "视频模型会当成两个连续动作或两次运镜",
+            )
+
     return res
+
+
+#: 能一眼看出「换了个光源」的词。只收物理上互斥的几类：
+#: 窗光/日光 vs 人造灯 vs 屏幕光——同一场里从窗光切到台灯，人物脸光必然跳。
+_LIGHT_SOURCES = (
+    "窗", "斜阳", "夕阳", "阳光", "日光", "天光", "月光", "霓虹", "街灯", "路灯",
+    "台灯", "夜灯", "灯泡", "吊灯", "荧光灯", "灯管", "钨丝", "白炽", "烛", "火光",
+    "屏幕", "手机屏", "闪光灯",
+)
+
+_SIDE_ZH = {"left": "左", "right": "右", "both": "左右都有"}
+
+
+def _side_label(sides: set[str]) -> str:
+    """"{left}" → "左"；两侧都有 → "左右都有"。"""
+    if len(sides) == 1:
+        return _SIDE_ZH[next(iter(sides))]
+    return _SIDE_ZH["both"]
+
+
+def _light_clauses(text: str) -> list[str]:
+    """切出真正在讲光的子句。
+
+    只在「讲光的那一小段」里找方向词，否则「左手腕的旧钢表」（人物锚）会被
+    当成「光从左边来」——实测这是最容易误报的一处。
+    """
+    out: list[str] = []
+    for part in re.split(r"[，。；;、]", str(text or "")):
+        if not re.search(r"光|灯|阳|烛|霓虹|月", part):
+            continue
+        if re.search(r"手|腕|指|脚|肩|耳|眼|眉", part):  # 身体部位不是光位
+            continue
+        out.append(part)
+    return out
+
+
+def _light_profile(text: str) -> tuple[set[str], set[str]]:
+    """从一段描述里抽出（光源集合, 方位集合）。抽不到就空集，空集不参与判定。"""
+    clauses = _light_clauses(text)
+    blob = "，".join(clauses)
+    sources = {s for s in _LIGHT_SOURCES if s in blob}
+    sides: set[str] = set()
+    if re.search(r"左", blob):
+        sides.add("left")
+    if re.search(r"右", blob):
+        sides.add("right")
+    return sources, sides
 
 
 def _anchor_similarity(anchor: str, prompt: str) -> float:
@@ -299,8 +382,6 @@ def _anchor_similarity(anchor: str, prompt: str) -> float:
 
     用最长公共子序列比值衡量「锚被改写了多少」——锚原样出现时为 1.0。
     """
-    from difflib import SequenceMatcher
-
     if not anchor or not prompt:
         return 0.0
     if anchor in prompt:
@@ -342,6 +423,35 @@ def assert_pipeline(
         for sc in script.scenes:
             if sc.id not in covered:
                 res.add("LNG-03", "critical", sc.id, "剧本里这场戏没有被导演拆解")
+
+    # 分镜的光线与风格指南的光源类型必须对得上。
+    #
+    # 实测来源：`dialogue_tension` 的录制样本里，美术指导写「头顶一盏裸露的钨丝灯泡、
+    # 桌面被照出一圈暖黄」，导演的分镜 `lighting` 却写「头顶一根冷白日光灯管」。
+    # 提示词照抄了环境锚（所以锚复用检查全绿），但两层的**物理设定**是打架的：
+    # 观众看到的是暖黄钨丝，而分镜据以安排人脸明暗的是冷白日光灯。
+    # 这类矛盾下游看不出来，只能在跨链路这一层抓。
+    if style_guide is not None:
+        guide_src, _ = _light_profile(
+            "；".join(
+                [
+                    str(getattr(style_guide, "lighting_style", "") or ""),
+                    *[str(v) for v in (style_guide.environment_descriptions or {}).values()],
+                ]
+            )
+        )
+        if guide_src:
+            for s in shots:
+                if not s.lighting:
+                    continue
+                shot_src, _ = _light_profile(s.lighting)
+                if shot_src and not (shot_src & guide_src):
+                    res.add(
+                        "LNG-04", "warn", f"{s.scene_id}/{s.id}",
+                        f"分镜光线的光源和风格指南冲突（分镜「{'、'.join(sorted(shot_src))}」，"
+                        f"风格指南「{'、'.join(sorted(guide_src))}」）："
+                        "同一场的光从美术指导到导演被定了两次，提示词只会照抄其中一处",
+                    )
 
     return res
 

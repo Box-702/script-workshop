@@ -305,8 +305,23 @@ class EvalReport:
             lines.append("按规则统计：")
             for rule, n in by_rule.items():
                 lines.append(f"  {rule}: {n}")
-        lines.append(f"结论：{'通过' if self.passed else '未通过（存在 critical 或 case 失败）'}")
+        lines.append(f"结论：{self._verdict()}")
         return "\n".join(lines)
+
+    def _verdict(self) -> str:
+        """三态结论：通过 / 未通过 / 无法评估。
+
+        `critical_total == 0` 在「一条都没跑起来」时也成立——如果只输出「通过」，
+        余额耗尽的那天 CI 会亮绿灯，而实际上什么都没评估。被挡住的 case 单独成一态。
+        """
+        total = len(self.results)
+        if total and self.blocked_total >= total:
+            return "无法评估（全部 case 被基础设施挡住，没有真正跑到）"
+        if not self.passed:
+            return "未通过（存在 critical 或 case 失败）"
+        if self.blocked_total:
+            return f"通过，但有 {self.blocked_total} 条未评估（基础设施问题，需补跑）"
+        return "通过"
 
     def save(self, path: str) -> None:
         with open(path, "w", encoding="utf-8") as f:
@@ -590,10 +605,12 @@ class EvalRunner:
                 status = "OK"
             else:
                 status = "FAIL"
+            # 分数是五维加权平均，直接打到控制台会变成 78.64999999999999
+            judge_cell = f"{r.judge_total:.1f}" if r.judge_total is not None else "—"
             print(
                 f"  [{status}] {case.id:<20} shots={len(r.shots):<3} "
                 f"critical={r.critical_count:<3} warn={r.warn_count:<3} "
-                f"judge={r.judge_total if r.judge_total is not None else '—'}",
+                f"judge={judge_cell}",
                 flush=True,
             )
         return report

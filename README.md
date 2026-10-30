@@ -132,6 +132,11 @@ uv sync
 # 2. 配置环境变量（可选，不配也能跑通演示）
 # 复制 .env.example 为 .env，填入模型 key
 cp .env.example .env
+#    ⚠️ 这份模板指向 Postgres，**必须先起库**，否则第 4 步每个请求都会返回 503：
+#      docker compose up -d          # 或见「方式二」
+#    想零依赖跑，就把这两行改成：
+#      DATABASE_URL=sqlite:///./data/dev.db
+#      CHECKPOINTER=memory
 
 # 3. 运行命令行演示
 uv run python -m app.cli
@@ -310,7 +315,7 @@ Script Workshop/
 
 ```bash
 python -m pytest tests -q
-# 245 passed
+# 247 passed
 ```
 
 ## 提示词质量 eval
