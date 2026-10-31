@@ -30,22 +30,22 @@ MAX_REFERENCE_IMAGES = 9
 # ---------- 定妆 prompt ----------
 
 
-def character_prompt(name: str, appearance: str) -> str:
-    """角色定妆图 prompt：用风格指南里的固定外貌描述 + 定妆照约束。"""
-    desc = (appearance or "").strip() or name
-    return (
-        f"角色定妆照。{desc}。正面半身像，纯灰色背景，光线均匀柔和，写实电影质感，"
-        "五官清晰、服装细节清楚；人物必须是中国人（东亚面孔）。画面里不要出现任何文字。"
-    )
+def character_prompt(name: str, appearance: str, style: str | None = None) -> str:
+    """角色定妆图 prompt：画风决定是「真人剧照」还是「二次元立绘」。
+
+    写实项目的定妆照和漫剧的立绘不是同一张图——用写实的 prompt 生成漫剧角色，
+    出来会是「有点动画感的真人」，进视频模型后整片画风就散了。
+    """
+    from ..pipeline.visual_styles import character_prompt as _style_prompt
+
+    return _style_prompt(name, appearance, style)
 
 
-def environment_prompt(name: str, description: str) -> str:
+def environment_prompt(name: str, description: str, style: str | None = None) -> str:
     """场景定妆图 prompt：固定环境描述 + 空镜约束（不放具体人物，避免把某个人锁进场景）。"""
-    desc = (description or "").strip() or name
-    return (
-        f"场景定妆图。{desc}。广角固定机位空镜，画面里没有任何人物；"
-        "写实电影质感，光线氛围与描述一致，空间关系清楚。画面里不要出现任何文字。"
-    )
+    from ..pipeline.visual_styles import environment_prompt as _style_prompt
+
+    return _style_prompt(name, description, style)
 
 
 # ---------- 视觉质检 ----------
@@ -122,12 +122,14 @@ def build_reference_assets(
     refs: dict[str, str] = {}
     appearances = dict(getattr(style_guide, "character_appearances", {}) or {}) if style_guide else {}
     environments = dict(getattr(style_guide, "environment_descriptions", {}) or {}) if style_guide else {}
+    # 画风决定出的是「剧照」还是「立绘」：漫剧用写实 prompt 会毁掉整片一致性。
+    visual_style = getattr(style_guide, "visual_style", None) if style_guide else None
 
     # 角色：优先用风格指南的固定外貌；缺失则退化为人物名
     names = list(appearances.keys()) or [c.name for c in script.characters]
     for name in names:
         appearance = appearances.get(name, "")
-        prompt = character_prompt(name, appearance)
+        prompt = character_prompt(name, appearance, visual_style)
         refs[name] = _generate_with_qa(
             provider, prompt, _QA_CHARACTER.format(expect=appearance or name),
             kind=f"角色·{name}", vision=vision, max_retry=max_retry, emit=_emit,
@@ -137,7 +139,7 @@ def build_reference_assets(
     loc_names = list(environments.keys()) or [loc.name for loc in script.locations]
     for name in loc_names:
         desc = environments.get(name, "")
-        prompt = environment_prompt(name, desc)
+        prompt = environment_prompt(name, desc, visual_style)
         refs[name] = _generate_with_qa(
             provider, prompt, _QA_ENVIRONMENT.format(expect=desc or name),
             kind=f"场景·{name}", vision=vision, max_retry=max_retry, emit=_emit,

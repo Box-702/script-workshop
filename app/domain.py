@@ -25,6 +25,17 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 AdaptationType = Literal["series", "film", "short_drama", "stage", "other"]
 RoleType = Literal["protagonist", "antagonist", "supporting", "mentor", "foil", "other"]
 Fidelity = Literal["faithful", "compressed", "reordered", "merged", "invented"]
+Gender = Literal["male", "female", "unknown"]
+
+# 画风：与改编类型正交的一个维度。
+#
+# 为什么把「漫剧」放在这里而不是 AdaptationType 里：短剧是按载体/时长/分发
+# 定义的（竖屏、1–2 分钟、前 3 秒抓人），漫剧是按画风定义的（二次元、分格、
+# 符号化表演）。两者不在同一根轴上——漫剧就是「短剧 + 二次元画风」，是短剧
+# 的子类，不是并列体裁。做成并列类型会让导演、节奏、校验层为一个画风分叉，
+# 那是纯成本。画风只该影响三件事：美术锚与定妆图 prompt、视频提示词的画风
+# 声明、配音气质。
+VisualStyle = Literal["realistic", "anime", "3d", "ink"]
 
 # ---- id / 枚举规整 ----
 _ID_SUFFIX_RE = re.compile(r"[^a-z0-9_]+")
@@ -172,6 +183,27 @@ _ADAPTATION_ALIASES: dict[str, AdaptationType] = {
 }
 
 
+def normalize_gender(value: object) -> Gender:
+    """把各种写法（male / 男 / 男性 …）归一到性别枚举；无法识别回退 unknown。
+
+    为什么不靠推断填这个字段：性别是「人物设定」的一部分，应该由剧本阶段
+    直接标注或人工确认；推断（名字用字、代词）只是拿不到时的兜底，见
+    ``app/media/casting.py``。
+    """
+    text = str(value or "").strip().lower()
+    if not text:
+        return "unknown"
+    if text in {"male", "m", "man", "男", "男性", "男声", "男角"}:
+        return "male"
+    if text in {"female", "f", "woman", "女", "女性", "女声", "女角"}:
+        return "female"
+    if "female" in text or "女" in text:
+        return "female"
+    if "male" in text or "男" in text:
+        return "male"
+    return "unknown"
+
+
 def normalize_adaptation_type(value: object) -> AdaptationType:
     """把自由文本改编类型映射到枚举；无法识别时回退为 ``other``。"""
     text = str(value).strip() if value is not None else ""
@@ -188,6 +220,30 @@ def normalize_adaptation_type(value: object) -> AdaptationType:
     return "other"
 
 
+def normalize_visual_style(value: object) -> VisualStyle:
+    """把画风的各种写法归一到枚举；无法识别回退 ``realistic``（实拍）。
+
+    为什么兜底是实拍而不是二次元：默认画风决定整片观感，猜错成二次元
+    比猜错成实拍更突兀，且实拍是当前视频模型最稳的产出。
+    """
+    text = str(value or "").strip().lower()
+    if text in {"realistic", "live", "live_action", "写实", "实拍", "真人"}:
+        return "realistic"
+    if text in {"anime", "2d", "comic", "漫剧", "二次元", "动画", "动态漫"}:
+        return "anime"
+    if text in {"3d", "cgi", "三维"}:
+        return "3d"
+    if text in {"ink", "水墨"}:
+        return "ink"
+    if "anime" in text or "漫" in text or "二次元" in text or "动画" in text:
+        return "anime"
+    if "3d" in text or "三维" in text:
+        return "3d"
+    if "水墨" in text or "ink" in text:
+        return "ink"
+    return "realistic"
+
+
 # ---- 领域模型 -----
 
 
@@ -197,11 +253,17 @@ class Character(BaseModel):
     id: str = Field(pattern=r"^char_[a-z0-9_]+$")
     name: str
     role: RoleType | None = None
+    gender: Gender = "unknown"
     goal: str | None = None
     motivation: str | None = None
     personality: str | None = None
     arc: str | None = None
     speech_style: str | None = None
+
+    @field_validator("gender", mode="before")
+    @classmethod
+    def _coerce_gender(cls, v: object) -> object:
+        return normalize_gender(v)
 
     @field_validator("role", mode="before")
     @classmethod
@@ -485,10 +547,18 @@ class StyleGuide(BaseModel):
     color_palette: list[str] = Field(default_factory=list)
     lighting_style: str = ""
     camera_style: str = ""
+    # 画风（写实/二次元/三维/水墨）：决定定妆图 prompt 与视频提示词的画风声明。
+    # 与 adaptation_type 正交——短剧可以是实拍，也可以做成漫剧。
+    visual_style: VisualStyle = "realistic"
     visual_references: list[str] = Field(default_factory=list)
     character_appearances: dict[str, str] = Field(default_factory=dict)
     environment_descriptions: dict[str, str] = Field(default_factory=dict)
     reference_images: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("visual_style", mode="before")
+    @classmethod
+    def _coerce_visual_style(cls, v: object) -> object:
+        return normalize_visual_style(v)
 
 
 class SceneAnchors(BaseModel):

@@ -689,10 +689,12 @@ export async function resumeReview(runId, action, opts = {}) {
 // 新建剧本（导入项目）
 // ---------------------------------------------------------------------
 /** 提交新建剧本表单；成功后选中新项目（及其首个对话）。 */
-export async function submitNewProject({ title, adapt, file, raw }) {
+export async function submitNewProject({ title, adapt, visual, file, raw }) {
   const fd = new FormData()
   fd.append('title', title)
   fd.append('adaptation_type', adapt)
+  // 画风与改编类型正交：short_drama 可以是实拍，也可以是二次元（漫剧）。
+  fd.append('visual_style', visual || 'realistic')
   if (file) fd.append('file', file)
   else fd.append('raw_text', raw)
   const r = await importProject(fd)

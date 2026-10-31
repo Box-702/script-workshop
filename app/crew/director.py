@@ -67,6 +67,49 @@ def count_action_units(action: str) -> int:
     return len([p for p in parts if len(p.strip()) >= 4])
 
 
+def _default_pacing(adaptation_type: str | None) -> str:
+    """导演没给 pacing 时的兜底档位。短剧 = fast（短视频时代不让观众等）。"""
+    from ..video.rhythm import default_pacing
+
+    return default_pacing(adaptation_type)
+
+
+def _format_constraints(adaptation_type: str | None, visual_style: str | None) -> list[str]:
+    """把「类型节奏」与「画风」写成给导演的硬约束（拼在 user prompt 里）。
+
+    为什么这两件事要进 prompt 而不是只留代码默认值：分镜时长是导演自己写的
+    duration_sec，代码里的默认值只在它没写时才生效。不把节奏基线讲清楚，
+    模型就会按「电影感」给 8–10 秒镜头——短剧观众早就划走了。
+    """
+    from ..pipeline.visual_styles import get_visual_style
+    from ..video.rhythm import normalize_format, rhythm_table
+
+    fmt = normalize_format(adaptation_type)
+    table = rhythm_table(fmt)
+    spec = get_visual_style(visual_style)
+
+    lines = [""]
+    if fmt == "short_drama":
+        lines += [
+            "【类型约束】短剧：竖屏、单集 1–2 分钟、前 3 秒必须抓住注意力。",
+            f"【节奏基线】短剧单镜 {table['fast']:.0f}–{table['slow']:.0f} 秒：多数镜头写 "
+            f"{table['fast']:.0f}–{table['medium']:.0f} 秒，只有情绪转折或重大信息才给 "
+            f"{table['slow']:.0f} 秒。不要写 8 秒以上的镜头——那是电影节奏。",
+            "【pacing 取值】没有明确理由一律写 fast；只有整场需要压抑或沉淀时才用 medium/slow。",
+        ]
+    else:
+        lines.append(f"【节奏基线】单镜建议 {table['fast']:.0f}–{table['slow']:.0f} 秒。")
+
+    lines.append(f"【画风】{spec['label']}：{spec['render_note']}。")
+    if spec["voice_pool"] == "anime":
+        lines.append(
+            "【画风对镜头的影响】二维/动画画面在大幅运镜时结构容易崩：优先固定机位、小幅推近、"
+            "角色局部动作（走位、转身、抬手）；少用环绕、快速摇移与大幅度跟拍。"
+        )
+    lines.append(f"【画面里不要出现】{spec['negative']}。")
+    return lines
+
+
 def _coerce_float(v: Any) -> float | None:
     """宽松解析模型给的秒数：非数字/负数一律当「没给」。"""
     if v is None or v == "":
@@ -118,12 +161,24 @@ class DirectorAgent(CrewAgent):
     label = "导演"
     emoji = "🎬"
 
-    def run(self, script: Script, *, scene_ids: list[str] | None = None, **kwargs: Any) -> CrewTaskResult:
+    def run(
+        self,
+        script: Script,
+        *,
+        scene_ids: list[str] | None = None,
+        adaptation_type: str | None = None,
+        visual_style: str | None = None,
+        **kwargs: Any,
+    ) -> CrewTaskResult:
         """执行场景拆解。
 
         Args:
             script: 完整剧本。
             scene_ids: 指定要拆解的场景 ID 列表；None = 全部。
+            adaptation_type: 改编类型。短剧的默认 pacing 是 fast——短视频时代
+                的注意力只给开头三秒，不能用电影的 medium 起步。
+            visual_style: 画风（realistic/anime/3d/ink）。它不改节奏，只改镜头
+                语法：二维画面的结构在大幅运镜时容易崩，提示词里要收着写。
 
         Returns:
             CrewTaskResult.data = list[SceneBreakdown]
@@ -139,11 +194,13 @@ class DirectorAgent(CrewAgent):
         if not targets:
             return CrewTaskResult(success=False, summary="没有找到目标场景")
 
+        default_pacing = _default_pacing(adaptation_type)
+
         # 有界重做循环：先拆解 → 连续性校验 → 有问题把 critique 回喂模型重拆。
         critique: list[str] = []
         last: list[SceneBreakdown] | None = None
         for _ in range(MAX_DESIGN_ITERATIONS):
-            user_prompt = self._build_prompt(script, targets)
+            user_prompt = self._build_prompt(script, targets, adaptation_type, visual_style)
             if critique:
                 # 一次只回喂最要紧的几条：把十几条批评一起丢回去，模型会顾此失彼、
                 # 越改越散（2026-10-31 实测：11 条全给时，问题从 2 个涨到 7 个）。
@@ -156,7 +213,7 @@ class DirectorAgent(CrewAgent):
                 )
             try:
                 raw = self._invoke_json(director_system(), user_prompt)
-                breakdowns = self._parse_breakdowns(raw)
+                breakdowns = self._parse_breakdowns(raw, default_pacing=default_pacing)
             except Exception as e:  # noqa: BLE001
                 log.warning("导演 Agent 失败：%s", e)
                 return CrewTaskResult(success=False, summary=f"导演工作失败：{e}", errors=[str(e)])
@@ -285,7 +342,13 @@ class DirectorAgent(CrewAgent):
         issues.extend(audit_breakdowns(breakdowns))
         return issues
 
-    def _build_prompt(self, script: Script, targets: list) -> str:
+    def _build_prompt(
+        self,
+        script: Script,
+        targets: list,
+        adaptation_type: str | None = None,
+        visual_style: str | None = None,
+    ) -> str:
         char_map = {c.id: c.name for c in script.characters}
         loc_map = {loc.id: loc.name for loc in script.locations}
 
@@ -294,9 +357,9 @@ class DirectorAgent(CrewAgent):
             f"梗概：{script.logline}",
             f"主题：{'、'.join(script.themes)}",
             f"人物：{'、'.join(c.name + '(' + (c.role or '未定') + ')' for c in script.characters)}",
-            "",
-            "请为以下场景设计镜头方案：",
         ]
+        parts.extend(_format_constraints(adaptation_type, visual_style))
+        parts.extend(["", "请为以下场景设计镜头方案："])
 
         for sc in targets:
             loc_name = loc_map.get(sc.location_id, sc.location_id)
@@ -325,7 +388,7 @@ class DirectorAgent(CrewAgent):
 
         return "\n".join(parts)
 
-    def _parse_breakdowns(self, raw: Any) -> list[SceneBreakdown]:
+    def _parse_breakdowns(self, raw: Any, *, default_pacing: str = "medium") -> list[SceneBreakdown]:
         """将 LLM JSON 输出解析为 SceneBreakdown 列表。
 
         模型给的是「场景内局部 order」（每场都从 0 开始），而接力/参考逻辑需要
@@ -404,7 +467,7 @@ class DirectorAgent(CrewAgent):
                 scene_id=scene_id,
                 director_notes=item.get("director_notes", ""),
                 visual_approach=item.get("visual_approach", ""),
-                pacing=_pick_enum(item.get("pacing"), _PACINGS, {}, "medium"),
+                pacing=_pick_enum(item.get("pacing"), _PACINGS, {}, default_pacing),
                 key_moments=item.get("key_moments", []),
                 anchors=anchors,
                 shots=shots,
@@ -456,7 +519,17 @@ class DirectorAgent(CrewAgent):
         )
 
 
-def run_director(llm: LLM, script: Script, *, scene_ids: list[str] | None = None) -> CrewTaskResult:
+def run_director(
+    llm: LLM,
+    script: Script,
+    *,
+    scene_ids: list[str] | None = None,
+    adaptation_type: str | None = None,
+    visual_style: str | None = None,
+) -> CrewTaskResult:
     """快捷入口：执行导演场景拆解。"""
     agent = DirectorAgent(llm)
-    return agent.run(script, scene_ids=scene_ids)
+    return agent.run(
+        script, scene_ids=scene_ids,
+        adaptation_type=adaptation_type, visual_style=visual_style,
+    )

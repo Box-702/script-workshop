@@ -17,20 +17,20 @@ from .refs import (
     character_prompt,
     environment_prompt,
 )
+from .casting import CastMember, Casting, assign_voices, cast_script
+from .dubbing import DubbingPlan, dub_video, plan_dubbing
 
 __all__ = [
     "MAX_REFERENCE_IMAGES",
-    "apply_reference_images",
-    "build_reference_assets",
-    "character_prompt",
-    "environment_prompt",
-]
-
-from .dubbing import DubbingPlan, assign_voices, dub_video, plan_dubbing
-
-__all__ = [
+    "CastMember",
+    "Casting",
     "DubbingPlan",
+    "apply_reference_images",
     "assign_voices",
+    "build_reference_assets",
+    "cast_script",
+    "character_prompt",
     "dub_video",
+    "environment_prompt",
     "plan_dubbing",
 ]

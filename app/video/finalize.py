@@ -198,6 +198,7 @@ def finalize_film(
         current, track = base, []
         script = _resolve_script(store, project)
         dubbed = False
+        cast_rows: list[dict[str, Any]] = []
         if dubbing and script is not None:
             tts = _resolve_tts()
             if tts is None or not tts.available:
@@ -205,10 +206,20 @@ def finalize_film(
             else:
                 try:
                     dubbed_path = tmp / "dubbed.mp4"
-                    out, track = dub_video_with_track(current, script, shots, tts, dubbed_path,
-                                                      on_progress=emit,
-                                                      expected_shots=expected_per_scene,
-                                                      collected=warnings)
+                    # 选角以项目资产库为准（人工确认过的）+ 美术指导的外貌锚推断。
+                    style = store.get_video_style(project_id) or {}
+                    out, track, plan = dub_video_with_track(
+                        current, script, shots, tts, dubbed_path,
+                        on_progress=emit,
+                        expected_shots=expected_per_scene,
+                        collected=warnings,
+                        casting=style.get("voice_casting") or None,
+                        genders=style.get("character_genders") or None,
+                        appearances=style.get("character_appearances") or None,
+                        visual_style=style.get("visual_style"),
+                    )
+                    if plan.cast:
+                        cast_rows = [m.to_dict() for m in plan.cast.members]
                     if out:
                         current, dubbed = dubbed_path, True
                         emit("配音完成")
@@ -263,6 +274,7 @@ def finalize_film(
             "shots_total": len(shot_dicts),
             "dubbed": dubbed,
             "subtitled": subtitled,
+            "cast": cast_rows,
             "warnings": warnings,
         }
     finally:

@@ -99,24 +99,35 @@ class ArtDirectorAgent(CrewAgent):
     label = "美术指导"
     emoji = "🎨"
 
-    def run(self, script: Script, *, director_notes: str = "", language: str = "zh", **kwargs: Any) -> CrewTaskResult:
+    def run(
+        self,
+        script: Script,
+        *,
+        director_notes: str = "",
+        language: str = "zh",
+        visual_style: str | None = None,
+        **kwargs: Any,
+    ) -> CrewTaskResult:
         """生成视觉风格指南。
 
         Args:
             script: 完整剧本。
             director_notes: 导演的额外创意意图。
             language: 描述语言（zh / en），与目标视频模型对齐。
+            visual_style: 项目画风（realistic/anime/3d/ink）。画风决定角色造型
+                该怎么写——实拍写服装材质与年代感，二次元写发色、瞳色、描边与
+                上色方式；同一段「外貌描述」在两种画风下不能通用。
 
         Returns:
             CrewTaskResult.data = StyleGuide
         """
         if not self.llm.available:
-            return self._fallback(script)
+            return self._fallback(script, visual_style)
 
-        user_prompt = self._build_prompt(script, director_notes)
+        user_prompt = self._build_prompt(script, director_notes, visual_style)
         try:
             raw = self._invoke_json(art_system(language), user_prompt)
-            guide = self._parse_guide(raw)
+            guide = self._parse_guide(raw, visual_style)
             summary = (
                 f"美术指导完成风格指南：{len(guide.color_palette)} 色、"
                 f"{len(guide.character_appearances)} 角色造型、{len(guide.environment_descriptions)} 场景"
@@ -126,12 +137,21 @@ class ArtDirectorAgent(CrewAgent):
             log.warning("美术指导 Agent 失败：%s", e)
             return CrewTaskResult(success=False, summary=f"美术指导工作失败：{e}", errors=[str(e)])
 
-    def _build_prompt(self, script: Script, director_notes: str) -> str:
+    def _build_prompt(self, script: Script, director_notes: str, visual_style: str | None = None) -> str:
+        from ..pipeline.visual_styles import get_visual_style
+
+        spec = get_visual_style(visual_style)
         parts = [
             f"剧本：《{script.title}》",
             f"梗概：{script.logline}",
             f"类型：{script.adaptation.type if script.adaptation else '未定'}",
             f"主题：{'、'.join(script.themes)}",
+            f"画风：{spec['label']}——{spec['render_note']}",
+            "角色造型必须按这个画风来写（"
+            + ("写实时写服装材质、年代感、面部细节；"
+               if spec["voice_pool"] == "realistic"
+               else "二次元/动画时写发色、瞳色、发型轮廓、服装配色与描边风格；")
+            + "不要写成另一种画风的描述）。",
             "",
             "人物（请以这些名字为键写角色造型）：",
         ]
@@ -145,29 +165,40 @@ class ArtDirectorAgent(CrewAgent):
         return "\n".join(parts)
 
     @staticmethod
-    def _parse_guide(raw: dict[str, Any]) -> StyleGuide:
+    def _parse_guide(raw: dict[str, Any], visual_style: str | None = None) -> StyleGuide:
         chars = raw.get("character_appearances") or {}
         envs = raw.get("environment_descriptions") or {}
         return StyleGuide(
             color_palette=raw.get("color_palette", []) or [],
             lighting_style=str(raw.get("lighting_style") or ""),
             camera_style=str(raw.get("camera_style") or ""),
+            # 画风以项目设定为准；模型给的只作兜底（它常把 anime 写成 "动漫风"）。
+            visual_style=visual_style or raw.get("visual_style") or "realistic",
             visual_references=raw.get("visual_references", []) or [],
             character_appearances={str(k): str(v) for k, v in chars.items() if v} if isinstance(chars, dict) else {},
             environment_descriptions={str(k): str(v) for k, v in envs.items() if v} if isinstance(envs, dict) else {},
         )
 
     @staticmethod
-    def _fallback(script: Script) -> CrewTaskResult:
+    def _fallback(script: Script, visual_style: str | None = None) -> CrewTaskResult:
         guide = StyleGuide(
             color_palette=["#1a1a2e", "#16213e", "#0f3460", "#e94560"],
             lighting_style="自然光为主",
             camera_style="稳定拍摄",
+            visual_style=visual_style or "realistic",
         )
         return CrewTaskResult(data=guide, summary="（无模型回退）生成默认风格指南")
 
 
-def run_art_director(llm: LLM, script: Script, *, director_notes: str = "", language: str = "zh") -> CrewTaskResult:
+def run_art_director(
+    llm: LLM,
+    script: Script,
+    *,
+    director_notes: str = "",
+    language: str = "zh",
+    visual_style: str | None = None,
+) -> CrewTaskResult:
     """快捷入口：执行美术指导风格指南生成。"""
     agent = ArtDirectorAgent(llm)
-    return agent.run(script, director_notes=director_notes, language=language)
+    return agent.run(script, director_notes=director_notes, language=language,
+                     visual_style=visual_style)

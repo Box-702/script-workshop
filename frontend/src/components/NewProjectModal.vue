@@ -10,17 +10,29 @@
 import { ref, watch, nextTick, onUnmounted } from 'vue'
 import { store, submitNewProject } from '../stores/app'
 
+// 改编类型：当前产品主线只做短剧，其余保留用于已存在的老项目。
+// 漫剧不在这里——它不是类型，是短剧的一种画风（见下面的 VISUAL_STYLES）。
 const ADAPT_TYPES = [
-  { value: 'short_drama', label: '短剧' },
+  { value: 'short_drama', label: '短剧（主线）' },
   { value: 'film', label: '电影' },
   { value: 'series', label: '剧集' },
   { value: 'stage', label: '舞台剧' },
   { value: 'other', label: '自定义' },
 ]
+
+// 画风：决定定妆图怎么出、提示词怎么写、配音用哪套声线。
+// 「二次元」就是漫剧——同一部短剧换一种画法，不改节奏与导演逻辑。
+const VISUAL_STYLES = [
+  { value: 'realistic', label: '实拍写实', hint: '真人质感，电影摄影' },
+  { value: 'anime', label: '二次元（漫剧）', hint: '日式二维动画，赛璐璐上色' },
+  { value: '3d', label: '三维动画', hint: '3D 动画电影质感' },
+  { value: 'ink', label: '水墨国风', hint: '水墨笔触，留白构图' },
+]
 const ACCEPT = /\.(txt|md|markdown|docx|pdf)$/i
 
 const title = ref('')
 const adapt = ref('short_drama')
+const visual = ref('realistic')
 const raw = ref('')
 const file = ref(null)          // 选中的 File 对象
 const dropText = ref('点击选择或拖入 .txt / .md / .docx 文件')
@@ -73,7 +85,7 @@ async function submit() {
   if (!file.value && !raw.value.trim()) { err.value = '请上传文件或粘贴原文'; return }
   submitting.value = true
   try {
-    await submitNewProject({ title: title.value.trim(), adapt: adapt.value, file: file.value, raw: raw.value.trim() })
+    await submitNewProject({ title: title.value.trim(), adapt: adapt.value, visual: visual.value, file: file.value, raw: raw.value.trim() })
   } catch (e) { err.value = '创建失败：' + e.message } finally { submitting.value = false }
 }
 </script>
@@ -94,6 +106,16 @@ async function submit() {
       <select v-model="adapt" style="width: 100%">
         <option v-for="t in ADAPT_TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
       </select>
+
+      <label>画风 <span class="muted">—— 漫剧＝短剧选「二次元」，不是另一种类型</span></label>
+      <div class="styles">
+        <button
+          v-for="s in VISUAL_STYLES" :key="s.value" type="button"
+          class="style-chip" :class="{ on: visual === s.value }"
+          :title="s.hint" @click="visual = s.value"
+        >{{ s.label }}</button>
+      </div>
+      <div class="hint">{{ VISUAL_STYLES.find(s => s.value === visual)?.hint }}</div>
 
       <label>原著文件（可拖拽）</label>
       <div
@@ -141,6 +163,20 @@ label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px
 .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 textarea { width: 100%; min-height: 110px; }
 .err { color: var(--bad); font-size: 12px; margin-top: 8px; }
+
+/* 画风选择：一排芯片，选中用 accent 描边——比下拉更能表达「这是画风不是类型」 */
+.styles { display: flex; flex-wrap: wrap; gap: 6px; }
+.style-chip {
+  background: transparent; border: 1px solid var(--line); border-radius: 999px;
+  padding: 5px 12px; font-size: 12.5px; color: var(--muted); cursor: pointer;
+  transition: all var(--dur) var(--ease);
+}
+.style-chip:hover { color: var(--ink); border-color: var(--accent); }
+.style-chip.on {
+  color: var(--accent-ink, oklch(1 0 0)); background: var(--accent);
+  border-color: var(--accent);
+}
+.hint { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
 
 /* 入场动画：遮罩淡入 + 弹窗轻缩放（纯视觉，不影响关闭的可靠性） */
 .modal-backdrop { animation: fade-in 180ms var(--ease); }

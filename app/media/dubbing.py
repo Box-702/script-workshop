@@ -29,12 +29,12 @@ from pathlib import Path
 from typing import Any
 
 from ..domain import Script, Shot, assign_dialogue_ranges
-from ..llm.tts import (
-    TTSClient,
-    VOICE_FEMALE_MATURE,
-    VOICE_FEMALE_YOUNG,
-    VOICE_MALE_MATURE,
-    VOICE_MALE_YOUNG,
+from ..llm.tts import TTSClient
+from .casting import (  # assign_voices 为旧调用点保留（已修好串角，见 casting.py）
+    VOICE_FALLBACK,
+    Casting,
+    assign_voices,
+    cast_script,
 )
 
 log = logging.getLogger(__name__)
@@ -42,31 +42,6 @@ log = logging.getLogger(__name__)
 # 台词排程参数。
 LINE_LEAD_SEC = 0.4     # 镜头开始后多久说第一句
 LINE_GAP_SEC = 0.25     # 句间停顿
-
-
-# ---------- 音色分配 ----------
-
-_FEMALE_HINTS = ("女", "姐", "妹", "母", "姨", "婆", "嫂", "她")
-
-
-def assign_voices(script: Script) -> dict[str, str]:
-    """给出场角色分配音色：名字/性别线索推断女声，其余按男女隔一交替。
-
-    简单启发式够用——音色只要「全片一致 + 男女区分」即可，不需要精准人设。
-    """
-    voices: dict[str, str] = {}
-    for c in script.characters:
-        text = f"{c.name}{c.personality or ''}{c.role or ''}"
-        if any(h in text for h in _FEMALE_HINTS):
-            voices[c.name] = VOICE_FEMALE_MATURE
-    # 没推断出女声的角色，按出场顺序男女交替兜底（保持分配稳定）。
-    alternation = [VOICE_FEMALE_MATURE, VOICE_MALE_MATURE]
-    i = 0
-    for c in script.characters:
-        if c.name not in voices:
-            voices[c.name] = alternation[i % 2]
-            i += 1
-    return voices
 
 
 # ---------- 台词归属 ----------
@@ -93,6 +68,11 @@ class DubbingPlan:
     # 只渲染了部分镜头时，落不到任何成片上的台词会被丢弃——必须出声，
     # 否则成片里会出现「没人说话却有字幕」的鬼影（2026-10-31 实测）。
     warnings: list[str] = field(default_factory=list)
+    # 选角表：谁配了什么声音、依据是什么。写进成片报告，便于用户核对与推翻。
+    cast: Casting | None = None
+    # 选角层的不确定（性别没线索 → 暂按男声）。与 warnings 分开：warnings 是
+    # 「台词丢了」，这里是「声音可能配错」，两者处置方式不同，不该混在一起。
+    cast_warnings: list[str] = field(default_factory=list)
 
 
 def _scene_beat_map(script: Script) -> dict[str, list]:
@@ -118,24 +98,34 @@ def plan_dubbing(
     voices: dict[str, str] | None = None,
     *,
     expected_shots: dict[str, int] | None = None,
+    genders: dict[str, str] | None = None,
+    appearances: dict[str, str] | None = None,
+    visual_style: str | None = None,
 ) -> DubbingPlan:
     """把剧本对白归属到镜头，产出配音计划。
 
     - 显式 dialogue_ref 优先：镜头指向哪个 beat，台词就归哪一镜；
     - 否则按「段对齐」：场景 beats 压缩成交替段序列后按比例均分给镜头。
 
+    ``voices`` 是资产库里人工确认过的选角 {角色名: voice_id}；不传则按
+    性别线索自动选角（见 app/media/casting.py）——旧的「男女交替」兜底
+    会让男主开口是御姐音，已废弃。
+
     ``expected_shots``：每个场景在版本里的**原始镜头数**。只渲染了其中一部分时
     （常见：用户挑几镜先出片试水），没拍出来的镜头上的台词无处安放——必须丢掉，
     否则会全部堆到已渲染镜头的时间轴上，表现为「两句字幕同时出现 + 整片被提速」。
     这时只保留能通过 dialogue_ref 明确归属的台词，其余记进 warnings。
     """
-    voices = voices or assign_voices(script)
+    cast = cast_script(
+        script, casting=voices, genders=genders, appearances=appearances,
+        visual_style=visual_style,
+    )
     char_map = {c.id: c.name for c in script.characters}
     beat_map = _scene_beat_map(script)
     scene_of = {sc.id: sc for sc in script.scenes}
-
     ordered = sorted(shots, key=lambda s: s.order)
-    plan = DubbingPlan(total_sec=sum(max(1.0, s.duration_sec) for s in ordered))
+    plan = DubbingPlan(total_sec=sum(max(1.0, s.duration_sec) for s in ordered), cast=cast)
+    plan.cast_warnings.extend(cast.warnings)
 
     # 每个场景单独对齐（导演按场景拆镜，order 已全局编号但场景内连续）。
     by_scene: dict[str, list[Shot]] = {}
@@ -181,8 +171,8 @@ def plan_dubbing(
                     speaker = char_map.get(b.speaker or "", b.speaker or "")
                     plan.lines.append(DubLine(
                         speaker=speaker, text=(b.line or "").strip(),
-                        voice_id=voices.get(speaker, VOICE_MALE_MATURE), shot_id=s.id,
-                        at_sec=s.dialogue_at,
+                        voice_id=cast.voice_for(b.speaker or "", speaker),
+                        shot_id=s.id, at_sec=s.dialogue_at,
                     ))
             if dropped:
                 plan.warnings.append(
@@ -212,8 +202,8 @@ def plan_dubbing(
                 speaker = char_map.get(b.speaker or "", b.speaker or "")
                 plan.lines.append(DubLine(
                     speaker=speaker, text=(b.line or "").strip(),
-                    voice_id=voices.get(speaker, VOICE_MALE_MATURE), shot_id=shot.id,
-                    at_sec=shot.dialogue_at,
+                    voice_id=cast.voice_for(b.speaker or "", speaker),
+                    shot_id=shot.id, at_sec=shot.dialogue_at,
                 ))
     return plan
 
@@ -268,6 +258,10 @@ _RETRYABLE_HINTS = (
     "timeout", "timed out", "connection", "502", "503", "504",
 )
 
+# 音色本身不可用（账号没开通某个系统音色 / 参数被拒）：换同性别兜底音色，
+# 而不是把这句台词丢掉——丢一句就是成片里一个人突然哑了。
+_VOICE_HINTS = ("voice", "音色", "2013", "invalid param")
+
 
 def _synth_with_retry(
     tts: TTSClient,
@@ -278,25 +272,34 @@ def _synth_with_retry(
     emit: Any,
     attempts: int = 3,
 ) -> bytes:
-    """合成一句台词；遇到限流/临时错误按 2^n 退避重试。
+    """合成一句台词；遇到限流/临时错误按 2^n 退避重试，音色不可用则换音色。
 
     为什么要重试：一部长片有几十句台词，批量合成必然撞上 TTS 的 RPM 限制。
     不重试的话这些句子会被「跳过」——成片里就会出现有人说话却没声音的段，
     而且默认无人察觉（2026-10-31 实测：3 镜 17 句里丢了 4 句）。
     """
+    voices = [voice_id]
+    alt = VOICE_FALLBACK.get(voice_id)
+    if alt and alt != voice_id:
+        voices.append(alt)
+
     last: Exception | None = None
-    for i in range(attempts):
-        try:
-            return tts.synthesize(text, voice_id=voice_id, speed=speed)
-        except Exception as e:  # noqa: BLE001
-            last = e
-            hint = str(e).lower()
-            retryable = any(h in hint for h in _RETRYABLE_HINTS)
-            if i == attempts - 1 or not retryable:
-                raise
-            wait = 2 ** (i + 1)
-            emit(f"[配音] 触发限流/临时错误，{wait}s 后重试（第 {i + 2}/{attempts} 次）：{e}")
-            time.sleep(wait)
+    for vi, vid in enumerate(voices):
+        for i in range(attempts):
+            try:
+                return tts.synthesize(text, voice_id=vid, speed=speed)
+            except Exception as e:  # noqa: BLE001
+                last = e
+                hint = str(e).lower()
+                if vi + 1 < len(voices) and any(h in hint for h in _VOICE_HINTS):
+                    emit(f"[配音] 音色 {vid} 不可用，改用 {voices[vi + 1]}：{e}")
+                    break  # 跳出重试，换下一个音色
+                retryable = any(h in hint for h in _RETRYABLE_HINTS)
+                if i == attempts - 1 or not retryable:
+                    raise
+                wait = 2 ** (i + 1)
+                emit(f"[配音] 触发限流/临时错误，{wait}s 后重试（第 {i + 2}/{attempts} 次）：{e}")
+                time.sleep(wait)
     raise last if last else RuntimeError("TTS 合成失败")
 
 
@@ -357,8 +360,12 @@ def synthesize_track(
             next_free[line.shot_id] = start + dur + LINE_GAP_SEC
             track.append({"path": str(mp3), "start_ms": int(start * 1000),
                           "end_ms": int((start + dur) * 1000),
-                          "text": line.text, "speaker": line.speaker})
-            _emit(f"[配音] {line.speaker}（{start:.1f}s 起，{dur:.1f}s）：{line.text}")
+                          "text": line.text, "speaker": line.speaker,
+                          "voice_id": line.voice_id})
+            from .casting import VOICE_LABELS
+
+            _emit(f"[配音] {line.speaker}·{VOICE_LABELS.get(line.voice_id, line.voice_id)}"
+                  f"（{start:.1f}s 起，{dur:.1f}s）：{line.text}")
         track.sort(key=lambda x: x["start_ms"])
         return track, total
 
@@ -452,14 +459,23 @@ def dub_video_with_track(
     on_progress: Any = None,
     expected_shots: dict[str, int] | None = None,
     collected: list[str] | None = None,
-) -> tuple[Path | None, list[dict[str, Any]]]:
-    """一站式配音：计划 → 合成 → 混音。没有台词或 TTS 不可用时返回 (None, [])。
+    casting: dict[str, str] | None = None,
+    genders: dict[str, str] | None = None,
+    appearances: dict[str, str] | None = None,
+    visual_style: str | None = None,
+) -> tuple[Path | None, list[dict[str, Any]], DubbingPlan]:
+    """一站式配音：计划 → 合成 → 混音。没有台词或 TTS 不可用时返回 (None, [], plan)。
 
-    额外返回台词时间轴（start_ms/end_ms/text/speaker），供字幕与语音同步。
+    额外返回台词时间轴（start_ms/end_ms/text/speaker），供字幕与语音同步；
+    以及配音计划（含选角表，写进成片报告让用户核对「谁配了什么声音」）。
     ``expected_shots`` 见 plan_dubbing：部分渲染时用它判断哪些台词该丢。
     ``collected``：把丢台词这类「不致命但用户该知道」的告警收集进成片报告。
     """
-    plan = plan_dubbing(script, shots, expected_shots=expected_shots)
+    plan = plan_dubbing(
+        script, shots, casting,
+        expected_shots=expected_shots, genders=genders, appearances=appearances,
+        visual_style=visual_style,
+    )
     if plan.warnings:
         for w in plan.warnings:
             log.warning(w)
@@ -467,9 +483,15 @@ def dub_video_with_track(
                 collected.append(w)
             if on_progress:
                 on_progress(f"[配音] {w}")
+    for w in plan.cast_warnings:
+        log.warning(w)
+        if collected is not None:
+            collected.append(w)
+        if on_progress:
+            on_progress(f"[配音] {w}")
     if not plan.lines:
         log.info("本片没有对白，跳过配音")
-        return None, []
+        return None, [], plan
 
     def _emit(msg: str) -> None:
         log.info(msg)
@@ -477,12 +499,17 @@ def dub_video_with_track(
             on_progress(msg)
 
     _emit(f"[配音] 共 {len(plan.lines)} 句台词，总时长 {plan.total_sec:.0f}s")
+    if plan.cast and plan.cast.members:
+        roster = "；".join(
+            f"{m.name}→{m.voice_label}({m.gender})" for m in plan.cast.members
+        )
+        _emit(f"[配音] 选角：{roster}")
     tmp = Path(tempfile.mkdtemp(prefix="dub_")) if work_dir is None else work_dir
     try:
         track = synthesize_track(tts, plan, shots, tmp, on_progress=on_progress)
         if not track:
-            return None, []
-        return mix_dubbing(video_path, track, out_path, bg_volume=bg_volume), track
+            return None, [], plan
+        return mix_dubbing(video_path, track, out_path, bg_volume=bg_volume), track, plan
     finally:
         if work_dir is None:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -500,7 +527,7 @@ def dub_video(
     on_progress: Any = None,
 ) -> Path | None:
     """一站式配音。需要台词时间轴（字幕同步）时改用 dub_video_with_track。"""
-    video, _ = dub_video_with_track(
+    video, _, _ = dub_video_with_track(
         video_path, script, shots, tts, out_path,
         work_dir=work_dir, bg_volume=bg_volume, on_progress=on_progress,
     )

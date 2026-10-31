@@ -478,7 +478,12 @@ def build_chat_tools(
 
         def _run(task):
             from ..crew.director import run_director
-            result = run_director(llm, script, scene_ids=sids)
+            style = store.get_video_style(p.id) or {}
+            result = run_director(
+                llm, script, scene_ids=sids,
+                adaptation_type=p.adaptation_type,
+                visual_style=style.get("visual_style"),
+            )
             if result.success:
                 # 保存到 video_versions
                 shots_data = []
@@ -527,10 +532,16 @@ def build_chat_tools(
                     lang = language_for(rows[0].name, script.language)
             except Exception:  # noqa: BLE001
                 pass
-            result = run_art_director(llm, script, director_notes=director_notes, language=lang)
+            style_now = store.get_video_style(p.id) or {}
+            result = run_art_director(
+                llm, script, director_notes=director_notes, language=lang,
+                visual_style=style_now.get("visual_style"),
+            )
             if result.success:
                 # 风格指南（含角色造型 / 环境描述）随项目持久化，是下游视觉锚的唯一来源。
-                store.set_video_style(p.id, result.data.model_dump())
+                # 必须 merge 而不是覆盖：资产库里人工指定的音色（voice_casting）与性别
+                # 也存在同一份 JSON 里，整体覆盖会把用户改过的选角冲掉。
+                store.merge_video_style(p.id, result.data.model_dump())
             return result.summary
 
         task_id = runner.start("美术指导", _run) if runner else "local"

@@ -10,6 +10,7 @@ import { computed, onMounted, ref } from 'vue'
 import ShotList from './ShotList.vue'
 import VideoPlayer from './VideoPlayer.vue'
 import PromptEditor from './PromptEditor.vue'
+import CastLibrary from './CastLibrary.vue'
 import {
   store, loadShots, loadVideoJobs, submitVideoJob, playVideo, closeVideo, openPromptEditor,
   closePromptEditor, loadPromptHistory, saveShotPrompt, bulkReviewPrompts,
@@ -91,6 +92,8 @@ const filmMetaText = computed(() => {
 })
 
 const starting = ref(false)
+// 资产库：角色形象 + 声音 + 图片 + 场景的对照表（配音串角问题的根治入口）
+const showLibrary = ref(false)
 async function onStart() {
   starting.value = true
   try {
@@ -133,6 +136,16 @@ function formatVersionTime(value) {
   <div class="workbench">
     <!-- 控制栏：模式 / 分辨率 / 启动 -->
     <div class="ctrl">
+      <div class="ctrl-group">
+        <span class="ctrl-label">资产</span>
+        <button
+          class="seg-btn"
+          style="padding: 4px 10px; border: 1px solid var(--line); border-radius: 7px; background: transparent; cursor: pointer"
+          title="角色定妆图、音色、性别与场景图的对照表——配音前先在这里核对"
+          @click="showLibrary = true"
+        >资产库</button>
+      </div>
+
       <div class="ctrl-group">
         <span class="ctrl-label">成片审批</span>
         <div class="seg">
@@ -337,6 +350,9 @@ function formatVersionTime(value) {
       :meta="store.playingVideo.meta"
       @close="closeVideo()"
     />
+
+    <!-- 资产库：角色形象 / 声音 / 图片 / 场景对照 -->
+    <CastLibrary :open="showLibrary" @close="showLibrary = false" />
   </div>
 </template>
 

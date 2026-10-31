@@ -571,11 +571,15 @@ def _create_and_submit_job(project_id: str, payload: VideoJobCreate) -> Any:
     if shot and shot.get("video_prompt") and shot.get("prompt_status") != "approved":
         raise HTTPException(409, "该镜头的 Prompt 尚未批准，请先完成人工审阅")
 
-    # 时长：显式 > 导演 > 节奏默认（按本场 pacing 给的建议值）。
+    # 时长：显式 > 导演 > 节奏默认（按本场 pacing + 项目改编类型给的建议值）。
+    # 短剧项目默认 4–5 秒一镜——短视频时代的注意力只给开头三秒，不能用电影的
+    # 8 秒基准（2026-10-31 用户反馈）。
     explicit = payload.params.get("duration_sec")
     director_sec = float((shot or {}).get("duration_sec") or 0)
     pacing = getattr(version, "pacing", None) if version else None
-    duration = int(round(explicit or director_sec or suggest_duration(pacing)))
+    project = deps.store().get_project(project_id)
+    fmt = getattr(project, "adaptation_type", None)
+    duration = int(round(explicit or director_sec or suggest_duration(pacing, fmt)))
 
     provider = get_registry().get_provider(payload.provider)
     cost = provider.estimate_cost(float(duration)) if provider else None
