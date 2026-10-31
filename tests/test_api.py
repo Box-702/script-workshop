@@ -428,3 +428,56 @@ def test_fallback_warning_names_the_real_reason(client, monkeypatch, sample_text
     monkeypatch.setattr(projects_api, "generate_script", _fallback(""))
     resp = client.post(f"/api/projects/{p['id']}/generate", json={})
     assert "未配置可用模型" in " ".join(resp.json().get("warnings") or [])
+
+
+def test_出片时长用导演定的值而不是写死的六秒(client, sample_text, monkeypatch):
+    """真 bug：出片曾一律 `params.get("duration_sec") or 6`。
+
+    导演在分镜里设计的 8–10 秒镜头，只要调用方没显式传时长，就被压成 6 秒送进
+    模型——动作硬塞进更短的时间，只能丢节拍、糊成一片。
+    优先级：调用方显式指定 > 导演给该镜的 duration_sec > 节奏默认值。
+    """
+    import app.api.video as video_api
+
+    project = _import_project(client, sample_text)
+    created = client.post(
+        f"/api/projects/{project['id']}/video-versions",
+        json={
+            "shots": [{
+                "id": "shot_scene_001_000", "scene_id": "scene_001", "order": 0,
+                "duration_sec": 9, "video_prompt": "A close-up.", "prompt_status": "approved",
+            }],
+            "label": "时长测试",
+        },
+    )
+    assert created.status_code == 200, created.text
+    version_id = created.json()["id"]
+    monkeypatch.setattr(video_api, "_submit_video_job", lambda job: None)
+
+    def _submit(params: dict) -> dict:
+        r = client.post(
+            f"/api/projects/{project['id']}/video/generate",
+            json={
+                "shot_id": "shot_scene_001_000", "provider": "minimax", "model": "default",
+                "prompt": "A close-up.", "version_id": version_id, "params": params,
+            },
+        )
+        assert r.status_code == 200, r.text
+        # 提交接口只回 id，落库的 params 要另查一次
+        return client.get(f"/api/video/jobs/{r.json()['id']}").json()
+
+    assert _submit({})["params"]["duration_sec"] == 9          # 导演说了算
+    assert _submit({"duration_sec": 5})["params"]["duration_sec"] == 5   # 用户可覆盖
+
+
+def test_节奏默认时长有建议值():
+    """拿不到导演时长时的兜底：按节奏档给建议值，而不是随手 6 秒。"""
+    from app.video.rhythm import clamp_duration, suggest_duration, suggest_ladder
+
+    assert suggest_duration("slow") > suggest_duration("medium") > suggest_duration("fast")
+    assert suggest_duration(None) == suggest_duration("medium")
+    assert suggest_duration("乱写") == suggest_duration("medium")
+    assert clamp_duration(2) == 4.0
+    assert clamp_duration(99) == 15.0
+    ladder = suggest_ladder("fast", 4)
+    assert len(ladder) == 4 and ladder[0] > ladder[-1]      # 越切越短

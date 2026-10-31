@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..domain import Script, Shot
+from ..domain import Script, Shot, assign_dialogue_ranges
 from ..llm.tts import (
     TTSClient,
     VOICE_FEMALE_MATURE,
@@ -80,6 +80,7 @@ class DubLine:
     text: str
     voice_id: str
     shot_id: str
+    at_sec: float | None = None  # 镜头内第几秒开口（导演给的 dialogue_at）；None=镜头起始后默认位置
     start_sec: float = 0.0  # 合成后排程填入（成片内绝对时刻）
 
 
@@ -151,27 +152,38 @@ def plan_dubbing(
         want = (expected_shots or {}).get(scene_id) or 0
         partial = bool(want and want > len(scene_shots))
 
-        # 1) 显式 dialogue_ref
-        ref_to_shot: dict[str, Shot] = {}
-        for s in scene_shots:
-            if s.dialogue_ref:
-                ref_to_shot[s.dialogue_ref] = s
-        if ref_to_shot:
+        # 1) 按 dialogue_ref 的分界点把台词切到各镜：一镜只拿「从它引用的那句
+        #    起、到下一镜引用的那句之前」的台词。一段甲乙来回的对话就能按说话人
+        #    拆开，不会把两个人的话都塞进同一镜（观众分不清是谁在说）。
+        ranges = assign_dialogue_ranges(scene_shots, beats)
+        if ranges:
+            assigned = {b.id for bs in ranges.values() for b in bs}
+            segments = _segment_beats(beats)
+            seg_of = {b.id: si for si, seg in enumerate(segments) for b in seg}
+            n_shots = max(1, len(scene_shots))
+
             dropped = 0
             for b in dialogue_beats:
-                shot = ref_to_shot.get(b.id)
-                if shot is None:
-                    # 未显式引用的对白：「全片都拍了」时落到最近的引用镜兜底；
-                    # 只拍了一部分时，它八成属于没拍的那几镜，不能再硬塞。
-                    if partial:
-                        dropped += 1
-                        continue
-                    shot = next(iter(ref_to_shot.values()))
-                speaker = char_map.get(b.speaker or "", b.speaker or "")
-                plan.lines.append(DubLine(
-                    speaker=speaker, text=(b.line or "").strip(),
-                    voice_id=voices.get(speaker, VOICE_MALE_MATURE), shot_id=shot.id,
-                ))
+                if b.id in assigned:
+                    continue
+                # 只拍了一部分镜头时，没被认领的台词八成属于没拍的那几镜，
+                # 不能再硬塞到已渲染的镜头上。
+                if partial:
+                    dropped += 1
+                    continue
+                # 全片都拍：按「段对齐」兜底落到对应镜头。
+                si = seg_of.get(b.id, 0)
+                shot = scene_shots[min(n_shots - 1, si * n_shots // max(1, len(segments)))]
+                ranges.setdefault(shot.id, []).append(b)
+
+            for s in scene_shots:
+                for b in ranges.get(s.id) or []:
+                    speaker = char_map.get(b.speaker or "", b.speaker or "")
+                    plan.lines.append(DubLine(
+                        speaker=speaker, text=(b.line or "").strip(),
+                        voice_id=voices.get(speaker, VOICE_MALE_MATURE), shot_id=s.id,
+                        at_sec=s.dialogue_at,
+                    ))
             if dropped:
                 plan.warnings.append(
                     f"场景 {scene_id} 只渲染了 {len(scene_shots)}/{want} 个镜头，"
@@ -201,6 +213,7 @@ def plan_dubbing(
                 plan.lines.append(DubLine(
                     speaker=speaker, text=(b.line or "").strip(),
                     voice_id=voices.get(speaker, VOICE_MALE_MATURE), shot_id=shot.id,
+                    at_sec=shot.dialogue_at,
                 ))
     return plan
 
@@ -311,9 +324,11 @@ def synthesize_track(
 
     def _attempt(speed: float) -> list[dict[str, Any]]:
         shot_start: dict[str, float] = {}
+        shot_len: dict[str, float] = {}
         t = 0.0
         for s in sorted(shots, key=lambda x: x.order):
             shot_start[s.id] = t
+            shot_len[s.id] = max(1.0, s.duration_sec)
             t += max(1.0, s.duration_sec)
         total = t
 
@@ -332,7 +347,13 @@ def synthesize_track(
                 continue
             dur = _audio_duration_sec(mp3, ffprobe)
             base = shot_start.get(line.shot_id, 0.0)
-            start = max(base + LINE_LEAD_SEC, next_free.get(line.shot_id, 0.0) or base + LINE_LEAD_SEC)
+            # 开口时刻：导演给了 dialogue_at 就落在那一秒（让台词跟画面上那个动作同步），
+            # 否则退化为镜头起始后 LINE_LEAD_SEC。两者都夹在本镜范围内——
+            # 台词跨出本镜就会盖到下一镜的画面上，观众听到的和看到的对不上。
+            span = shot_len.get(line.shot_id, 1e9)
+            lead = LINE_LEAD_SEC if line.at_sec is None else max(0.0, float(line.at_sec))
+            lead = min(lead, max(0.0, span - min(dur, span - 0.2) - 0.1))
+            start = max(base + lead, next_free.get(line.shot_id, 0.0) or base + lead)
             next_free[line.shot_id] = start + dur + LINE_GAP_SEC
             track.append({"path": str(mp3), "start_ms": int(start * 1000),
                           "end_ms": int((start + dur) * 1000),

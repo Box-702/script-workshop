@@ -554,23 +554,13 @@ def _create_and_submit_job(project_id: str, payload: VideoJobCreate) -> Any:
 
     含提交时自动锚回填（定妆图 + 前镜成片接力）与默认分辨率策略：
     payload.params 未显式带 resolution 时落全局默认（VIDEO_DEFAULT_RESOLUTION）。
+
+    时长优先级：调用方显式指定 > 导演给该镜头的 duration_sec > 节奏默认值。
+    这里曾经写死 `params.get("duration_sec") or 6`，导演设计的 8–10 秒镜头
+    一律被压成 6 秒送进模型——动作被硬塞进更短的时间，只能糊成一团。
     """
     from ..video import get_registry
-
-    provider = get_registry().get_provider(payload.provider)
-    duration = int(payload.params.get("duration_sec") or 6)
-    cost = provider.estimate_cost(float(duration)) if provider else None
-
-    stored_params = dict(payload.params)
-    stored_params.setdefault("resolution", default_resolution())
-    for key in ("first_frame_image", "last_frame_image", "reference_images",
-                "reference_videos", "reference_audios", "content"):
-        value = getattr(payload, key)
-        if value:
-            stored_params[key] = value
-
-    # 提交时自动补齐一致性锚（定妆图 + 前镜成片接力）；调用方显式给的优先。
-    _auto_references(project_id, payload.shot_id, payload.version_id, stored_params)
+    from ..video.rhythm import suggest_duration
 
     version = _resolve_video_version(project_id, payload.version_id)
     shot = next(
@@ -580,6 +570,28 @@ def _create_and_submit_job(project_id: str, payload: VideoJobCreate) -> Any:
     )
     if shot and shot.get("video_prompt") and shot.get("prompt_status") != "approved":
         raise HTTPException(409, "该镜头的 Prompt 尚未批准，请先完成人工审阅")
+
+    # 时长：显式 > 导演 > 节奏默认（按本场 pacing 给的建议值）。
+    explicit = payload.params.get("duration_sec")
+    director_sec = float((shot or {}).get("duration_sec") or 0)
+    pacing = getattr(version, "pacing", None) if version else None
+    duration = int(round(explicit or director_sec or suggest_duration(pacing)))
+
+    provider = get_registry().get_provider(payload.provider)
+    cost = provider.estimate_cost(float(duration)) if provider else None
+
+    stored_params = dict(payload.params)
+    # 落库固定下来：重试、批量重投都要用同一个时长，不能再各自回落到默认值。
+    stored_params["duration_sec"] = duration
+    stored_params.setdefault("resolution", default_resolution())
+    for key in ("first_frame_image", "last_frame_image", "reference_images",
+                "reference_videos", "reference_audios", "content"):
+        value = getattr(payload, key)
+        if value:
+            stored_params[key] = value
+
+    # 提交时自动补齐一致性锚（定妆图 + 前镜成片接力）；调用方显式给的优先。
+    _auto_references(project_id, payload.shot_id, payload.version_id, stored_params)
 
     job = deps.store().create_video_job(
         project_id=project_id,

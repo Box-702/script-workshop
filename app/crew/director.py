@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from ..domain import (
@@ -20,6 +21,7 @@ from ..domain import (
     SceneBreakdown,
     Script,
     Shot,
+    assign_dialogue_ranges,
 )
 from ..llm import LLM
 from ..skills import render_skill
@@ -37,6 +39,43 @@ def director_system() -> str:
 
 # 分镜连续性校验失败后的最大重做次数（有界，避免死循环）。
 MAX_DESIGN_ITERATIONS = 3
+
+# 每轮回喂给模型的批评条数上限。一次性丢十几条会让它顾此失彼。
+MAX_CRITIQUE_SHOWN = 5
+
+# 台词朗读速度：中文约每秒 4 字（配音层 TTS 的常态语速）。
+CHARS_PER_SEC = 4.0
+
+
+def action_budget(duration_sec: float) -> int:
+    """单镜能演清楚的「身体动作段」上限。
+
+    注意这不是「几个动作」而是「几个分句」：模型写一个动作时习惯补两笔细节
+    （「把碗搁在柜台上；下巴一抬；手指点过去」其实是同一个动作的三步），
+    所以下限给 3 段；越长的镜头允许写越多笔。
+
+    至于「一镜里多个主体各做各的动作」，试过用角色名出现次数来判，但正则分不清
+    「甲指着乙」和「乙在做动作」，实测全是误报（还把合格的分镜改坏），已撤回——
+    这一条交给导演规则本身约束，机械层只兜底「明显塞太满」。
+    """
+    return max(3, round(duration_sec / 3))
+
+
+def count_action_units(action: str) -> int:
+    """数一个镜头里写了几段身体动作（按分号/换行切，过短的碎片不计）。"""
+    parts = re.split(r"[；;\n]+", action or "")
+    return len([p for p in parts if len(p.strip()) >= 4])
+
+
+def _coerce_float(v: Any) -> float | None:
+    """宽松解析模型给的秒数：非数字/负数一律当「没给」。"""
+    if v is None or v == "":
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f >= 0 else None
 
 # 枚举容错：模型常给出非标准值（如 "push_in" / "close-up" / "OTS"）。
 _SHOT_TYPES = {"extreme_wide", "wide", "medium", "close_up", "extreme_close_up", "over_shoulder", "pov"}
@@ -106,9 +145,14 @@ class DirectorAgent(CrewAgent):
         for _ in range(MAX_DESIGN_ITERATIONS):
             user_prompt = self._build_prompt(script, targets)
             if critique:
+                # 一次只回喂最要紧的几条：把十几条批评一起丢回去，模型会顾此失彼、
+                # 越改越散（2026-10-31 实测：11 条全给时，问题从 2 个涨到 7 个）。
+                shown = critique[:MAX_CRITIQUE_SHOWN]
+                more = "" if len(critique) <= len(shown) else f"（另有 {len(critique) - len(shown)} 条次要问题，下一轮再说）"
                 user_prompt += (
-                    "\n\n上一版分镜的连续性校验发现以下问题，请修正后重新输出：\n"
-                    + "\n".join(f"- {c}" for c in critique)
+                    f"\n\n上一版分镜的连续性校验发现 {len(critique)} 个问题{more}。"
+                    "先只改下面这几条，其余部分保持不动，改完重新输出完整 JSON：\n"
+                    + "\n".join(f"- {c}" for c in shown)
                 )
             try:
                 raw = self._invoke_json(director_system(), user_prompt)
@@ -117,7 +161,7 @@ class DirectorAgent(CrewAgent):
                 log.warning("导演 Agent 失败：%s", e)
                 return CrewTaskResult(success=False, summary=f"导演工作失败：{e}", errors=[str(e)])
             last = breakdowns
-            critique = self._validate_continuity(breakdowns)
+            critique = self._validate_continuity(breakdowns, script)
             if not critique:
                 summary = f"导演完成 {len(breakdowns)} 个场景的镜头拆解，共 {sum(len(b.shots) for b in breakdowns)} 个镜头"
                 return CrewTaskResult(data=breakdowns, summary=summary)
@@ -126,7 +170,9 @@ class DirectorAgent(CrewAgent):
         summary = f"导演完成拆解（共 {total} 镜），但连续性校验仍待完善：{critique[0] if critique else ''}"
         return CrewTaskResult(data=last, summary=summary, errors=critique)
 
-    def _validate_continuity(self, breakdowns: list[SceneBreakdown]) -> list[str]:
+    def _validate_continuity(
+        self, breakdowns: list[SceneBreakdown], script: Script | None = None,
+    ) -> list[str]:
         """确定性校验分镜（不靠固定镜头数，只查结构自洽、生成器可行性与戏剧结构）。
 
         检查项：
@@ -136,18 +182,39 @@ class DirectorAgent(CrewAgent):
           4. 非首镜必须填写 cut_reason（写不出切镜理由就该合并）；
           5. 相邻镜头不应是同一个人的重复面部特写（AI 视频里最伤的重复切镜）；
           6. 运动镜头必须写 camera_path——写不出轨迹，模型就会自己乱动；
+          6b.动作密度：一镜塞不下超过「时长 ÷ 4」个身体动作（2026-10-31 实测）；
+          6c.一镜一说话人：同镜挤进多个对白角色，观众分不清是谁在说；
+          6d.对白要有归处：每段对话都必须被某个镜头用 dialogue_ref 认领；
           7-10. 戏剧结构审计（先戏剧，后语法）：三工作 function、最终画面 final_frame、
              细节律三细节、场景五锚点——由 dramaturgy.audit_breakdowns 提供。
         """
         issues: list[str] = []
         all_orders = {s.order for bd in breakdowns for s in bd.shots}
+        scene_of = {sc.id: sc for sc in (script.scenes if script else [])}
+        char_of = {c.id: c.name for c in (script.characters if script else [])}
         for bd in breakdowns:
             scene_shots = sorted(bd.shots, key=lambda s: s.order)
+            scene = scene_of.get(bd.scene_id)
+            scene_beats = scene.beats if scene else []
+            # 按 dialogue_ref 的分界点把台词切到各镜（不是按「整段对话」分，
+            # 否则一段甲乙对话会把两个人的台词都算进每一镜）
+            shots_dialogue = assign_dialogue_ranges(scene_shots, scene_beats)
             groups = {s.reference_group for s in scene_shots if s.reference_group}
             if len(scene_shots) > 1 and not groups:
                 issues.append(
                     f"场景 {bd.scene_id} 有 {len(scene_shots)} 个镜头但都没有 reference_group，"
                     "请给同场景镜头统一分组（硬切新地点可另起分组）以共享环境参考图"
+                )
+            # 6d) 每句台词都必须落在某个镜头的范围里，否则配音时无处安放
+            dialogue_lines = [b for b in scene_beats if b.type == "dialogue" and (b.line or "").strip()]
+            assigned = {b.id for beats in shots_dialogue.values() for b in beats}
+            missing = [b for b in dialogue_lines if b.id not in assigned]
+            if missing:
+                preview = "、".join(f"「{(b.line or '').strip()[:10]}」" for b in missing[:2])
+                issues.append(
+                    f"场景 {bd.scene_id} 里有 {len(missing)} 句台词没有任何镜头认领"
+                    f"（{preview} 等）：每句台词都要落在某个镜头的 dialogue_ref 范围里，"
+                    "否则配音时它无处安放，会落到画面完全不相关的镜头上，观众听到声音却看不到人在说"
                 )
             prev = None
             for s in scene_shots:
@@ -156,6 +223,38 @@ class DirectorAgent(CrewAgent):
                     issues.append(
                         f"镜头 {s.id} 的时长 {s.duration_sec}s 超出生成器可行区间（4–15 秒），请调整"
                     )
+                # 6b) 动作密度：一镜演不下这么多身体动作
+                units = count_action_units(s.action)
+                budget = action_budget(s.duration_sec)
+                if units > budget:
+                    issues.append(
+                        f"镜头 {s.id} 的 action 写了 {units} 段身体动作，{s.duration_sec:.0f} 秒只演得下 "
+                        f"{budget} 段：只保留这一镜的主事件（接触 → 完成，至多两步），"
+                        "其余的删掉或另起一镜。动作塞太满时模型会丢节拍、挪时序，"
+                        "人物就出现在不该在的位置，手也会穿模"
+                    )
+                # 6c) 一镜一说话人 + 台词要念得完
+                seg = shots_dialogue.get(s.id) or []
+                if seg:
+                    speakers: list[str] = []
+                    for b in seg:
+                        name = char_of.get(b.speaker or "", b.speaker or "")
+                        if (b.line or "").strip() and name and name not in speakers:
+                            speakers.append(name)
+                    if len(speakers) > 1:
+                        issues.append(
+                            f"镜头 {s.id} 里挤了 {len(speakers)} 个说话人（{'、'.join(speakers)}）："
+                            "AI 生成没有口型同步，多人同镜说话，观众根本分不清是谁在说。"
+                            "请按说话人拆镜（一人一镜），或让旁人只做身体反应、不说话"
+                        )
+                    chars = sum(len((b.line or "").strip()) for b in seg)
+                    need = chars / CHARS_PER_SEC + 0.2
+                    if chars and s.duration_sec < need:
+                        issues.append(
+                            f"镜头 {s.id} 有 {chars} 字台词，按每秒 {CHARS_PER_SEC:.0f} 字至少要 "
+                            f"{need:.1f} 秒才念得完，当前只有 {s.duration_sec:.0f} 秒："
+                            "请延长时长或把这句台词移到别的镜头"
+                        )
                 # 6) 运动镜头必须有运镜轨迹（固定机位不需要）
                 if s.camera.type in _MOVING_CAMERA_TYPES and not s.camera.path.strip():
                     issues.append(
@@ -274,6 +373,8 @@ class DirectorAgent(CrewAgent):
                     subject=s.get("subject", ""),
                     action=s.get("action", ""),
                     dialogue_ref=s.get("dialogue_ref"),
+                    # 台词在镜头内第几秒开口：让配音跟画面上正在发生的动作对齐。
+                    dialogue_at=_coerce_float(s.get("dialogue_at")),
                     # 模型偶尔给出 0.8 这类非法时长，钳制到 Shot 允许区间。
                     duration_sec=min(30.0, max(1.0, float(s.get("duration_sec") or 5.0))),
                     lighting=s.get("lighting"),

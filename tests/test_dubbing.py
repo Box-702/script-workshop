@@ -242,3 +242,71 @@ def test_非限流错误不重试(monkeypatch, tmp_path):
     assert tts.calls == 1
     assert slept == []
     assert track == []
+
+
+# ---------- 台词归属与落位（2026-10-31《孔乙己》实测：声音与画面对不上） ----------
+
+
+def test_未引用的台词仍按段对齐而不是全塞进引用镜():
+    """回归：一场戏只要有一镜填了 dialogue_ref，其余台词曾被全塞到那一镜上。
+
+    《孔乙己》首版就是这样——画面里酒客在笑，声音却是孔乙己在说话，
+    观众完全分不清「谁和谁说的」。
+    """
+    shots = _shots()
+    shots[0].dialogue_ref = "beat_003"          # 只认领这段对话的第一句
+    plan = plan_dubbing(_script(), shots)
+
+    by_text = {ln.text: ln.shot_id for ln in plan.lines}
+    # 同一人连说的两句跟着走（小赵），换成老周那句就断开了
+    assert by_text["死者从七楼摔下来的。"] == "shot_scene_001_000"
+    assert by_text["没有目击者。"] == "shot_scene_001_000"
+    # 换人之后绝不能还被那一镜吞掉
+    assert by_text["天台门呢？"] != "shot_scene_001_000"
+    assert by_text["反锁着。"] != "shot_scene_001_000"
+
+
+def test_dialogue_at_把台词落在镜头内指定秒数(monkeypatch, tmp_path):
+    """导演写了 dialogue_at，配音就该在那一秒开口，而不是一律「镜头一开始就说」。"""
+    import app.media.dubbing as dubbing
+
+    monkeypatch.setattr(dubbing, "_audio_duration_sec", lambda p, f: 1.0)
+    monkeypatch.setattr(dubbing, "_find_ffprobe", lambda: None)
+
+    class FakeTTS:
+        def synthesize(self, text: str, *, voice_id: str = "", speed: float = 1.0) -> bytes:
+            return b"ID3fake"
+
+    shots = [
+        Shot(id="shot_a_001", scene_id="scene_001", order=0, duration_sec=6),
+        Shot(id="shot_a_002", scene_id="scene_001", order=1, duration_sec=6),
+    ]
+    plan = SimpleNamespace(lines=[
+        DubLine(speaker="甲", text="第一句", voice_id="v1", shot_id="shot_a_001"),
+        DubLine(speaker="乙", text="第二句", voice_id="v2", shot_id="shot_a_002", at_sec=3.0),
+    ])
+    track = synthesize_track(FakeTTS(), plan, shots, tmp_path / "w")
+
+    assert track[0]["start_ms"] == 400            # 没给 at_sec → 镜头起始后 0.4s
+    assert track[1]["start_ms"] == 9000           # 6s 镜头 + 第 3 秒开口
+
+
+def test_dialogue_at_超出镜头时夹在镜头内(monkeypatch, tmp_path):
+    """导演把开口秒数写超了（或台词念不完），也不能让声音盖到下一镜的画面上。"""
+    import app.media.dubbing as dubbing
+
+    monkeypatch.setattr(dubbing, "_audio_duration_sec", lambda p, f: 1.0)
+    monkeypatch.setattr(dubbing, "_find_ffprobe", lambda: None)
+
+    class FakeTTS:
+        def synthesize(self, text: str, *, voice_id: str = "", speed: float = 1.0) -> bytes:
+            return b"ID3fake"
+
+    shots = [Shot(id="shot_a_001", scene_id="scene_001", order=0, duration_sec=6)]
+    plan = SimpleNamespace(lines=[
+        DubLine(speaker="甲", text="第三句", voice_id="v1", shot_id="shot_a_001", at_sec=10.0),
+    ])
+    track = synthesize_track(FakeTTS(), plan, shots, tmp_path / "w")
+
+    assert 0 <= track[0]["start_ms"] <= 6000
+    assert track[0]["end_ms"] <= 6000

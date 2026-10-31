@@ -506,10 +506,22 @@ class DPAgent(CrewAgent):
                         names.append(cname)
                         present.add(cname)
 
-            # 人物锚：风格指南（按名）优先，其次本步骤 LLM 产出
+            # 人物锚：只给**本镜主体**注详细外观。
+            # 把全场每个人的完整外貌都塞进提示词，模型会把每个人画出来、还抢主体
+            # ——2026-10-31《孔乙己》实测：一个「酒客甲开口」的特写里挤了四个人，
+            # 最抢眼的是背景里戴帽喝酒的那位，主体反而成了右侧背影。
+            # 主体判据：导演写的 subject → 本镜 body 里点名的人 → 兜底取第一个。
             llm_cast = cast_by_scene.get(shot.scene_id, {})
+            focus: list[str] = []
+            for src in (str(shot.subject or ""), body):
+                hit = [n for n in names if n and n in src]
+                if hit:
+                    focus = hit
+                    break
+            if not focus:
+                focus = names[:1]
             cast: list[str] = []
-            for n in names:
+            for n in focus:
                 desc = canon_chars.get(str(n)) or llm_cast.get(str(n))
                 cast.append(f"{n}：{desc}" if desc else str(n))
 

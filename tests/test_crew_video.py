@@ -847,3 +847,32 @@ def test_dp_final_frame_still_backfilled_when_truly_missing():
     # 只提到「冷光」但没写结束状态，不算写过
     assert not _covers("冷光熄灭在他脸上", "冷光从冰箱里漏出来，照亮地板")
     assert not _covers("冷光熄灭在他脸上", "齐夏推开门走进走廊，脚步声很轻")
+
+
+def test_dp_injects_detailed_anchor_only_for_subject():
+    """只给本镜主体注详细外观。
+
+    真跑《孔乙己》时，一个「酒客甲开口」的特写里挤进四个人，最抢眼的是背景里
+    戴帽喝酒的那位——因为提示词把全场每个人的完整外貌都写了进去，模型只好都画。
+    """
+    script = _script()
+    guide = StyleGuide(
+        character_appearances={
+            "齐夏": "黑色短发、深灰卫衣的年轻男性。",
+            "人羊": "戴山羊头面具的黑西服男人。",
+        },
+        environment_descriptions={"密室": "密闭的方形房间，钨丝灯昏黄。"},
+    )
+    shots = [Shot(
+        id="shot_scene_001_000", scene_id="scene_001", order=0,
+        subject="人羊挡在门口", camera=CameraMovement(),
+    )]
+    llm_out = {"scenes": [{"scene_id": "scene_001", "shots": [
+        {"shot_id": "shot_scene_001_000", "characters": ["人羊", "齐夏"],
+         "prompt_body": "齐夏后退半步；人羊抬手拦住他。"},
+    ]}]}
+    out = _dp()._apply(shots, llm_out, script, "", guide)
+    prompt = out[0].video_prompt
+
+    assert "戴山羊头面具的黑西服男人" in prompt          # 主体有详细锚
+    assert "深灰卫衣" not in prompt, f"背景人物不该带详细外貌：{prompt}"

@@ -47,6 +47,43 @@ def _strip_prefix(seed: str, prefix: str) -> str:
     return seed
 
 
+def assign_dialogue_ranges(shots: list, beats: list) -> dict[str, list]:
+    """按镜头的 ``dialogue_ref`` 把台词切给各镜。
+
+    规则：一镜的台词 = 从它引用的那个 beat 开始，往后取**同一个说话人**连续说的
+    几句，碰到换人（或下一个镜头的分界点）就停。这样一段「甲乙来回说话」的连续
+    对话可以按说话人拆成多镜，每镜只拿自己那几句。
+
+    为什么要限制「同一说话人」：否则一个镜头认领一句之后，会把后面所有人的台词
+    一路吞到下一个分界点，配音时全从这一个人嘴里出来。
+
+    为什么不按「整段对话」分配：那会把两个人的台词都算进每一镜——断言会误报
+    「一镜多说话人」，配音也会把台词塞到画面里另一个人身上（2026-10-31 实测：
+    观众完全不知道是谁在说）。返回 ``{shot_id: [beat, ...]}``，没有台词的镜头不出现。
+    """
+    lines = [b for b in (beats or []) if b.type == "dialogue" and (b.line or "").strip()]
+    pos = {b.id: i for i, b in enumerate(lines)}
+    cuts: list[tuple[int, object]] = []
+    seen: set[int] = set()
+    for s in sorted(shots, key=lambda x: x.order):
+        ref = getattr(s, "dialogue_ref", None)
+        # 两个镜头引用同一句：只有第一个算数，后一个的范围留给它自己后面的话。
+        if ref in pos and pos[ref] not in seen:
+            seen.add(pos[ref])
+            cuts.append((pos[ref], s))
+    cuts.sort(key=lambda x: x[0])
+
+    ranges: dict[str, list] = {}
+    for k, (start, shot) in enumerate(cuts):
+        nxt = cuts[k + 1][0] if k + 1 < len(cuts) else len(lines)
+        speaker = lines[start].speaker
+        end = start + 1
+        while end < nxt and lines[end].speaker == speaker:
+            end += 1
+        ranges[shot.id] = lines[start:end]
+    return ranges
+
+
 def normalize_id(value: object, prefix: str, *, fallback: str | None = None) -> str:
     """把 LLM 给的 id 规整为 `<prefix>_[a-z0-9_]+`。
 
@@ -389,6 +426,10 @@ class Shot(BaseModel):
     subject: str = ""
     action: str = ""
     dialogue_ref: str | None = None  # 关联 beat_xxx
+    # 台词在镜头内第几秒开口（相对镜头起点，None=沿用配音层默认的「镜头起始后就开口」）。
+    # 没有它，配音只能把所有台词排在镜头开头——画面在摸钱、声音已经在说下一句，
+    # 观众对不上「这句是谁在什么时候说的」。
+    dialogue_at: float | None = Field(default=None, ge=0.0, le=30.0)
     duration_sec: float = Field(default=5.0, ge=1.0, le=30.0)
     lighting: str | None = None
     mood: str | None = None
