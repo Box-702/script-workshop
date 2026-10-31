@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -148,3 +149,96 @@ def test_synthesize_and_mix_with_real_ffmpeg(tmp_path):
     out = tmp_path / "dubbed.mp4"
     mix_dubbing(video, track, out, bg_volume=0.25, ffmpeg=ffmpeg)
     assert out.exists() and out.stat().st_size > 0
+
+
+# ---------- 部分渲染：只配音「拍出来的镜头」（2026-10-31 实测坑） ----------
+
+
+def test_部分渲染且无_dialogue_ref_时整场台词跳过():
+    """9 镜只拍 1 镜时，段对齐必然错位——宁可不出声，也不能把台词硬塞。
+
+    真实故障：《孔乙己》挑 3 镜出片，配音却把本来属于另外 6 镜的台词
+    全排到 19.8s 里，结果两句字幕叠在同一秒、整片被 1.6 倍速压缩。
+    """
+    plan = plan_dubbing(_script(), [_shots()[1]], expected_shots={"scene_001": 3})
+    assert plan.lines == []
+    assert plan.warnings and "只渲染了 1/3" in plan.warnings[0]
+
+
+def test_全片渲染时台词一句不丢():
+    """三镜全拍 = 正常行为，不能因为加了这套判断就误伤。"""
+    plan = plan_dubbing(_script(), _shots(), expected_shots={"scene_001": 3})
+    assert len(plan.lines) == 4
+    assert not plan.warnings
+
+
+def test_部分渲染时只保留_dialogue_ref_明确归属的台词():
+    """镜头显式引用了某句对白 → 这句该留下；其余属于没拍镜头的对白丢掉。"""
+    shots = [_shots()[1]]
+    shots[0].dialogue_ref = "beat_005"   # 「天台门呢？」
+    plan = plan_dubbing(_script(), shots, expected_shots={"scene_001": 3})
+    assert [ln.text for ln in plan.lines] == ["天台门呢？"]
+    assert plan.lines[0].shot_id == "shot_scene_001_001"
+    assert plan.warnings and "已跳过配音" in plan.warnings[0]
+
+
+# ---------- TTS 限流重试 ----------
+
+
+def test_限流按退避重试后成功(monkeypatch, tmp_path):
+    """MiniMax TTS 撞到 1002 RPM 限流 → 退避重试，不该直接丢句。"""
+    import app.media.dubbing as dubbing
+
+    slept: list[float] = []
+    monkeypatch.setattr(dubbing.time, "sleep", lambda s: slept.append(s))
+
+    class FlakyTTS:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def synthesize(self, text: str, *, voice_id: str = "", speed: float = 1.0) -> bytes:
+            self.calls += 1
+            if self.calls < 3:
+                raise RuntimeError(
+                    "MiniMax TTS 失败：insufficient_audio {'status_code': 1002, "
+                    "'status_msg': 'rate limit exceeded(RPM)'}"
+                )
+            return b"ID3fake"
+
+    plan = SimpleNamespace(lines=[
+        DubLine(speaker="孔乙己", text="温两碗酒", voice_id="v1", shot_id="shot_t_001"),
+    ])
+    shots = [Shot(id="shot_t_001", scene_id="scene_001", order=0, duration_sec=6)]
+    tts = FlakyTTS()
+    track = synthesize_track(tts, plan, shots, tmp_path / "work")
+
+    assert tts.calls == 3                     # 前两次失败，第三次成功
+    assert slept == [2, 4]                    # 指数退避
+    assert len(track) == 1
+
+
+def test_非限流错误不重试(monkeypatch, tmp_path):
+    """厂商真拒绝（没有音频）重试也没用，要立刻跳过而不是干等十几秒。"""
+    import app.media.dubbing as dubbing
+
+    slept: list[float] = []
+    monkeypatch.setattr(dubbing.time, "sleep", lambda s: slept.append(s))
+
+    class DeadTTS:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def synthesize(self, text: str, *, voice_id: str = "", speed: float = 1.0) -> bytes:
+            self.calls += 1
+            raise RuntimeError("MiniMax TTS 响应中没有音频：{'base_resp': {}}")
+
+    plan = SimpleNamespace(lines=[
+        DubLine(speaker="孔乙己", text="温两碗酒", voice_id="v1", shot_id="shot_t_001"),
+    ])
+    shots = [Shot(id="shot_t_001", scene_id="scene_001", order=0, duration_sec=6)]
+    tts = DeadTTS()
+    track = synthesize_track(tts, plan, shots, tmp_path / "work")
+
+    assert tts.calls == 1
+    assert slept == []
+    assert track == []

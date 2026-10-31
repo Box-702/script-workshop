@@ -143,6 +143,13 @@ def finalize_film(
         raise ValueError("该版本没有镜头")
     jobs = store.list_video_jobs(project_id)
 
+    # 每个场景在版本里原本有几镜：配音/字幕据此判断「是否只渲染了一部分」。
+    expected_per_scene: dict[str, int] = {}
+    for raw in shot_dicts:
+        sid = str(raw.get("scene_id") or "")
+        if sid:
+            expected_per_scene[sid] = expected_per_scene.get(sid, 0) + 1
+
     shots: list[Shot] = []
     tmp = Path(tempfile.mkdtemp(prefix="finalize_"))
     try:
@@ -199,7 +206,9 @@ def finalize_film(
                 try:
                     dubbed_path = tmp / "dubbed.mp4"
                     out, track = dub_video_with_track(current, script, shots, tts, dubbed_path,
-                                                      on_progress=emit)
+                                                      on_progress=emit,
+                                                      expected_shots=expected_per_scene,
+                                                      collected=warnings)
                     if out:
                         current, dubbed = dubbed_path, True
                         emit("配音完成")
@@ -217,7 +226,11 @@ def finalize_film(
             if script is None:
                 emit("剧本不可读，跳过字幕")
             else:
-                entries = timeline_from_track(track) if track else timeline_estimated(script, shots)
+                entries = (
+                    timeline_from_track(track)
+                    if track
+                    else timeline_estimated(script, shots, expected_shots=expected_per_scene)
+                )
         if entries:
             try:
                 ass_path, _srt = write_subtitle_files(entries, tmp / "film", width=1280, height=720)

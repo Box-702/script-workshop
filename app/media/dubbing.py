@@ -23,6 +23,7 @@ import logging
 import shutil
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -84,10 +85,13 @@ class DubLine:
 
 @dataclass
 class DubbingPlan:
-    """整部片的配音计划：台词列表 + 总时长。"""
+    """整部片的配音计划：台词列表 + 总时长 + 跳过的台词说明。"""
 
     lines: list[DubLine] = field(default_factory=list)
     total_sec: float = 0.0
+    # 只渲染了部分镜头时，落不到任何成片上的台词会被丢弃——必须出声，
+    # 否则成片里会出现「没人说话却有字幕」的鬼影（2026-10-31 实测）。
+    warnings: list[str] = field(default_factory=list)
 
 
 def _scene_beat_map(script: Script) -> dict[str, list]:
@@ -107,11 +111,22 @@ def _segment_beats(beats: list) -> list[list]:
     return segments
 
 
-def plan_dubbing(script: Script, shots: list[Shot], voices: dict[str, str] | None = None) -> DubbingPlan:
+def plan_dubbing(
+    script: Script,
+    shots: list[Shot],
+    voices: dict[str, str] | None = None,
+    *,
+    expected_shots: dict[str, int] | None = None,
+) -> DubbingPlan:
     """把剧本对白归属到镜头，产出配音计划。
 
     - 显式 dialogue_ref 优先：镜头指向哪个 beat，台词就归哪一镜；
     - 否则按「段对齐」：场景 beats 压缩成交替段序列后按比例均分给镜头。
+
+    ``expected_shots``：每个场景在版本里的**原始镜头数**。只渲染了其中一部分时
+    （常见：用户挑几镜先出片试水），没拍出来的镜头上的台词无处安放——必须丢掉，
+    否则会全部堆到已渲染镜头的时间轴上，表现为「两句字幕同时出现 + 整片被提速」。
+    这时只保留能通过 dialogue_ref 明确归属的台词，其余记进 warnings。
     """
     voices = voices or assign_voices(script)
     char_map = {c.id: c.name for c in script.characters}
@@ -132,24 +147,47 @@ def plan_dubbing(script: Script, shots: list[Shot], voices: dict[str, str] | Non
         if not dialogue_beats or not scene_shots:
             continue
 
+        # 该场是否只渲染了一部分镜头
+        want = (expected_shots or {}).get(scene_id) or 0
+        partial = bool(want and want > len(scene_shots))
+
         # 1) 显式 dialogue_ref
         ref_to_shot: dict[str, Shot] = {}
         for s in scene_shots:
             if s.dialogue_ref:
                 ref_to_shot[s.dialogue_ref] = s
         if ref_to_shot:
-            fallback_shot = next(iter(ref_to_shot.values()))
+            dropped = 0
             for b in dialogue_beats:
-                shot = ref_to_shot.get(b.id, fallback_shot)  # 未引用的对白落到最近的引用镜
+                shot = ref_to_shot.get(b.id)
+                if shot is None:
+                    # 未显式引用的对白：「全片都拍了」时落到最近的引用镜兜底；
+                    # 只拍了一部分时，它八成属于没拍的那几镜，不能再硬塞。
+                    if partial:
+                        dropped += 1
+                        continue
+                    shot = next(iter(ref_to_shot.values()))
                 speaker = char_map.get(b.speaker or "", b.speaker or "")
                 plan.lines.append(DubLine(
                     speaker=speaker, text=(b.line or "").strip(),
                     voice_id=voices.get(speaker, VOICE_MALE_MATURE), shot_id=shot.id,
                 ))
+            if dropped:
+                plan.warnings.append(
+                    f"场景 {scene_id} 只渲染了 {len(scene_shots)}/{want} 个镜头，"
+                    f"{dropped} 句台词所属镜头未出片，已跳过配音"
+                )
             continue
 
         # 2) 段对齐：镜头 k 对应第 k 个段（导演正是按「动作段/对话段」切镜的）；
         #    段数与镜头数不等时按比例映射。对话段里的全部对白归该镜。
+        if partial:
+            # 没有 dialogue_ref 可依，段对齐的分配在「部分渲染」下必然错位，整场丢弃。
+            plan.warnings.append(
+                f"场景 {scene_id} 只渲染了 {len(scene_shots)}/{want} 个镜头，"
+                f"且镜头没有 dialogue_ref，本场台词无法对齐，已跳过配音"
+            )
+            continue
         segments = _segment_beats(beats)
         n = len(scene_shots)
         for si, seg in enumerate(segments):
@@ -209,6 +247,46 @@ def _ffmpeg_exe() -> str | None:
     return _ffmpeg()
 
 
+# 可重试的错误特征：限流（MiniMax 1002 RPM）、网关抖动、超时。
+# 这些跟内容无关，退避几秒重试通常就过了；而「没有音频」这类是厂商侧的
+# 真实拒绝，重试没意义。
+_RETRYABLE_HINTS = (
+    "rate limit", "1002", "429", "too many requests",
+    "timeout", "timed out", "connection", "502", "503", "504",
+)
+
+
+def _synth_with_retry(
+    tts: TTSClient,
+    text: str,
+    *,
+    voice_id: str,
+    speed: float,
+    emit: Any,
+    attempts: int = 3,
+) -> bytes:
+    """合成一句台词；遇到限流/临时错误按 2^n 退避重试。
+
+    为什么要重试：一部长片有几十句台词，批量合成必然撞上 TTS 的 RPM 限制。
+    不重试的话这些句子会被「跳过」——成片里就会出现有人说话却没声音的段，
+    而且默认无人察觉（2026-10-31 实测：3 镜 17 句里丢了 4 句）。
+    """
+    last: Exception | None = None
+    for i in range(attempts):
+        try:
+            return tts.synthesize(text, voice_id=voice_id, speed=speed)
+        except Exception as e:  # noqa: BLE001
+            last = e
+            hint = str(e).lower()
+            retryable = any(h in hint for h in _RETRYABLE_HINTS)
+            if i == attempts - 1 or not retryable:
+                raise
+            wait = 2 ** (i + 1)
+            emit(f"[配音] 触发限流/临时错误，{wait}s 后重试（第 {i + 2}/{attempts} 次）：{e}")
+            time.sleep(wait)
+    raise last if last else RuntimeError("TTS 合成失败")
+
+
 def synthesize_track(
     tts: TTSClient,
     plan: DubbingPlan,
@@ -246,7 +324,9 @@ def synthesize_track(
         for i, line in enumerate(plan.lines):
             mp3 = work_dir / f"line_{i:03d}.mp3"
             try:
-                mp3.write_bytes(tts.synthesize(line.text, voice_id=line.voice_id, speed=speed))
+                mp3.write_bytes(_synth_with_retry(
+                    tts, line.text, voice_id=line.voice_id, speed=speed, emit=_emit,
+                ))
             except Exception as e:  # noqa: BLE001
                 _emit(f"[配音] 「{line.text[:12]}…」合成失败，跳过：{e}")
                 continue
@@ -277,7 +357,6 @@ def synthesize_track(
 
 
 # ---------- 混音 ----------
-
 
 def mix_dubbing(
     video_path: Path,
@@ -350,12 +429,23 @@ def dub_video_with_track(
     work_dir: Path | None = None,
     bg_volume: float = 0.25,
     on_progress: Any = None,
+    expected_shots: dict[str, int] | None = None,
+    collected: list[str] | None = None,
 ) -> tuple[Path | None, list[dict[str, Any]]]:
     """一站式配音：计划 → 合成 → 混音。没有台词或 TTS 不可用时返回 (None, [])。
 
     额外返回台词时间轴（start_ms/end_ms/text/speaker），供字幕与语音同步。
+    ``expected_shots`` 见 plan_dubbing：部分渲染时用它判断哪些台词该丢。
+    ``collected``：把丢台词这类「不致命但用户该知道」的告警收集进成片报告。
     """
-    plan = plan_dubbing(script, shots)
+    plan = plan_dubbing(script, shots, expected_shots=expected_shots)
+    if plan.warnings:
+        for w in plan.warnings:
+            log.warning(w)
+            if collected is not None:
+                collected.append(w)
+            if on_progress:
+                on_progress(f"[配音] {w}")
     if not plan.lines:
         log.info("本片没有对白，跳过配音")
         return None, []

@@ -67,15 +67,23 @@ def timeline_from_track(track: list[dict[str, Any]]) -> list[SubEntry]:
     return entries
 
 
-def timeline_estimated(script: Script, shots: list[Shot]) -> list[SubEntry]:
+def timeline_estimated(
+    script: Script,
+    shots: list[Shot],
+    *,
+    expected_shots: dict[str, int] | None = None,
+) -> list[SubEntry]:
     """无配音时的估算时间轴：台词归属复用配音的段对齐，时刻按字数在镜头窗口内排布。
 
     窗口装不下时整组按比例压缩（单句不低于 0.5s），字幕不跨出所属镜头，
     避免和下一镜的画面内容对不上。
+
+    ``expected_shots``：该场原本几镜。只渲染了其中一部分时，属于没拍镜头的
+    台词不该出字幕（否则会出现两句字幕叠在一起、且与画面对不上）。
     """
     from .dubbing import plan_dubbing
 
-    plan = plan_dubbing(script, shots)
+    plan = plan_dubbing(script, shots, expected_shots=expected_shots)
     if not plan.lines:
         return []
 
