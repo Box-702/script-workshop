@@ -389,6 +389,27 @@ class DirectorAgent(CrewAgent):
                     f"（{preview} 等）：每句台词都要落在某个镜头的 dialogue_ref 范围里，"
                     "否则配音时它无处安放，会落到画面完全不相关的镜头上，观众听到声音却看不到人在说"
                 )
+            # 6e) dialogue_ref 必须指向本场真实存在的对白节拍
+            # 这一条过去只查正向（台词有没有镜头认领），没查反向（镜头标的 ref 是不是真的），
+            # 所以模型能一路绿灯地编 id。配音按 ref 找台词找不到 → 那句台词凭空消失，
+            # 或者落到别的镜头上——观众听到声音却看不到人在说。
+            dialogue_ids = {b.id for b in dialogue_lines}
+            beat_type = {b.id: b.type for b in scene_beats}
+            for s in scene_shots:
+                ref = str(s.dialogue_ref or "").strip()
+                if not ref or ref in dialogue_ids:
+                    continue
+                if ref in beat_type:
+                    issues.append(
+                        f"镜头 {s.id} 的 dialogue_ref={ref} 指向的是「{beat_type[ref]}」节拍，"
+                        "不是对白节拍：dialogue_ref 只能填本场 [对白 beat_xxx] 里的 id"
+                    )
+                else:
+                    issues.append(
+                        f"镜头 {s.id} 的 dialogue_ref={ref} 在剧本里不存在：只能照抄本场"
+                        "「节拍」清单里 [对白 beat_xxx] 的 id，不要自己拼新 id"
+                        "（拼出来的 id 找不到台词，配音会静默跳过）"
+                    )
             prev = None
             for s in scene_shots:
                 # 3) 时长必须在模型可行区间内
@@ -496,14 +517,17 @@ class DirectorAgent(CrewAgent):
 
             parts.append("节拍：")
             for b in sc.beats:
+                # **必须带 beat id**：dialogue_ref 要引用它。不带 id 时模型只能自己拼一个
+                # （实测 35 个引用里 28 个是编的，如 beat_003_dlg_001），配音照常配、
+                # 画面照常生成，两条线永不交汇——「台词硬塞」的根源就在这里。
                 if b.type == "action":
-                    parts.append(f"  [动作] {b.text}")
+                    parts.append(f"  [动作 {b.id}] {b.text}")
                 elif b.type == "dialogue":
                     name = char_map.get(b.speaker, b.speaker) if b.speaker else "?"
                     emo = f"（{b.emotion}）" if b.emotion else ""
-                    parts.append(f"  [对白] {name}{emo}：{b.line}")
+                    parts.append(f"  [对白 {b.id}] {name}{emo}：{b.line}")
                 elif b.type == "cue":
-                    parts.append(f"  [提示] {b.text}")
+                    parts.append(f"  [提示 {b.id}] {b.text}")
 
         return "\n".join(parts)
 

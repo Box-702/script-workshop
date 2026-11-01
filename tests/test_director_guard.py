@@ -220,3 +220,54 @@ def test_长剧本按场分批拆且_order_全局连续():
     assert orders == sorted(orders)
     assert len(set(orders)) == len(orders)      # 无重复
     assert len(orders) == 7
+
+
+# ---------- 台词引用：必须指向本场真实存在的对白节拍 ----------
+#
+# 《孔乙己》真跑时 62 镜里 35 个标了 dialogue_ref，对照剧本只有 3 个是真的，
+# 28 个是模型自己拼的（beat_003_dlg_001）——因为 prompt 里当时没给 beat id。
+# 后果不是报错，是「配音静默跳过 / 画面照着别人的手」，两条线永不交汇。
+
+
+def _beats_with_dialogue() -> list[ScriptBeat]:
+    return [
+        ScriptBeat(id="beat_001", type="action", text="甲把铜钱排在柜台上"),
+        ScriptBeat(id="beat_002", type="dialogue", speaker="char_a", line="九文大钱。"),
+        ScriptBeat(id="beat_003", type="dialogue", speaker="char_b", line="又来赊账？"),
+    ]
+
+
+def test_编造的台词引用被打回():
+    shots = [Shot(
+        id="shot_scene_001_000", scene_id="scene_001", order=0, duration_sec=4,
+        action="甲把钱排在柜台上", dialogue_ref="beat_002_dlg_001",
+    )]
+    issues = _check(shots, _beats_with_dialogue())
+    assert any("在剧本里不存在" in i for i in issues), issues
+
+
+def test_指向动作节拍的引用被打回():
+    """引用了一个真实存在的 id，但它是动作节拍——同样配不出音。"""
+    shots = [Shot(
+        id="shot_scene_001_000", scene_id="scene_001", order=0, duration_sec=4,
+        action="甲把钱排在柜台上", dialogue_ref="beat_001",
+    )]
+    issues = _check(shots, _beats_with_dialogue())
+    assert any("不是对白节拍" in i for i in issues), issues
+
+
+def test_正确的台词引用不报错():
+    shots = [Shot(
+        id="shot_scene_001_000", scene_id="scene_001", order=0, duration_sec=4,
+        action="甲把钱排在柜台上", dialogue_ref="beat_002", dialogue_at=1.0,
+    )]
+    issues = _check(shots, _beats_with_dialogue())
+    assert not [i for i in issues if "不存在" in i or "不是对白节拍" in i], issues
+
+
+def test_导演prompt里必须带beat_id():
+    """模型编 id 的根因是 prompt 没给 id——这里锁住「给了」。"""
+    script = _multi_scene_script(1)
+    agent = DirectorAgent.__new__(DirectorAgent)
+    prompt = agent._build_prompt(script, script.scenes[:1], "short_drama", "realistic")
+    assert "[动作 beat_001]" in prompt
