@@ -17,7 +17,7 @@ import httpx
 
 from ...keys import (
     RATE_LIMIT_COOLDOWN_SEC,
-    _QUOTA_HINTS,
+    QUOTA_HINTS,
     error_message,
     is_rate_limited,
     key_failure,
@@ -205,7 +205,7 @@ class MiniMaxProvider(VideoProvider):
                 if "所有 key 都不可用" not in str(e):
                     raise
                 # 额度用尽（2056 / 用量上限）等多久都不会恢复，退避只是白等。
-                if any(h.lower() in msg for h in _QUOTA_HINTS):
+                if any(h.lower() in msg for h in QUOTA_HINTS):
                     raise
                 # 全部 key 都被限流时 _send 会抛「所有 key 都不可用（… Too Many Requests）」。
                 # 这也只是时间问题，该退避。但欠费/鉴权失败（1004/1008）不能退避——

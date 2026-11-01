@@ -47,7 +47,7 @@ _RATE_LIMIT_HTTP = (429,)
 #   · 真限流 → 等 1 分钟就好，短冷却；
 #   · 额度用尽 → 等多久都不会恢复，必须换账号或充值，要把话说明白。
 # 混为一谈的代价：日志报「限流」，用户等一小时还是 429，却不知道要充值。
-_QUOTA_HINTS = ("2056", "用量上限", "套餐", "购买积分", "quota")
+QUOTA_HINTS = ("2056", "用量上限", "套餐", "购买积分", "quota")
 
 
 def mask(key: str) -> str:
@@ -118,7 +118,7 @@ def is_rate_limited(status_code: int, payload: object = None) -> bool:
     except (TypeError, ValueError):
         text = str(payload)
     low = (text or "").lower()
-    if any(h.lower() in low for h in _QUOTA_HINTS):
+    if any(h.lower() in low for h in QUOTA_HINTS):
         return False
     return True
 
