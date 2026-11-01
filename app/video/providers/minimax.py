@@ -17,6 +17,7 @@ import httpx
 
 from ...keys import (
     RATE_LIMIT_COOLDOWN_SEC,
+    _QUOTA_HINTS,
     error_message,
     is_rate_limited,
     key_failure,
@@ -24,7 +25,13 @@ from ...keys import (
     mask,
     ring_for,
 )
-from ..base import VideoJobParams, VideoJobResponse, VideoJobStatus, VideoProvider
+from ..base import (
+    DEFAULT_ASPECT,
+    VideoJobParams,
+    VideoJobResponse,
+    VideoJobStatus,
+    VideoProvider,
+)
 
 log = logging.getLogger(__name__)
 
@@ -194,13 +201,16 @@ class MiniMaxProvider(VideoProvider):
                             action, wait, i + 2, attempts)
                 await asyncio.sleep(wait)
             except RuntimeError as e:
-                # 全部 key 都被限流时 _send 会抛「所有 key 都不可用（… Too Many Requests）」。
-                # 这也只是时间问题，同样该退避。但欠费/鉴权失败（1004/1008）不能退避——
-                # 那是要人工处理的，重试一百次也一样。
                 msg = str(e).lower()
-                limited = "所有 key 都不可用" in str(e) and (
-                    "too many requests" in msg or "429" in msg or "rate limit" in msg
-                )
+                if "所有 key 都不可用" not in str(e):
+                    raise
+                # 额度用尽（2056 / 用量上限）等多久都不会恢复，退避只是白等。
+                if any(h.lower() in msg for h in _QUOTA_HINTS):
+                    raise
+                # 全部 key 都被限流时 _send 会抛「所有 key 都不可用（… Too Many Requests）」。
+                # 这也只是时间问题，该退避。但欠费/鉴权失败（1004/1008）不能退避——
+                # 那是要人工处理的，重试一百次也一样。
+                limited = "too many requests" in msg or "429" in msg or "rate limit" in msg
                 if not limited:
                     raise
                 last = e
@@ -274,7 +284,7 @@ class MiniMaxProvider(VideoProvider):
             # H3 支持 4-15 秒，夹到合法区间，缺省 6 秒。
             "duration": max(4, min(15, int(params.duration_sec or 6))),
             "resolution": resolution,
-            "ratio": extra.pop("ratio", params.aspect_ratio or "16:9"),
+            "ratio": extra.pop("ratio", params.aspect_ratio or DEFAULT_ASPECT),
         }
         body.update(extra)
 

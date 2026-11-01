@@ -868,3 +868,12 @@ def test_dp_injects_detailed_anchor_only_for_subject():
 
     assert "戴山羊头面具的黑西服男人" in prompt          # 主体有详细锚
     assert "深灰卫衣" not in prompt, f"背景人物不该带详细外貌：{prompt}"
+
+
+def test_短剧默认竖屏():
+    """产品只做短剧，短剧是竖屏。所有提交入口必须共用同一个默认值，
+    否则「忘了传画幅」就会出一版横屏成片（2026-11-01 实测 1344x768）。"""
+    from app.video.base import DEFAULT_ASPECT, VideoJobParams
+
+    assert DEFAULT_ASPECT == "9:16"
+    assert VideoJobParams().aspect_ratio == "9:16"

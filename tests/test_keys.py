@@ -391,3 +391,18 @@ def test_配音响应解析_无音频时给清楚错误():
         MiniMaxTTSClient._parse_audio({"data": {}, "base_resp": {"status": 0}})
     with pytest.raises(RuntimeError, match="JSON"):
         MiniMaxTTSClient._parse_audio("<html>502</html>")
+
+
+def test_429_要区分真限流和额度用尽():
+    """两者都是 429，但处理方式相反：
+    真限流等一分钟就好（短冷却）；额度用尽等多久都不会恢复（长冷却、要明说）。"""
+    from app.keys import is_rate_limited
+
+    # 真限流 → 短冷却 + 可退避
+    assert is_rate_limited(429, {"error": {"message": "too many requests"}}) is True
+    # 额度用尽（MiniMax 2056）→ 不是限流
+    assert is_rate_limited(
+        429, {"error": {"message": "已达到 Token Plan 用量上限：请升级 Token Plan 套餐或购买积分补充用量。(2056)"}}
+    ) is False
+    # 非 429 一律不算限流
+    assert is_rate_limited(401, {}) is False

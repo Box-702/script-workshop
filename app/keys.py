@@ -42,6 +42,13 @@ _KEY_ERROR_HTTP = (401, 402, 403)
 # 限流状态码。它同样是「换一把 key 就能过」的情形——多 key 的价值正在于此。
 _RATE_LIMIT_HTTP = (429,)
 
+# 「429 但其实是额度用尽」的特征。MiniMax 把「Token Plan 用量上限」（2056）
+# 也回成 429，两种情形的处理方式完全相反：
+#   · 真限流 → 等 1 分钟就好，短冷却；
+#   · 额度用尽 → 等多久都不会恢复，必须换账号或充值，要把话说明白。
+# 混为一谈的代价：日志报「限流」，用户等一小时还是 429，却不知道要充值。
+_QUOTA_HINTS = ("2056", "用量上限", "套餐", "购买积分", "quota")
+
 
 def mask(key: str) -> str:
     """日志里只露头尾，避免整串 key 落盘。"""
@@ -99,11 +106,21 @@ def key_failure(status_code: int, payload: object) -> bool:
 
 
 def is_rate_limited(status_code: int, payload: object = None) -> bool:
-    """这次失败是否只是被限流（决定冷却多久）。"""
-    if status_code in _RATE_LIMIT_HTTP:
-        return True
-    text = str(payload or "").lower()
-    return "rate limit" in text or "too many requests" in text
+    """这次失败是「暂时挤」还是「额度没了」。
+
+    只有前者适合短冷却 + 退避重试。额度用尽（2056 / 「Token Plan 用量上限」）
+    也回 429，但它等多久都不会恢复，必须换账号或充值，冷却要给足、话要说清。
+    """
+    if status_code not in _RATE_LIMIT_HTTP:
+        return False
+    try:
+        text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+    except (TypeError, ValueError):
+        text = str(payload)
+    low = (text or "").lower()
+    if any(h.lower() in low for h in _QUOTA_HINTS):
+        return False
+    return True
 
 
 def error_message(payload: object, status_code: int = 0) -> str:

@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ..crew.dramaturgy import refresh_prompt_audits
-from ..video.base import default_resolution
+from ..video.base import DEFAULT_ASPECT, default_resolution
 
 from . import common, deps
 from .schemas import (
@@ -509,7 +509,7 @@ def _job_params(payload: dict[str, Any]) -> Any:
     return VideoJobParams(
         duration_sec=int(payload.get("duration_sec") or 6),
         resolution=str(payload.get("resolution") or "1280x720"),
-        aspect_ratio=str(payload.get("ratio") or payload.get("aspect_ratio") or "16:9"),
+        aspect_ratio=str(payload.get("ratio") or payload.get("aspect_ratio") or DEFAULT_ASPECT),
         fps=int(payload.get("fps") or 24),
         seed=payload.get("seed"),
         negative_prompt=payload.get("negative_prompt"),
@@ -810,7 +810,7 @@ class BatchCreateRequest(BaseModel):
     """批量生成请求。mode=auto 一次跑完；mode=approval 每镜等用户预览放行。
 
     resolution 不传时用全局默认（VIDEO_DEFAULT_RESOLUTION）；显式传入则覆盖。
-    aspect_ratio 不传时跟随全局默认（16:9）；显式传入（如 9:16）则覆盖。
+    aspect_ratio 不传时跟随全局默认（竖屏 9:16，短剧形态）；显式传入则覆盖。
     """
 
     mode: str = Field(default="auto", pattern=r"^(auto|approval)$")

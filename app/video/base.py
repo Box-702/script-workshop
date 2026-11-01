@@ -20,6 +20,10 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
+# 画幅默认竖屏。短剧是竖屏产品，所有提交入口（Agent / API / 批量）共用这一个默认值，
+# 避免「忘了传画幅就出横屏」——以前三处默认值各写一遍 "16:9"，改一处漏两处。
+DEFAULT_ASPECT = "9:16"
+
 
 def default_resolution() -> str:
     """全局默认生成分辨率（VIDEO_DEFAULT_RESOLUTION，默认 768P 低挡位）。
@@ -50,7 +54,10 @@ class VideoJobParams:
     resolution: str = "1280x720"  # WxH 格式
     duration_sec: int = 5
     fps: int = 24
-    aspect_ratio: str = "16:9"
+    # 画幅默认竖屏：产品只做短剧，短剧是竖屏的。以前默认 16:9，谁忘了传
+    # 画幅参数就会拿到一版横屏成片（2026-11-01 实测：走 API 单镜提交时
+    # params 里没有 aspect_ratio，成片出来是 1344x768 的横屏）。
+    aspect_ratio: str = DEFAULT_ASPECT
     seed: int | None = None
     negative_prompt: str | None = None
     image_url: str | None = None  # 图生视频的首帧输入图
