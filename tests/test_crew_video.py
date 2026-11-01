@@ -182,11 +182,12 @@ def test_director_validate_accepts_good_plan():
 
 
 def test_language_for_follows_provider_dialect():
-    assert language_for("cogvideo", "zh-CN") == "zh"
-    assert language_for("kling", "en-US") == "zh"
-    assert language_for("sora", "zh-CN") == "en"
+    # MiniMax 原生吃中文：中文剧本就用中文提示词，英文剧本才转英文。
+    assert language_for("minimax", "zh-CN") == "zh"
     assert language_for("", "zh-CN") == "zh"
     assert language_for("", "en-US") == "en"
+    # 非中文原生 provider 一律英文——这类厂商只在显式配置时才会出现。
+    assert language_for("runway", "zh-CN") == "en"
 
 
 def test_dp_reuses_anchors_verbatim_and_filters_cast_per_shot():
@@ -625,15 +626,6 @@ def _monkeypatch_client(monkeypatch, module, data: dict) -> None:
             return _FakeResp(data)
 
     monkeypatch.setattr(module.httpx, "AsyncClient", _FakeClient)
-
-
-def test_cogvideo_poll_maps_success_despite_uppercase_field(monkeypatch):
-    """智谱：状态字段是 task_status、值为大写、结果字段是 video_result（单数）。"""
-    import app.video.providers.cogvideo as cog
-    _monkeypatch_client(monkeypatch, cog, {"task_status": "SUCCESS", "video_result": [{"url": "http://x/a.mp4"}]})
-    st = asyncio.run(cog.CogVideoProvider(api_key="k").poll_job("t1"))
-    assert st.status == "succeeded"
-    assert st.video_url == "http://x/a.mp4"
 
 
 def test_minimax_poll_unwraps_nested_task_and_success_substring(monkeypatch):

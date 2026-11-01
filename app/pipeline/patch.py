@@ -648,7 +648,46 @@ def validate_script(script: Script) -> list[ValidationIssue]:
         issues.append(ValidationIssue(path="/scenes", message="剧本至少需要一个场景。"))
     if not script.logline:
         issues.append(ValidationIssue(path="/logline", message="缺少一句话梗概。"))
+    issues.extend(_dialogue_budget_issues(script))
     return issues
+
+
+# 中文配音常态语速（与导演层的 CHARS_PER_SEC 口径一致）。
+_SPEECH_CHARS_PER_SEC = 4.0
+
+
+def _dialogue_budget_issues(script: Script) -> list[ValidationIssue]:
+    """对白总量是否超出成片预算。
+
+    为什么在剧本层管这件事：镜头数是台词数决定的（一镜一说话人），而台词量是
+    剧本层定的。剧本写 471 字对白，下游就只能拆出 60 镜、5 分钟成片——那不是
+    短剧。这里给一条 warning 让作者在写剧本时就看见成本，而不是等到出片。
+    """
+    from ..video.rhythm import duration_budget
+
+    fmt = getattr(getattr(script, "adaptation", None), "type", None) or "short_drama"
+    budget_sec = duration_budget(fmt)
+    speech_sec = budget_sec * 0.55          # 一半以上留给动作与停顿
+    limit = int(speech_sec * _SPEECH_CHARS_PER_SEC)
+
+    total = sum(
+        len(b.line or "")
+        for sc in script.scenes
+        for b in sc.beats
+        if b.type == "dialogue"
+    )
+    if total <= limit:
+        return []
+    return [ValidationIssue(
+        path="/scenes",
+        message=(
+            f"全片对白 {total} 字（约 {total / _SPEECH_CHARS_PER_SEC:.0f} 秒纯念白），"
+            f"超出短剧预算（{budget_sec:.0f} 秒成片建议 ≤{limit} 字）。"
+            "对白太多会逼下游拆出大量镜头、成片远超 1–2 分钟。"
+            "请合并或删减台词，把说明性内容改成动作。"
+        ),
+        severity="warning",
+    )]
 
 
 # ---------- 无模型回退 ----------

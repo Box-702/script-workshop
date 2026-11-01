@@ -154,3 +154,69 @@ def test_一镜一人多笔细节不误伤() -> None:
     )]
     issues = _check(shots)
     assert not any("段身体动作" in i for i in issues)
+
+
+# ---------- 分批拆解：长剧本不会因输出截断而整批失败 ----------
+
+
+def _multi_scene_script(n: int) -> Script:
+    scenes = [
+        Scene(
+            id=f"scene_{i:03d}", title=f"场{i}", chapter_refs=["ch_001"], location_id="loc_a",
+            characters=["char_a"], purpose="p", conflict="c",
+            beats=[ScriptBeat(id=f"beat_{i:03d}", type="action", text="甲站着")],
+        )
+        for i in range(1, n + 1)
+    ]
+    return Script(
+        title="测试", source=Source(chapter_count=1, chapter_ids=["ch_001"]),
+        logline="测", characters=[Character(id="char_a", name="甲")],
+        locations=[Location(id="loc_a", name="屋")], scenes=scenes,
+    )
+
+
+def _scene_json(scene_id: str, n_shots: int = 1, start: int = 0) -> dict:
+    return {
+        "scene_id": scene_id,
+        "director_notes": "备注",
+        "pacing": "fast",
+        "shots": [
+            {
+                "order": start + i, "shot_type": "medium", "camera_type": "static",
+                "subject": "甲", "action": "甲站着", "duration_sec": 4.0,
+                "function": "establish", "final_frame": "甲站着",
+                "reference_group": scene_id,
+            }
+            for i in range(n_shots)
+        ],
+    }
+
+
+def test_长剧本按场分批拆且_order_全局连续():
+    """7 场戏不能一次输出（会截断），必须分批；合并后 order 全局唯一且连续。"""
+    from app.crew.director import MAX_SCENES_PER_BATCH
+
+    script = _multi_scene_script(7)
+    agent = DirectorAgent.__new__(DirectorAgent)
+    calls: list[int] = []
+
+    def fake_invoke_json(system, user):
+        # 从 prompt 里数这一批有几场
+        n = user.count("--- scene_")
+        calls.append(n)
+        ids = [line.split()[1] for line in user.splitlines() if line.startswith("--- scene_")]
+        return [_scene_json(i, 1) for i in ids]
+
+    agent._invoke_json = fake_invoke_json
+    agent.llm = type("L", (), {"available": True})()
+    agent._validate_continuity = lambda bds, sc=None, **kw: []   # 这里只验分批，不验内容
+
+    result = agent.run(script)
+
+    assert result.success
+    assert len(calls) == 4                      # 7 场 / 每批 2 → 4 批
+    assert max(calls) <= MAX_SCENES_PER_BATCH
+    orders = [s.order for bd in result.data for s in bd.shots]
+    assert orders == sorted(orders)
+    assert len(set(orders)) == len(orders)      # 无重复
+    assert len(orders) == 7

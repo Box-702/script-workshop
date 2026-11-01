@@ -46,11 +46,81 @@ def test_key_failure_只认_key_级错误():
     assert key_failure(401, {}) is True
     assert key_failure(402, {"error": {"message": "insufficient balance (1008)"}}) is True
     assert key_failure(200, {"base_resp": {"status_code": 1004}}) is True
+    # 限流也是 key 级：它是按账号算的，换一把能用（2026-11-01 实测：
+    # 主 key 连续 429，备用 key 一次就过）
+    assert key_failure(429, {"error": "rate limit"}) is True
     # 非 key 级：换 key 也没用，不能误判
     assert key_failure(400, {"base_resp": {"status_code": 2013}}) is False
     assert key_failure(200, {"task_id": "123"}) is False
-    assert key_failure(429, {"error": "rate limit"}) is False
     assert key_failure(400, {"msg": "invalid 11008 format"}) is False
+
+
+def test_限流用短冷却_欠费用长冷却():
+    """429 说的是「现在太挤」，不是「这把 key 坏了」——冷却 60 秒而不是 10 分钟。"""
+    from app.keys import RATE_LIMIT_COOLDOWN_SEC, KeyRing, is_rate_limited
+
+    assert is_rate_limited(429) is True
+    assert is_rate_limited(401) is False
+
+    ring = KeyRing("k1,k2", label="test")
+    ring.mark_bad("k1", "429", cooldown=RATE_LIMIT_COOLDOWN_SEC)
+    snap = {s["key"]: s for s in ring.snapshot()}
+    assert 0 < snap[_mask_of(ring, "k1")]["cooldown_left"] <= 60
+
+
+def _mask_of(ring, key: str) -> str:
+    from app.keys import mask
+
+    return mask(key)
+
+
+def test_限流后自动换到可用的_key(monkeypatch):
+    """一把 429、一把正常：轮换必须落到能用的那把，而不是整批判死。"""
+    from app.video.providers.minimax import MiniMaxProvider
+    from app.video.base import VideoJobParams
+
+    calls: list[str] = []
+
+    class _Client:
+        def __init__(self, *a, **k) -> None: ...
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a) -> bool:
+            return False
+
+        async def get(self, url, headers=None, json=None):
+            raise NotImplementedError
+
+        async def post(self, url, headers=None, json=None):
+            key = (headers or {}).get("Authorization", "")
+            calls.append(key)
+            if key.endswith("bad"):
+                from app.video.providers import minimax
+
+                req = minimax.httpx.Request("POST", url)
+                return minimax.httpx.Response(429, request=req, text='{"error":"too many requests"}')
+            from app.video.providers import minimax
+
+            req = minimax.httpx.Request("POST", url)
+            return minimax.httpx.Response(200, request=req, json={"task_id": "t-ok"})
+
+    import app.video.providers.minimax as mm
+
+    monkeypatch.setattr(mm.httpx, "AsyncClient", _Client)
+    p = MiniMaxProvider(api_key="bad")
+    ring = type("R", (), {
+        "candidates": lambda self: ["bad", "good"],
+        "mark_bad": lambda self, k, r="", cooldown=None: None,
+        "mark_ok": lambda self, k: None,
+    })()
+    p._ring = lambda: ring
+
+    import asyncio
+
+    r = asyncio.run(p.create_job("测试", VideoJobParams(duration_sec=4)))
+    assert r.external_task_id == "t-ok"
+    assert len(calls) == 2                     # 先 429 再换 key
 
 
 def test_mask_不泄露完整_key():

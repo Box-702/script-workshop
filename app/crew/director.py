@@ -43,6 +43,11 @@ MAX_DESIGN_ITERATIONS = 3
 # 每轮回喂给模型的批评条数上限。一次性丢十几条会让它顾此失彼。
 MAX_CRITIQUE_SHOWN = 5
 
+# 一次拆几个场景。超过这个数，模型输出的分镜 JSON 会超单次输出上限被截断
+# （2026-11-01 实测：7 场整拆时截断在第一个场景中途；3 场也会截断，尤其
+# 模型把 director_notes 写长的时候）。2 场是「调用次数」与「截断率」的平衡点。
+MAX_SCENES_PER_BATCH = 2
+
 # 台词朗读速度：中文约每秒 4 字（配音层 TTS 的常态语速）。
 CHARS_PER_SEC = 4.0
 
@@ -74,7 +79,20 @@ def _default_pacing(adaptation_type: str | None) -> str:
     return default_pacing(adaptation_type)
 
 
-def _format_constraints(adaptation_type: str | None, visual_style: str | None) -> list[str]:
+def _budget_for(adaptation_type: str | None) -> float:
+    """成片目标时长（秒）。短剧 120 秒。"""
+    from ..video.rhythm import duration_budget
+
+    return duration_budget(adaptation_type)
+
+
+def _format_constraints(
+    adaptation_type: str | None,
+    visual_style: str | None,
+    *,
+    batch_scenes: int = 1,
+    total_scenes: int = 1,
+) -> list[str]:
     """把「类型节奏」与「画风」写成给导演的硬约束（拼在 user prompt 里）。
 
     为什么这两件事要进 prompt 而不是只留代码默认值：分镜时长是导演自己写的
@@ -82,16 +100,27 @@ def _format_constraints(adaptation_type: str | None, visual_style: str | None) -
     模型就会按「电影感」给 8–10 秒镜头——短剧观众早就划走了。
     """
     from ..pipeline.visual_styles import get_visual_style
-    from ..video.rhythm import normalize_format, rhythm_table
+    from ..video.rhythm import duration_budget, normalize_format, rhythm_table
 
     fmt = normalize_format(adaptation_type)
     table = rhythm_table(fmt)
     spec = get_visual_style(visual_style)
+    budget = duration_budget(fmt)
 
     lines = [""]
     if fmt == "short_drama":
+        # 分批拆解时，模型只看得到自己这一批的戏——「整片 120 秒」对它没有约束力，
+        # 它会照剧情一路拆细（实测：说了 120 秒，仍拆出 62 镜 300+ 秒）。所以要把
+        # 预算按场数折算成「这一批只有多少秒」，它才知道该合并多少。
+        share = budget * max(1, batch_scenes) / max(1, total_scenes)
         lines += [
-            "【类型约束】短剧：竖屏、单集 1–2 分钟、前 3 秒必须抓住注意力。",
+            "【类型约束】短剧：竖屏、1–2 分钟、前 3 秒必须抓住注意力。",
+            f"【本批预算】这次要拆 {batch_scenes} 场，合计约 **{share:.0f} 秒、"
+            f"{max(1, int(share / table['medium']))}–{max(1, int(share / table['fast']))} 个镜头**"
+            f"（全片 {total_scenes} 场共约 {budget:.0f} 秒）。超出这个数就是超了，"
+            "要合并镜头，不是加镜头。",
+            "不是「把小说拍完」，是「把这场冲突拍爽」——过场、铺垫、次要人物的反应镜头，"
+            "该合并就合并、该删就删。",
             f"【节奏基线】短剧单镜 {table['fast']:.0f}–{table['slow']:.0f} 秒：多数镜头写 "
             f"{table['fast']:.0f}–{table['medium']:.0f} 秒，只有情绪转折或重大信息才给 "
             f"{table['slow']:.0f} 秒。不要写 8 秒以上的镜头——那是电影节奏。",
@@ -154,6 +183,18 @@ def _pick_enum(value: Any, allowed: set[str], aliases: dict[str, str], default: 
 
 
 
+def _critique_for(batch: list, critique: list[str]) -> list[str]:
+    """挑出跟这批场景相关的批评条目。
+
+    分批拆解时整片校验仍然做（跨场景的接力、重复构图要整体看），但回喂时
+    只喂本批的——否则模型会去改自己这一批里根本没有的场景，越改越乱。
+    """
+    if not critique:
+        return []
+    ids = [sc.id for sc in batch]
+    return [c for c in critique if any(i in c for i in ids)]
+
+
 class DirectorAgent(CrewAgent):
     """导演 Agent：将剧本拆解为镜头方案。"""
 
@@ -196,39 +237,99 @@ class DirectorAgent(CrewAgent):
 
         default_pacing = _default_pacing(adaptation_type)
 
-        # 有界重做循环：先拆解 → 连续性校验 → 有问题把 critique 回喂模型重拆。
+        # 分批拆解：一次输出整部戏的分镜 JSON 会超模型单次输出上限，被截断后
+        # JSON 不闭合、解析必失败（2026-11-01 实测：7 场戏整拆时截断在 scene_001
+        # 中途）。按场分批后每批只输出 2–3 场，长度可控；校验与回喂仍按全片做。
+        batches = [targets[i:i + MAX_SCENES_PER_BATCH]
+                   for i in range(0, len(targets), MAX_SCENES_PER_BATCH)]
+
         critique: list[str] = []
-        last: list[SceneBreakdown] | None = None
+        last: list[SceneBreakdown] = []
         for _ in range(MAX_DESIGN_ITERATIONS):
-            user_prompt = self._build_prompt(script, targets, adaptation_type, visual_style)
-            if critique:
-                # 一次只回喂最要紧的几条：把十几条批评一起丢回去，模型会顾此失彼、
-                # 越改越散（2026-10-31 实测：11 条全给时，问题从 2 个涨到 7 个）。
-                shown = critique[:MAX_CRITIQUE_SHOWN]
-                more = "" if len(critique) <= len(shown) else f"（另有 {len(critique) - len(shown)} 条次要问题，下一轮再说）"
-                user_prompt += (
-                    f"\n\n上一版分镜的连续性校验发现 {len(critique)} 个问题{more}。"
-                    "先只改下面这几条，其余部分保持不动，改完重新输出完整 JSON：\n"
-                    + "\n".join(f"- {c}" for c in shown)
+            breakdowns: list[SceneBreakdown] = []
+            order = 0
+            for batch in batches:
+                bds, order = self._design_batch(
+                    script, batch, adaptation_type, visual_style,
+                    default_pacing, order,
+                    # 只把与本批相关的批评回喂：跨批的批评会让模型分心去改别的场。
+                    critique=_critique_for(batch, critique),
                 )
-            try:
-                raw = self._invoke_json(director_system(), user_prompt)
-                breakdowns = self._parse_breakdowns(raw, default_pacing=default_pacing)
-            except Exception as e:  # noqa: BLE001
-                log.warning("导演 Agent 失败：%s", e)
-                return CrewTaskResult(success=False, summary=f"导演工作失败：{e}", errors=[str(e)])
+                if bds is None:
+                    return CrewTaskResult(
+                        success=False,
+                        summary=f"导演工作失败：{'、'.join(sc.id for sc in batch)} 拆解失败",
+                        errors=critique,
+                    )
+                breakdowns.extend(bds)
             last = breakdowns
-            critique = self._validate_continuity(breakdowns, script)
+            critique = self._validate_continuity(
+                breakdowns, script,
+                budget_sec=_budget_for(adaptation_type),
+            )
             if not critique:
-                summary = f"导演完成 {len(breakdowns)} 个场景的镜头拆解，共 {sum(len(b.shots) for b in breakdowns)} 个镜头"
+                summary = (
+                    f"导演完成 {len(breakdowns)} 个场景的镜头拆解，"
+                    f"共 {sum(len(b.shots) for b in breakdowns)} 个镜头"
+                )
                 return CrewTaskResult(data=breakdowns, summary=summary)
 
         total = sum(len(b.shots) for b in last) if last else 0
         summary = f"导演完成拆解（共 {total} 镜），但连续性校验仍待完善：{critique[0] if critique else ''}"
         return CrewTaskResult(data=last, summary=summary, errors=critique)
 
+    def _design_batch(
+        self,
+        script: Script,
+        targets: list,
+        adaptation_type: str | None,
+        visual_style: str | None,
+        default_pacing: str,
+        start_order: int,
+        *,
+        critique: list[str] | None = None,
+    ) -> tuple[list[SceneBreakdown] | None, int]:
+        """拆一批场景，返回 (分镜列表, 下一个可用全局 order)。失败返回 (None, start_order)。"""
+        user_prompt = self._build_prompt(script, targets, adaptation_type, visual_style)
+        if critique:
+            # 一次只回喂最要紧的几条：把十几条批评一起丢回去，模型会顾此失彼、
+            # 越改越散（2026-10-31 实测：11 条全给时，问题从 2 个涨到 7 个）。
+            shown = critique[:MAX_CRITIQUE_SHOWN]
+            more = "" if len(critique) <= len(shown) else f"（另有 {len(critique) - len(shown)} 条次要问题，下一轮再说）"
+            user_prompt += (
+                f"\n\n上一版分镜的连续性校验发现 {len(critique)} 个问题{more}。"
+                "先只改下面这几条，其余部分保持不动，改完重新输出完整 JSON：\n"
+                + "\n".join(f"- {c}" for c in shown)
+            )
+        try:
+            raw = self._invoke_json(director_system(), user_prompt)
+            breakdowns = self._parse_breakdowns(
+                raw, default_pacing=default_pacing, start_order=start_order,
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("导演拆解失败（%s）：%s", "、".join(sc.id for sc in targets), e)
+            return None, start_order
+
+        # 截断救援后可能少几个场景：把没拆出来的单独补拆（一次一场，输出够短），
+        # 别让「差一场」把整批判成失败。0 镜的场景同样算没拆出来。
+        got = {b.scene_id for b in breakdowns if b.shots}
+        missing = [sc for sc in targets if sc.id not in got]
+        if missing and len(targets) > 1:
+            for sc in missing:
+                more, start_order = self._design_batch(
+                    script, [sc], adaptation_type, visual_style, default_pacing, start_order,
+                )
+                if more:
+                    breakdowns.extend(more)
+                else:
+                    log.warning("场景 %s 单独补拆仍失败", sc.id)
+                    return None, start_order
+
+        return breakdowns, start_order + sum(len(b.shots) for b in breakdowns)
+
     def _validate_continuity(
         self, breakdowns: list[SceneBreakdown], script: Script | None = None,
+        *, budget_sec: float | None = None,
     ) -> list[str]:
         """确定性校验分镜（不靠固定镜头数，只查结构自洽、生成器可行性与戏剧结构）。
 
@@ -249,6 +350,21 @@ class DirectorAgent(CrewAgent):
         all_orders = {s.order for bd in breakdowns for s in bd.shots}
         scene_of = {sc.id: sc for sc in (script.scenes if script else [])}
         char_of = {c.id: c.name for c in (script.characters if script else [])}
+
+        # 0) 片长预算：短剧是 1–2 分钟的片子，不是「把小说拍完」。
+        #    没有这一条时，导演会按剧情一路拆下去——《孔乙己》七场戏拆出 60 镜
+        #    295 秒，是短剧的三倍，生成成本与观众耐心都不允许。
+        if budget_sec:
+            total = sum(max(0.0, s.duration_sec) for bd in breakdowns for s in bd.shots)
+            limit = budget_sec * 1.5
+            if total > limit:
+                n = sum(len(bd.shots) for bd in breakdowns)
+                issues.append(
+                    f"整片总时长 {total:.0f} 秒、共 {n} 个镜头，超出预算（目标 {budget_sec:.0f} 秒，"
+                    f"上限 {limit:.0f} 秒）。短剧不是「把小说拍完」：请合并同场景的连续动作、"
+                    "删掉过场与铺垫镜头、把次要人物的反应镜头并进主镜，"
+                    f"压到 {int(budget_sec / 5)} 个镜头左右。"
+                )
         for bd in breakdowns:
             scene_shots = sorted(bd.shots, key=lambda s: s.order)
             scene = scene_of.get(bd.scene_id)
@@ -358,7 +474,10 @@ class DirectorAgent(CrewAgent):
             f"主题：{'、'.join(script.themes)}",
             f"人物：{'、'.join(c.name + '(' + (c.role or '未定') + ')' for c in script.characters)}",
         ]
-        parts.extend(_format_constraints(adaptation_type, visual_style))
+        parts.extend(_format_constraints(
+            adaptation_type, visual_style,
+            batch_scenes=len(targets), total_scenes=max(1, len(script.scenes)),
+        ))
         parts.extend(["", "请为以下场景设计镜头方案："])
 
         for sc in targets:
@@ -388,11 +507,16 @@ class DirectorAgent(CrewAgent):
 
         return "\n".join(parts)
 
-    def _parse_breakdowns(self, raw: Any, *, default_pacing: str = "medium") -> list[SceneBreakdown]:
+    def _parse_breakdowns(
+        self, raw: Any, *, default_pacing: str = "medium", start_order: int = 0,
+    ) -> list[SceneBreakdown]:
         """将 LLM JSON 输出解析为 SceneBreakdown 列表。
 
         模型给的是「场景内局部 order」（每场都从 0 开始），而接力/参考逻辑需要
         全片唯一的全局 order。这里统一重编号，并把 chain_from 从局部编号映射到全局。
+
+        ``start_order``：分批拆解时，这一批镜头在整部片里的起始编号——否则每批
+        都从 0 开始，合并后会出现大量重复 order。
         """
         if isinstance(raw, dict):
             raw = [raw]
@@ -400,7 +524,7 @@ class DirectorAgent(CrewAgent):
             raise ValueError(f"期望数组，得到 {type(raw)}")
 
         breakdowns: list[SceneBreakdown] = []
-        next_order = 0
+        next_order = start_order
         for item in raw:
             scene_id = item.get("scene_id", "")
             shots_in = sorted(item.get("shots", []), key=lambda x: x.get("order", 0))

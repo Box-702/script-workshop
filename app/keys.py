@@ -30,10 +30,17 @@ log = logging.getLogger(__name__)
 # 判定失效后的冷却时长（秒）。可用 KEY_COOLDOWN_SEC 覆盖。
 DEFAULT_COOLDOWN_SEC = 600.0
 
+# 被限流（429）时的冷却：短得多。429 说的是「这个账号现在太挤」，不是
+# 「这把 key 坏了」——欠费要等充值，限流等一分钟就好。
+RATE_LIMIT_COOLDOWN_SEC = 60.0
+
 # MiniMax 的 key 级错误码：1004 鉴权失败、1008 余额不足。
 _KEY_ERROR_CODES = ("1004", "1008")
 _KEY_ERROR_RE = re.compile(r"\b(?:" + "|".join(_KEY_ERROR_CODES) + r")\b")
 _KEY_ERROR_HTTP = (401, 402, 403)
+
+# 限流状态码。它同样是「换一把 key 就能过」的情形——多 key 的价值正在于此。
+_RATE_LIMIT_HTTP = (429,)
 
 
 def mask(key: str) -> str:
@@ -77,14 +84,26 @@ def key_failure(status_code: int, payload: object) -> bool:
 
     HTTP 401/402/403 直接算；MiniMax 也有 HTTP 200 但 body 里带错误码的情形，
     所以再扫一遍响应体里的 (1004)/(1008)。
+
+    **429 也算**：限流是按账号算的，A 账号在跑长任务被限，B 账号照样能提交
+    （2026-11-01 实测：主 key 连续 429，备用 key 一次就过）。不把 429 算进来，
+    多 key 轮换在最需要它的时候反而不生效。
     """
-    if status_code in _KEY_ERROR_HTTP:
+    if status_code in _KEY_ERROR_HTTP or status_code in _RATE_LIMIT_HTTP:
         return True
     try:
         text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
     except (TypeError, ValueError):
         text = str(payload)
     return bool(_KEY_ERROR_RE.search(text or ""))
+
+
+def is_rate_limited(status_code: int, payload: object = None) -> bool:
+    """这次失败是否只是被限流（决定冷却多久）。"""
+    if status_code in _RATE_LIMIT_HTTP:
+        return True
+    text = str(payload or "").lower()
+    return "rate limit" in text or "too many requests" in text
 
 
 def error_message(payload: object, status_code: int = 0) -> str:
@@ -156,20 +175,26 @@ class KeyRing:
         got = self.candidates()
         return got[0] if got else ""
 
-    def mark_bad(self, key: str, reason: str = "") -> None:
+    def mark_bad(self, key: str, reason: str = "", *, cooldown: float | None = None) -> None:
+        """把一把 key 打进冷却。
+
+        ``cooldown`` 不传时用默认值（欠费/鉴权这类要等人工处理的问题）；被限流
+        时传短冷却——60 秒后重试往往就好了，用 10 分钟会把还能用的 key 雪藏。
+        """
         now = time.time()
+        span = self.cooldown if cooldown is None else float(cooldown)
         with self._lock:
             for state in self._states:
                 if state.key == key:
                     state.failures += 1
-                    state.bad_until = now + self.cooldown
+                    state.bad_until = now + span
                     state.reason = reason or state.reason
                     break
         log.warning(
             "[%s] key %s 进入冷却 %ds：%s",
             self.label or "provider",
             mask(key),
-            int(self.cooldown),
+            int(span),
             reason or "未知原因",
         )
 

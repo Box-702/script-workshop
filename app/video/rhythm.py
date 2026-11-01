@@ -62,6 +62,28 @@ DEFAULT_PACING_BY_FORMAT: dict[str, str] = {
     "other": "medium",
 }
 
+# 成片目标时长（秒）。短剧是 1–2 分钟一集，不是「把小说拍完」。
+#
+# 为什么必须给这个数：导演只按剧情拆镜，不知道成片该多长。实测《孔乙己》
+# 7 场戏拆出 60 镜、295 秒——那是 5 分钟的片子，不是短剧；单这一项的生成
+# 成本就是三倍，观众也早划走了。给了预算，模型才知道该合并多少镜。
+DURATION_BUDGET_SEC: dict[str, float] = {
+    "short_drama": 120.0,
+    "film": 6000.0,
+    "series": 1500.0,   # 单集
+    "stage": 5400.0,
+    "other": 120.0,
+}
+
+# 超出预算多少倍才判为问题。给 1.5 倍余量：拆镜时镜头数取整、情绪镜头放长
+# 都合理，卡太死会把合格方案反复打回。
+BUDGET_TOLERANCE = 1.5
+
+
+def duration_budget(format: str | None = None) -> float:
+    """该类型的成片目标时长（秒）。短剧默认 120 秒。"""
+    return DURATION_BUDGET_SEC[normalize_format(format)]
+
 VALID_PACINGS = ("slow", "medium", "fast", "variable")
 
 # 拿不到 pacing 时的兜底（也是新镜头的默认时长）。短剧项目请走 suggest_duration。

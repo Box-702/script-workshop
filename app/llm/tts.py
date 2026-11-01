@@ -22,7 +22,15 @@ from typing import Any
 
 import httpx
 
-from ..keys import error_message, key_failure, mask, minimax_keys, ring_for
+from ..keys import (
+    RATE_LIMIT_COOLDOWN_SEC,
+    error_message,
+    is_rate_limited,
+    key_failure,
+    mask,
+    minimax_keys,
+    ring_for,
+)
 from .base import ModelConfig
 
 log = logging.getLogger(__name__)
@@ -105,7 +113,10 @@ class MiniMaxTTSClient(TTSClient):
                 # key 级错误（401/402/1004/1008）换下一把；参数错误直接抛。
                 if key_failure(resp.status_code, data):
                     reason = error_message(data, resp.status_code)
-                    ring.mark_bad(key, reason)
+                    ring.mark_bad(
+                        key, reason,
+                        cooldown=RATE_LIMIT_COOLDOWN_SEC if is_rate_limited(resp.status_code, data) else None,
+                    )
                     failures.append(f"{mask(key)} {reason}")
                     continue
                 resp.raise_for_status()
