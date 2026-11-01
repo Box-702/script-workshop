@@ -158,11 +158,14 @@ def _make_video_project(store, llm, sample_text):
     return tools, collector, pid
 
 
-def test_list_video_shots_reports_status(store, llm, sample_text):
+def test_get_status_reports_shots(store, llm, sample_text):
+    """查询只有一个入口：概况给计数，detail=shots 才展开逐镜清单。"""
     tools, _, pid = _make_video_project(store, llm, sample_text)
-    r = tools["list_video_shots"].invoke({"project_id": pid})
-    assert "shot_scene001_000" in r and "待审" in r
-    assert "已批准 1 个" in r
+    summary = tools["get_status"].invoke({"project_id": pid})
+    assert "已批准 1" in summary
+    assert "shot_scene001_000" not in summary       # 概况不逐镜展开
+    full = tools["get_status"].invoke({"project_id": pid, "detail": "shots"})
+    assert "shot_scene001_000" in full and "待审" in full
 
 
 def test_approve_video_prompts_creates_version(store, llm, sample_text):
@@ -177,9 +180,9 @@ def test_approve_video_prompts_creates_version(store, llm, sample_text):
     assert "没有可批准" in r2
 
 
-def test_get_video_jobs_empty_and_rerun_unknown(store, llm, sample_text):
+def test_get_status_before_any_job_and_rerun_unknown(store, llm, sample_text):
     tools, _, pid = _make_video_project(store, llm, sample_text)
-    assert "还没有提交过" in tools["get_video_jobs"].invoke({"project_id": pid})
+    assert "已出片 0" in tools["get_status"].invoke({"project_id": pid})
     assert "没有找到镜头" in tools["rerun_video"].invoke({"project_id": pid, "shot_id": "shot_x"})
 
 
@@ -194,15 +197,17 @@ def test_submit_videos_requires_approval(store, llm, sample_text):
     assert "需要先经过人工批准" in r
 
 
-def test_check_background_tasks_reports_status(store, llm, sample_text):
+def test_get_status_includes_background_tasks(store, llm, sample_text):
     from app.agent.tasks import SubAgentRunner, SubAgentTask
     from app.chat import build_chat_tools
 
     runner = SubAgentRunner()
     collector = {"project_id": None, "payloads": []}
     tools = {t.name: t for t in build_chat_tools(store, llm, collector, runner=runner)}
+    tools["create_project"].invoke({"title": "雨夜", "raw_text": sample_text})
+    pid = collector["project_id"]
     runner._tasks["task_x"] = SubAgentTask(id="task_x", name="导演场景拆解", status="done", result="已拆出 4 个镜头")
-    r = tools["check_background_tasks"].invoke({})
+    r = tools["get_status"].invoke({"project_id": pid})
     assert "导演场景拆解" in r and "已完成" in r and "4 个镜头" in r
 
 
@@ -540,11 +545,11 @@ TRIGGERS = [
     ("风格指南", "generate_style_guide"),
     ("定妆图", "generate_reference_assets"),
     ("视频 prompt", "generate_video_prompts"),
-    ("镜头盘点", "list_video_shots"),
+    # 查询类只有一个入口：进度/后台/合成/镜头盘点全部收敛到 get_status。
+    ("问进度", "get_status"),
     ("批准提示词", "approve_video_prompts"),
     ("出片（", "submit_videos"),
     ("合成成片", "finalize_film"),
-    ("后台任务", "check_background_tasks"),
     ("记忆：", "remember"),
 ]
 

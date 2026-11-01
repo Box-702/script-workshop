@@ -65,4 +65,4 @@ audience: main
 
 # 相关工具
 
-`map_novel` · `propose_arcs` · `generate_script` · `check_background_tasks`
+`map_novel` · `propose_arcs` · `generate_script` · `get_status`

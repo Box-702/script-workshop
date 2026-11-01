@@ -89,16 +89,16 @@ SYSTEM_PROMPT_TEMPLATE = (
     "· 新建剧本（新建项目 / 新建剧本 / 新开一部）→ create_project；缺标题、改编类型或原文时先问清楚\n"
     "· 生成初稿（生成 / 初稿 / 第一版 / 出剧本）→ generate_script\n"
     "· 改编（改对白 / 改节奏 / 压缩 / 反转 / 口语化）→ run_adaptation，细则见 script-review 技能\n"
-    "· 咨询（剧本怎么样 / 这个结尾好不好）→ get_script_overview 或 ask，凭剧本概况与作者风格给有依据的回答\n"
+    "· 咨询（剧本怎么样 / 这个结尾好不好）→ ask，凭剧本概况与作者风格给有依据的回答\n"
     "· 拆镜头（拆解 / 分镜 / 设计镜头 / 场景拆解）→ breakdown_scenes\n"
     "· 风格指南（视觉风格 / 角色造型 / 画面风格）→ generate_style_guide\n"
     "· 定妆图（参考图 / 人物形象图 / 视觉参考）→ generate_reference_assets\n"
     "· 视频 prompt（生成 prompt / 镜头描述）→ generate_video_prompts\n"
-    "· 镜头盘点（进度 / 哪些镜头还没批准 / 出片了吗）→ list_video_shots，必要时再 get_video_jobs\n"
+    "· 问进度（到哪了 / 拆好了吗 / 出片了吗 / 合成好了没 / 哪些还没批准）→ get_status，"
+    "一次问清，不要凭记忆答，也不要靠猜\n"
     "· 批准提示词 → approve_video_prompts（只在用户明确说「批准」时）\n"
     "· 出片（出片 / 生成视频 / 提交视频）→ submit_videos；重试或重 roll 某镜 → rerun_video\n"
-    "· 合成成片（拼成片 / 出完整视频）→ finalize_film；问合成好了没 → check_finalize\n"
-    "· 后台任务（拆好了吗 / 好了没 / 进度如何）→ check_background_tasks\n"
+    "· 合成成片（拼成片 / 出完整视频）→ finalize_film\n"
     "· 记忆：系统提示里的「用户记忆」要主动遵循；说「记住… / 以后都…」→ remember；问「你记得什么」→ recall\n"
     "· 长篇小说（原文超过约 1.4 万字）→ 先加载 novel-serial 技能，不要直接 generate_script\n"
     "\n"
@@ -425,12 +425,6 @@ def build_chat_tools(
         )
 
     @tool
-    def get_script_overview(project_id: str) -> str:
-        """查看当前剧本的概况（标题、梗概、主题、人物、场景清单）。参数：project_id=项目 id。"""
-        p = _project(project_id)
-        return _overview_text(p)
-
-    @tool
     def ask(project_id: str, question: str) -> str:
         """就剧本 / 改编创作提问（参考剧本概况与作者风格），给出有依据的回答。参数：project_id=项目 id，question=问题。"""
         p = _project(project_id)
@@ -685,31 +679,6 @@ def build_chat_tools(
         return latest
 
     @tool
-    def list_video_shots(project_id: str) -> str:
-        """盘点镜头与出片进度：列出每个镜头的提示词审阅状态（待审/需修改/已批准）和成片状态。用户问「镜头进度 / 哪些还没批准 / 出片了吗」时先调用这个。参数：project_id=项目 id。"""
-        p = _project(project_id)
-        v = _latest_video_version(p)
-        if v is None or not v.shots:
-            return "还没有镜头方案——需要先「拆解镜头」。"
-        jobs = _latest_job_by_shot(p.id)
-        lines = []
-        for s in v.shots:
-            if not isinstance(s, dict) or not s.get("id"):
-                continue
-            sid = s["id"]
-            prompt = _PROMPT_STATUS_LABELS.get(s.get("prompt_status") or "draft", "待审")
-            job = jobs.get(sid)
-            video = _JOB_STATUS_LABELS.get(job.status, "") if job else ""
-            if job is not None and job.status == "failed" and getattr(job, "error_message", None):
-                video += f"（{job.error_message}）"
-            subject = s.get("subject") or ""
-            lines.append(f"- {sid}{'（' + subject + '）' if subject else ''}：提示词{prompt}"
-                         + (f"，视频{video}" if video else ""))
-        n_approved = sum(1 for s in v.shots if isinstance(s, dict) and s.get("prompt_status") == "approved")
-        head = f"共 {len(lines)} 个镜头，已批准 {n_approved} 个：\n"
-        return head + "\n".join(lines)
-
-    @tool
     def approve_video_prompts(project_id: str, shot_ids: str = "") -> str:
         """批准镜头的提示词，使其可以提交视频生成（批准后生成新的镜头版本，可回滚）。注意：这是用户的正式决定，只在用户明确说「批准」时才调用。参数：project_id=项目 id；shot_ids=镜头 id 列表（逗号分隔），留空=批准全部有待审提示词的镜头。"""
         p = _project(project_id)
@@ -786,24 +755,6 @@ def build_chat_tools(
         return f"已开始出片：共 {total} 个镜头会按顺序生成，前一镜完成后自动作为后一镜的参考以保持连贯。可以随时问我「出片进度」。"
 
     @tool
-    def get_video_jobs(project_id: str) -> str:
-        """查询视频生成任务的最新状态（排队/生成中/已出片/失败原因）。用户问「出片了吗 / 生成得怎么样」时调用。参数：project_id=项目 id。"""
-        p = _project(project_id)
-        jobs = store.list_video_jobs(p.id)
-        if not jobs:
-            return "还没有提交过视频生成任务。"
-        latest = _latest_job_by_shot(p.id)
-        lines = []
-        for sid, j in latest.items():
-            label = _JOB_STATUS_LABELS.get(j.status, j.status)
-            suffix = f"（{j.error_message}）" if j.status == "failed" and getattr(j, "error_message", None) else ""
-            lines.append(f"- {sid}：{label}{suffix}")
-        done = sum(1 for j in latest.values() if j.status == "succeeded")
-        failed = sum(1 for j in latest.values() if j.status == "failed")
-        head = f"各镜头最新状态（{done} 个已出片，{failed} 个失败）：\n"
-        return head + "\n".join(lines)
-
-    @tool
     def rerun_video(project_id: str, shot_id: str) -> str:
         """重新生成某个镜头的视频：任务失败时重试；对成片不满意时重新出一版。参数：project_id=项目 id；shot_id=镜头 id（形如 shot_scene001_001）。"""
         p = _project(project_id)
@@ -859,51 +810,101 @@ def build_chat_tools(
             "完成后成片会出现在作品工作台里，稍等片刻或直接问「合成好了吗」。"
         )
 
-    @tool
-    def check_finalize() -> str:
-        """查询成片合成的进度与结果。用户问「合成好了吗 / 成片好了没」时调用，不要凭记忆回答。无需参数。"""
-        from ..deps import finalize_manager as _manager
-
-        pid = collector.get("project_id")
-        rec = _manager().latest_for_project(pid) if pid else None
-        if rec is None:
-            return "这个项目还没有发起过成片合成。说「合成成片」即可开始。"
-        if rec["status"] == "running":
-            tail = rec["messages"][-1] if rec["messages"] else "正在准备"
-            return f"合成进行中：{tail}"
-        if rec["status"] == "failed":
-            return f"合成失败了：{rec['error']}。可以排查后再让我重新合成。"
-        r = rec["result"] or {}
-        head = (f"成片已合成完成（{r.get('duration_sec', 0)} 秒，"
-                f"用了 {r.get('shots_used', 0)}/{r.get('shots_total', 0)} 个镜头）")
-        flags = [
-            "已配音" if r.get("dubbed") else "未配音（无台词或未配置语音）",
-            "已烧字幕" if r.get("subtitled") else "无字幕",
-        ]
-        for w in r.get("warnings") or []:
-            flags.append(f"注意：{w}")
-        return "；".join([head, *flags]) + "。成片在作品工作台里可直接播放下载。"
-
-    @tool
-    def check_background_tasks() -> str:
-        """查询后台任务（导演拆解 / 美术 / 摄影 / 定妆图）的状态和结果。用户问「拆好了吗 / 好了没 / 进度如何」时调用，不要凭记忆回答。无需参数。"""
-        if runner is None:
-            return "后台任务系统未启用，剧组任务会同步执行完成。"
-        tasks = runner.list_tasks()[:8]
-        if not tasks:
-            return "当前没有后台任务记录。"
-        lines = []
-        for t in tasks:
-            status = {"pending": "排队中", "running": "进行中", "done": "已完成", "failed": "失败"}.get(t.status, t.status)
-            line = f"- {t.name}：{status}"
-            if t.status == "running" and t.steps:
-                line += f"，当前：{t.steps[-1].label}"
-            if t.status == "done" and t.result:
-                line += f"——{_short(t.result, 120)}"
-            if t.status == "failed":
-                line += "——可以让我重新发起这一步"
-            lines.append(line)
+    def _shots_digest(shots: list[dict[str, Any]], jobs: dict[str, Any]) -> str:
+        """逐镜清单。只在用户明确要看具体镜头时用——62 镜全列会淹掉上下文。"""
+        lines = ["【逐镜】"]
+        for s in shots[:40]:
+            sid = s["id"]
+            prompt = _PROMPT_STATUS_LABELS.get(s.get("prompt_status") or "draft", "待审")
+            job = jobs.get(sid)
+            video = _JOB_STATUS_LABELS.get(job.status, "") if job else "未提交"
+            if job is not None and job.status == "failed" and getattr(job, "error_message", None):
+                video += f"（{_short(job.error_message, 40)}）"
+            subject = s.get("subject") or ""
+            lines.append(f"- {sid}{'（' + subject[:18] + '）' if subject else ''}：提示词{prompt}，视频{video or '未提交'}")
+        if len(shots) > 40:
+            lines.append(f"（其余 {len(shots) - 40} 镜略）")
         return "\n".join(lines)
+
+    @tool
+    def get_status(project_id: str, detail: str = "summary") -> str:
+        """查看项目现在走到哪一步了：剧本、镜头、出片、合成、后台任务，一次给全。
+        用户问「进度怎么样 / 到哪了 / 拆好了吗 / 出片了吗 / 合成好了没 / 哪些还没批准」都调这个，
+        不要凭记忆回答，也不要靠猜。参数：project_id=项目 id；detail=summary（默认，概况）
+        或 shots（附逐镜清单，用户要看具体镜头时才用）。"""
+        p = _project(project_id)
+        blocks: list[str] = []
+
+        # 剧本
+        version = store.latest_version(p)
+        if version is None:
+            blocks.append("【剧本】还没有版本，需要先生成初稿。")
+        else:
+            sc = version.script
+            blocks.append(
+                f"【剧本】{version.id}《{sc.title}》{len(sc.scenes)} 场 / {len(sc.characters)} 人"
+            )
+            # 对白预算：短剧写太多台词是下游拆爆的直接原因，这里顺手报一句。
+            chars = sum(len(b.line or "") for s in sc.scenes for b in s.beats if b.type == "dialogue")
+            if chars:
+                blocks.append(f"【对白】{chars} 字（约 {chars / 4:.0f} 秒念白）")
+
+        # 镜头与出片
+        vv = _latest_video_version(p)
+        shots = [s for s in (vv.shots if vv else []) if isinstance(s, dict) and s.get("id")]
+        if not shots:
+            blocks.append("【镜头】还没有镜头方案，需要先拆解。")
+        else:
+            approved = sum(1 for s in shots if s.get("prompt_status") == "approved")
+            jobs = _latest_job_by_shot(p.id)
+            done = sum(1 for s in shots if (j := jobs.get(s["id"])) and j.status == "succeeded")
+            failed = sum(1 for s in shots if (j := jobs.get(s["id"])) and j.status == "failed")
+            line = f"【镜头】{len(shots)} 镜，提示词已批准 {approved}，已出片 {done}"
+            if failed:
+                line += f"，失败 {failed}（可重出）"
+            blocks.append(line)
+
+        # 合成
+        pid = p.id
+        try:
+            from ..deps import finalize_manager as _manager
+
+            rec = _manager().latest_for_project(pid)
+        except Exception:  # noqa: BLE001  合成模块未启用时不该拖垮状态查询
+            rec = None
+        if rec is None:
+            blocks.append("【合成】还没合成过。")
+        elif rec["status"] == "running":
+            blocks.append(f"【合成】进行中：{rec['messages'][-1] if rec['messages'] else '正在准备'}")
+        elif rec["status"] == "failed":
+            blocks.append(f"【合成】失败：{rec['error']}")
+        else:
+            r = rec["result"] or {}
+            flags = [
+                "已配音" if r.get("dubbed") else "未配音",
+                "已烧字幕" if r.get("subtitled") else "无字幕",
+            ]
+            blocks.append(
+                f"【合成】已完成（{r.get('duration_sec', 0):.1f} 秒，"
+                f"{r.get('shots_used', 0)}/{r.get('shots_total', 0)} 镜，{'/'.join(flags)}）"
+            )
+
+        # 后台任务
+        if runner is not None:
+            tasks = runner.list_tasks()[:3]
+            if tasks:
+                items = []
+                for t in tasks:
+                    st = {"pending": "排队中", "running": "进行中", "done": "已完成", "failed": "失败"}.get(t.status, t.status)
+                    one = f"{t.name}{st}"
+                    if t.status == "done" and t.result:
+                        one += f"（{_short(t.result, 60)}）"
+                    items.append(one)
+                blocks.append("【后台】" + "；".join(items))
+
+        if str(detail).lower() in ("shots", "full", "镜头"):
+            blocks.append(_shots_digest(shots, _latest_job_by_shot(p.id)))
+        return "\n".join(blocks)
 
     @tool
     def remember(content: str, kind: str = "preference") -> str:
@@ -961,21 +962,17 @@ def build_chat_tools(
         propose_arcs,
         generate_script,
         run_adaptation,
-        get_script_overview,
         ask,
         breakdown_scenes,
         generate_style_guide,
         generate_reference_assets,
         generate_video_prompts,
-        list_video_shots,
+        get_status,
         approve_video_prompts,
         submit_videos,
-        get_video_jobs,
         rerun_video,
         add_asset,
         finalize_film,
-        check_finalize,
-        check_background_tasks,
         remember,
         recall,
     ]
@@ -1076,12 +1073,12 @@ def _history_lc_messages(
 
 _TOOL_ACTION_LABELS = {
     "create_project": "新建项目", "generate_script": "生成初稿", "run_adaptation": "发起改编",
-    "get_script_overview": "通读剧本", "ask": "查阅剧本内容",
+    "ask": "查阅剧本内容",
     "breakdown_scenes": "拆解镜头", "generate_style_guide": "生成视觉风格",
     "generate_video_prompts": "撰写镜头提示词", "generate_reference_assets": "生成定妆图",
-    "list_video_shots": "盘点镜头", "approve_video_prompts": "批准提示词",
-    "submit_videos": "提交出片", "get_video_jobs": "查询出片状态",
-    "rerun_video": "重roll镜头", "add_asset": "登记素材", "check_background_tasks": "查询后台任务",
+    "get_status": "查询进度", "approve_video_prompts": "批准提示词",
+    "submit_videos": "提交出片",
+    "rerun_video": "重roll镜头", "add_asset": "登记素材", "finalize_film": "合成成片",
     "map_novel": "建立章节地图", "propose_arcs": "挑选改编段落",
 }
 

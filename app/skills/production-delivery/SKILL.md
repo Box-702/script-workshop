@@ -9,7 +9,7 @@ audience: main
 
 1. **提示词必须已批准**（`prompt_status=approved`）。提交时单镜和整片都会再校验一次，
    没批准的镜头会被静默排除——如果用户以为「全都出片了」，实际只出了一部分。
-   用户说「出片」但还没批准 → 先 `list_video_shots` 报出待审数量，引导他批准。
+   用户说「出片」但还没批准 → 先 `get_status` 报出待审数量，引导他批准。
 2. **要有镜头方案**：没拆解过就没有镜头可提交。
 3. **视频厂商要配置**：走 MiniMax，用户自带 API Key。没配就直说，不要反复试。
 
@@ -25,12 +25,12 @@ audience: main
 - 用户要「整片出片」→ 留空，让它串行走接力。
 - 用户只补某一镜 → 指定 shot_ids，但要提醒他：这一镜不会接上一镜的成片，跨镜衔接可能不如整片。
 - 不要为了「快」把整片拆成一条条单独投递——那等于主动放弃接力。
-- 不要重复提交同一批：先 `get_video_jobs` 看看是不是已经在跑。
+- 不要重复提交同一批：先 `get_status` 看看是不是已经在跑。
 
 # 查进度
 
-- `get_video_jobs`：每镜最新状态（排队 / 生成中 / 已出片 / 失败原因）。
-- `list_video_shots`：审阅状态 + 成片状态的盘点。
+- `get_status`：唯一的查询入口。默认给概况（镜头数 / 已批准 / 已出片 / 失败数 / 后台任务 / 合成状态）；
+  要看逐镜清单加 `detail="shots"`。
 - 用户问「出片了吗 / 到哪了」必须查工具，不能凭记忆说。
 
 # 重跑 `rerun_video`
@@ -45,16 +45,16 @@ audience: main
 - `subtitles` / `dubbing` 默认都开；**无台词或没配语音 Key 会自动跳过**配音，这不是失败。
 - 字幕时间轴双源：**配音实测时长优先**，没有配音才按字数估算——所以配了音的字幕更准。
 - 合成用 FFmpeg 直接在服务端拼，完成时间取决于镜头数。
-- 合成完用 `check_finalize` 取结果，成片在作品工作台可直接播放/下载。
+- 合成完用 `get_status` 取结果（【合成】那一行），成片在作品工作台可直接播放/下载。
 
 # 常见误报（这几句最容易说错）
 
 - ❌「已出片」——其实只是**提交了任务**。提交后只能说「已开始生成，正在按顺序出片」。
-- ❌「合成好了」——没调 `check_finalize` 就是编。
+- ❌「合成好了」——没调 `get_status` 就是编。
 - ❌ 用户没批准就调 `submit_videos`（会被拒，且属于越权）。
 - ❌ 把「跳过配音」说成「配音失败」。
 
 # 相关工具
 
-`list_video_shots` · `approve_video_prompts` · `submit_videos` · `get_video_jobs` ·
-`rerun_video` · `finalize_film` · `check_finalize` · `add_asset`
+`get_status` · `approve_video_prompts` · `submit_videos` ·
+`rerun_video` · `finalize_film` · `add_asset`

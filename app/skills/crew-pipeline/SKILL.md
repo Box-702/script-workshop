@@ -43,7 +43,7 @@ audience: main
 # 后台任务
 
 - 这四件事全部后台跑，启动后告知用户可在右栏看进度。
-- 用户问「拆好了吗 / 好了没 / 进度如何」→ `check_background_tasks`，不凭记忆答。
+- 用户问「拆好了吗 / 好了没 / 进度如何」→ `get_status`（一次给出剧本/镜头/出片/后台/合成全局状态），不凭记忆答。
 - 失败了先查状态再重跑，不要连续盲重试。
 
 # 常见判断
@@ -56,4 +56,4 @@ audience: main
 # 相关工具
 
 `breakdown_scenes` · `generate_style_guide` · `generate_reference_assets` ·
-`generate_video_prompts` · `check_background_tasks`
+`generate_video_prompts` · `get_status`

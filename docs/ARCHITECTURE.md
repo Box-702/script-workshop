@@ -104,7 +104,7 @@ ProviderSpec(
 | 通义千问 Qwen | ✅ | ✅ | — | 走 DashScope 兼容模式 |
 | MiniMax | ✅ | — | — | **一把 key 打通对话 / 视频（H3）/ 配音（T2A）**；`/chat/completions` 不支持 `response_format=json_object`，结构化输出走降级路径（见 2.5） |
 | Ollama（本地） | ✅ | ✅ | — | 无需 key；仅在 `CHAT_PROVIDER=ollama` 时启用 |
-| 视频（独立体系） | — | — | — | 产品统一 MiniMax（用户自带 Key + 模型名，存 `api_providers.config_json.model`）；抽象层另适配 Runway / Kling / CogVideoX / Sora，见 `app/video/` |
+| 视频（独立体系） | — | — | — | **只配了 MiniMax 一家**（用户自带 Key + 模型名，存 `api_providers.config_json.model`）。`VideoProvider` 抽象仍在（`app/video/base.py`），但 2026-11-01 已删掉 Runway / Kling / CogVideoX / Sora 四个从未启用的适配器——留着只是「将来可能支持」的想象，代价是每次改接口都要跟着改四份没人跑的实现 |
 
 > 非 OpenAI 兼容的厂商（如 Anthropic Messages API）目前**没有**适配：需要为它单独实现
 > 协议客户端，而不是加一条 `ProviderSpec`。这是有意的取舍——主流可选厂商里它不占多数，
@@ -151,15 +151,23 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
 
 ---
 
-## 三、多 Agent 协作：谁是谁
+## 三、Agent 与技能：谁在编排，谁只是模板
 
-系统里共有 **4 个 LLM Agent 角色**，分两类：
+先给结论，因为这块最容易想歪：
+
+> **只有一个 LLM Agent（对话编排层），调度 19 个工具。剧组三个「角色」是函数，不是进程。**
+> **「按需加载」只发生在主 Agent 那一层；剧组三个角色的技能是每次全量拼进系统提示的。**
+
+为什么不做进程级多 Agent（每个角色独立上下文、独立工具集、互相通信）：它们各自只做
+**一次结构化 LLM 调用 + 解析 + 校验**，没有多轮决策，也没有工具选择。套上进程级外壳只会
+多出「状态怎么传、失败怎么回滚、上下文谁持有」三个问题。理由见 [`DECISIONS.md` D-04](DECISIONS.md)，
+以及 [D-20](DECISIONS.md)（产品收敛到单一链路）。
 
 ### 3.1 对话编排（1 个）—— `app/chat/conductor.py`
 
 | Agent | 角色 | 职责 |
 |---|---|---|
-| **ChatConductor** | 前厅 / 调度 | 绑定 23 个工具理解用户意图，把请求路由到确定性流水线或后台剧组任务 |
+| **ChatConductor** | 前厅 / 调度 | 绑定 19 个工具理解用户意图，把请求路由到确定性流水线或后台剧组任务 |
 
 它是一个 ReAct 小图（`chat_agent` ↔ `tools`），工具循环上限 8 轮。
 关键设计：**审阅动作走确定性路径**（accept/reject 不经过 LLM），避免「对话式工具调用不可靠」导致误操作。
@@ -167,19 +175,23 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
 系统提示分两层：**触发器留在提示词**（决定该调哪个工具，每轮都要用），**执行细则进技能**
 （`audience: main` 的四个 SKILL.md，由 `load_skill` 工具按需拉）。见 [`DECISIONS.md` D-14](DECISIONS.md)。
 
-工具按职责分五组：
+工具按职责分四组（2026-11-01 由 23 个合到 19 个）：
 
 | 组 | 工具 |
 |---|---|
-| 项目与改编 | `create_project` `map_novel` `propose_arcs` `generate_script` `run_adaptation` `get_script_overview` `ask` |
+| 项目与改编 | `create_project` `map_novel` `propose_arcs` `generate_script` `run_adaptation` `ask` |
 | 剧组与素材 | `breakdown_scenes` `generate_style_guide` `generate_video_prompts` `generate_reference_assets` `add_asset` |
-| 出片 | `list_video_shots` `approve_video_prompts` `submit_videos` `get_video_jobs` `rerun_video` `finalize_film` `check_finalize` |
-| 状态与记忆 | `check_background_tasks` `remember` `recall` |
+| 出片 | `approve_video_prompts` `submit_videos` `rerun_video` `finalize_film` |
+| 状态与记忆 | `get_status` `remember` `recall` |
 | 技能 | `load_skill` |
 
+**查询只有一个入口 `get_status(project_id, detail="summary|shots")`。** 原来的五个查询工具
+（`get_script_overview` / `list_video_shots` / `get_video_jobs` / `check_finalize` /
+`check_background_tasks`）已合并：它们查的是同一个项目的不同侧面，模型经常选错，选错后
+就会一本正经地说瞎话（实测出现过「项目里根本没有镜头方案」，而同一个数据直接查得到）。
+
 > 工具数量逼近 30–50 会开始出现「模型选不对工具」的退化（Anthropic 官方建议的阈值）。
-> 目前 23 个仍安全，但**新增工具前应先考虑合并到已有工具的参数**，而不是继续加新工具。
-> 这也是 D-14 只加一个 `load_skill`（而不是给每个流程各做一个工具）的原因。
+> **新增能力前先想能不能加参数，而不是加工具**——`get_status` 的 `detail` 就是这么来的。
 > 详见 [`DECISIONS.md` D-12](DECISIONS.md) / [D-14](DECISIONS.md)。
 
 ### 3.2 剧组 Agent（3 个）—— `app/crew/`
@@ -192,6 +204,17 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
 
 三者都继承 `CrewAgent`，输出统一的 `CrewTaskResult`（结构化数据 + 摘要 + 错误列表），
 并且都有**规则兜底**：LLM 不可用时返回可用的降级结果，而不是报错中断。
+
+三者的外壳是同一件事，而且**每次都是全量**：
+
+```
+render_skill() 取 SKILL.md 全文 → 拼进 system prompt → llm.chat() 一次 → 解析 JSON → 校验 → 不合格带批评重做
+```
+
+所以它们**不是按需加载**，也不需要——它们一次只干一件事，没有「该不该加载这份知识」的判断。
+技能在这里的作用是**让规则可编辑、可 diff、可单独评测**，不是省 token。
+（主 Agent 才是按需加载：目录常驻 424 字符，正文靠 `load_skill` 拉。见 3.6。）
+
 
 ### 3.3 后台任务运行器 —— `app/agent/tasks.py`
 
@@ -240,8 +263,15 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
 | `production-delivery/SKILL.md` | main | 批准 → 提交 → 轮询 → 重跑 → 合成 | 主 Agent 按需 |
 | `script-review/SKILL.md` | main | 改编提议的审阅闭环与事实约束 | 主 Agent 按需 |
 
-两组的加载方式不同：**crew 是代码按名加载**（角色启动时整段进系统提示，人看不到目录）；
-**main 靠 `load_skill` 工具按需拉**（目录进系统提示，正文只在进入该领域时才进上下文）。
+两组的加载方式不同，**这才是「按需」与「全量」的分界线**：
+
+| | 主 Agent（`audience: main`） | 剧组（`audience: crew`） |
+|---|---|---|
+| 谁决定加载 | 模型自己（看目录决定） | 代码按名写死 |
+| 目录进上下文 | ✅ 424 字符常驻 | ❌ 人看不到目录 |
+| 正文何时进 | 进入该领域时才 `load_skill` | 每次调用都全文拼进 system prompt |
+| 省的是什么 | **token**（不用的规则不进上下文） | 省不了 token，省的是**改规则的摩擦** |
+| 崩的方式 | 忘了 load → 凭印象办事 | 技能写错 → 三个角色同时跑偏 |
 
 **渐进披露三级**：`skill_index()` 只给 name + description（很便宜）→ `render_skill(name)`
 加载正文 → `skill_file(name, file)` 按需读附属文件。
@@ -320,7 +350,20 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
 
 ## 五、技术债与已完成的整理
 
-本轮（2026-09-11）已解决：
+### 5.0 当前四个结构缺口（2026-11-01 真跑一条完整链路后确认）
+
+这四条不是「代码风格」，是**会让产品出错**的缺口，按修复顺序排：
+
+| # | 缺口 | 现在怎么表现的 | 修法 |
+|---|---|---|---|
+| 1 | **资产按名字做 key** | 角色锚、定妆图、音色、性别分存四个 dict，主键都是**中文名**（`character_appearances` / `reference_images` / `voice_casting` / `character_genders`）。改一次名（「酒客甲」→「短衣帮甲」）四份锚点全断，而且**不报错**——只是悄悄丢了 | 角色 / 场景升成按 id 的实体，所有锚点挂 id（这是「长篇不跑偏」的地基） |
+| 2 | **台词引用不校验真伪** | `dialogue_ref` 指向剧本 beat。实测 35 个引用里 **28 个是模型编的 id**（`beat_003_dlg_001`，剧本里只有 `beat_003`）。配音按 ref 找台词找不着，画面按 subject 生成，两条线永不交汇 | 校验 `dialogue_ref` 必须指向**本场景真实存在**的 dialogue 类型 beat，否则打回重拆 |
+| 3 | **没有服务端轮询器** | 出片进度靠前端轮询驱动（`/batch/advance`）。脱离前端跑批量，任务会停在 `submitted` 不动。这是「任务队列缺失」的真正形态——缺的不是 broker，是**驱动状态机的那只手** | 后台线程定时推进批次（单机单进程够用，不需要 Celery） |
+| 4 | **`conductor.py` 1595 行** | 对话层同时干着：拼系统提示、读写 DB、算配音时间轴、拼提示词参数、管批次进度。每加一个功能都在同一个文件里打补丁 | 按域拆出「工具实现」与「编排」；先拆出片与素材两块 |
+
+> 1 和 2 有同一个根：**没有实体层**。「人物场景标号、台词的归属、快照锁定」都是这一件事。
+
+### 5.1 已解决
 
 | 位置 | 原问题 | 处理 |
 |---|---|---|
@@ -363,11 +406,13 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
 | 加一个模型厂商 | `app/llm/providers.py` 加一条 `ProviderSpec`；需要 `.env` 配置就同时在 `config.py` 与 `registry._from_settings()` 补字段 |
 | 换首屏底纹 / 品牌图 | 放 `frontend/public/brand/`（构建时原样拷到 `dist/brand/`）；新目录要同时在 `app/main.py` 补一个 `mount` |
 | 加一个剧组 Agent | `app/crew/` 新建继承 `CrewAgent` 的文件 → `crew/__init__.py` 导出 → 要在对话里触发就在 `chat/conductor.py` 的 `build_chat_tools()` 加工具 |
-| 加一个视频 Provider | `app/video/providers/` 新建继承 `VideoProvider` 的适配器 → `video/registry.py` 的 `_register_builtins()` 注册 → 先跑「Provider 体检」（见 DEVELOPMENT.md 5.1） |
+| 加一个视频 Provider | `app/video/providers/` 新建继承 `VideoProvider` 的适配器 → `video/registry.py` 的 `_register_builtins()` 注册 → **同时清掉 5 处硬编码 `provider="minimax"`**（`conductor.py` 两处、`api/video.py` 两处、`crew/dp.py` 的 `_ZH_PROVIDERS`），再跑「Provider 体检」（见 DEVELOPMENT.md 5.1） |
 | 加一个 API 路由 | 在 `app/api/` 对应域模块里加 `@router.xxx`；新域就新建文件并在 `api/__init__.py` 的列表里注册 |
 | 加一个持久化字段 | `app/store.py` 加模型字段（新表由 `create_all` 自动建；给老表加列要在 `_ensure_columns()` 里补 ALTER） |
 | 加一个生成阶段 | `app/pipeline/` 加模块，由 `agent/nodes.py` 或 `chat/conductor.py` 调用 |
 | 改剧组写作规则 | 直接改 `app/skills/<技能名>/SKILL.md`，**不用动代码**；改完跑 `python -m evals.run` 确认质量没退化 |
-| 加一个技能 | 建 `app/skills/<name>/SKILL.md`（frontmatter 必填 `name` + `description`），代码里 `render_skill(name, **vars)` 取正文 |
+| 加一个技能 | 建 `app/skills/<name>/SKILL.md`（frontmatter 必填 `name` + `description` + `audience`），代码里 `render_skill(name, **vars)` 取正文 |
+| 加一个查询能力 | **不要加新工具**——先看 `get_status` 的 `detail` 参数能不能扩。五个查询工具合并成一个就是因为模型会选错，选错后它会编结果 |
+| 改完工具名 | 全仓搜一遍技能里的旧名；`tests/test_skills.py::test_skill_tool_refs_exist` 会拦住漏改（技能里提到的工具必须真实存在） |
 
 

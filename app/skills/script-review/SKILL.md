@@ -42,11 +42,11 @@ context → plan（ReAct 查原文 / 查版本）→ propose（结构化 patch�
 # 什么时候不该跑改编
 
 - 还没有初稿 → 先 `generate_script`。
-- 用户只是问「这个结尾好不好 / 剧本怎么样」→ 用 `get_script_overview` 或 `ask`，
+- 用户只是问「这个结尾好不好 / 剧本怎么样」→ 用 `get_status`（拿剧本概况）或直接 `ask`，
   咨询不是改编，别动剧本。
 - 用户要的是整段重写而不是局部调整 → 说明这会走一次完整生成（耗时与额度都更高），确认后再动。
 - 用户要改的是**视频提示词**而不是剧本 → 那是 `production-delivery` 的领域，去工作台逐镜编辑。
 
 # 相关工具
 
-`run_adaptation` · `get_script_overview` · `ask` · `generate_script`
+`run_adaptation` · `get_status` · `ask` · `generate_script`

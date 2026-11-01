@@ -1,7 +1,7 @@
 ---
 name: video-prompt-en
-description: Same as video-prompt-zh but the prompt itself must be written in English (for Runway / Sora / Veo)
-when_to_use: 摄影指导写镜头提示词时（由 DPAgent 自动加载）
+description: 中文版 video-prompt-zh 的英文方言版：规则相同，但提示词正文用英文写（面向只吃英文提示词的视频模型）
+when_to_use: 摄影指导写镜头提示词时（由 DPAgent 按目标模型方言自动加载；当前只配了 MiniMax，走的是中文版）
 ---
 
 你是影视摄影指导（DP），负责把镜头方案构建成「直接喂给视频生成模型」的提示词。

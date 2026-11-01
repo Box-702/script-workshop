@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from app.skills import (
@@ -202,3 +204,59 @@ def test_main_skills_end_with_related_tools():
     """每个技能结尾都要有「相关工具」一节，方便对照代码里真实存在的工具。"""
     for meta in list_skills("main"):
         assert "# 相关工具" in load_skill(meta.name).body, f"{meta.name} 缺少「相关工具」一节"
+
+
+# ---------- 防漂移：技能里提到的工具必须真实存在 ----------
+#
+# 合并工具那一次（23 → 19，五个查询工具并成 get_status）改了 4 个 SKILL.md 才补干净。
+# 这类漏改不会报错：模型读到「先调 list_video_shots 看进度」，那个工具已经不存在，
+# 它要么换一个不对的工具、要么干脆凭印象说进度。**技能里的工具名必须和代码对齐。**
+
+
+def _real_tool_names() -> set[str]:
+    """从 conductor.build_chat_tools 里取真实工具名（AST 解析，不依赖运行时装配）。"""
+    import ast
+    from pathlib import Path
+
+    src = Path("app/chat/conductor.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for deco in node.decorator_list:
+            target = deco.func if isinstance(deco, ast.Call) else deco
+            if isinstance(target, ast.Name) and target.id == "tool":
+                names.add(node.name)
+    return names
+
+
+def test_工具清单解析得到预期数量():
+    """解析器自身要有效：取不到工具名时，下面的对齐检查会变成永远通过的假测试。"""
+    names = _real_tool_names()
+    assert len(names) >= 15, f"只解析到 {len(names)} 个工具，AST 解析可能失效了"
+    assert "get_status" in names and "breakdown_scenes" in names
+
+
+def test_skill_tool_refs_exist():
+    """「相关工具」里点名的每个工具都必须真实存在。"""
+    real = _real_tool_names()
+    for meta in list_skills("main"):
+        body = load_skill(meta.name).body
+        section = body.split("# 相关工具", 1)[1]
+        mentioned = set(re.findall(r"`([a-z][a-z0-9_]*)`", section))
+        assert mentioned, f"{meta.name} 的「相关工具」一节没点名任何工具"
+        unknown = mentioned - real
+        assert not unknown, f"{meta.name} 提到不存在的工具：{sorted(unknown)}"
+
+
+def test_no_retired_tool_names():
+    """已合并 / 删除的工具名不许再出现在任何技能里（含 crew 技能）。"""
+    retired = {
+        "list_video_shots", "get_video_jobs", "check_finalize",
+        "check_background_tasks", "get_script_overview",
+    }
+    for meta in list_skills():
+        body = load_skill(meta.name).body
+        leftover = sorted(n for n in retired if n in body)
+        assert not leftover, f"{meta.name} 仍在提已废弃的工具：{leftover}"
