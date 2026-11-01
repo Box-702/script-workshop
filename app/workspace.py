@@ -1,7 +1,7 @@
 # =====================================================================
 # workspace.py —— 工作目录（真实关联电脑文件夹的结构化工作流程）
 #
-# 通过在磁盘上维护一套有纪律的目录结构，让「剧本工坊」真正落到本地文件：
+# 通过在磁盘上维护一套有纪律的目录结构，让「问剧」真正落到本地文件：
 #
 #   <工作目录>/
 #     <剧名/项目名>/                    # 一个剧本一个文件夹
@@ -111,7 +111,7 @@ def pick_directory(initial: str | None = None) -> str | None:
             picked = filedialog.askdirectory(
                 initialdir=initial or None,
                 mustexist=True,
-                title="选择剧本工坊工作目录",
+                title="选择问剧工作目录",
             )
             return picked or None
         except Exception as e:  # noqa: BLE001
@@ -258,13 +258,13 @@ class Workspace:
         except ValueError:
             return
         readme = root / "_README.txt"
-        lines = ["剧本工坊 · 工作目录说明", "=" * 40, ""]
+        lines = ["问剧 · 工作目录说明", "=" * 40, ""]
         lines.append("每个剧本一个文件夹，内部按流程自动分格：")
         lines.append("")
         for code, label in SUBDIRS:
             lines.append(f"  {code}/  <-  {label}")
         lines.append("")
-        lines.append("这些目录由剧本工坊在导入 / 生成 / 导出时自动维护，")
+        lines.append("这些目录由问剧在导入 / 生成 / 导出时自动维护，")
         lines.append("你直接去磁盘里对应的文件夹就能找到你的剧本文件。")
         readme.write_text("\n".join(lines), encoding="utf-8")
 

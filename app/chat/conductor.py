@@ -81,7 +81,7 @@ class _Collector(TypedDict, total=False):
 # 为什么不把触发器也搬进技能：路由每轮都要用，搬出去等于每轮多一次工具往返，
 # 模型一旦懒得加载就等于不会做事。技能只负责「进去之后怎么做」。
 SYSTEM_PROMPT_TEMPLATE = (
-    "你是「剧本工坊」的改编协作者 Agent，工作形式类似 Codex / DSH：通过对话与作者协作，"
+    "你是「问剧」的改编协作者 Agent，工作形式类似 Codex / DSH：通过对话与作者协作，"
     "把一部作品改编成结构化剧本，并持续打磨到成片。\n"
     "所有动作都通过工具完成，不要凭空叙述已经做过的事。\n"
     "\n"
@@ -134,12 +134,9 @@ def main_skill_names() -> set[str]:
     return {m.name for m in list_skills("main")}
 
 
-# 改编类型 -> 中文名，用于提示模型填参数。
+# 改编类型 -> 中文名，用于提示模型填参数。产品只做短剧，其余仅兼容老数据。
 _ADAPT_TYPE_LABELS = {
     "short_drama": "短剧",
-    "film": "电影",
-    "series": "剧集",
-    "stage": "舞台剧",
     "other": "自定义",
 }
 
@@ -180,8 +177,8 @@ def build_chat_tools(
         )
 
     @tool
-    def create_project(title: str, adaptation_type: str, raw_text: str) -> str:
-        """新建一部剧本项目。参数：title=剧名，adaptation_type=改编类型（short_drama 短剧 / film 电影 / series 剧集 / stage 舞台剧 / other 自定义），raw_text=原著或故事原文。"""
+    def create_project(title: str, raw_text: str, adaptation_type: str = "short_drama") -> str:
+        """新建一部剧本项目。产品只做短剧。参数：title=剧名，raw_text=原著或故事原文。adaptation_type 可省略（默认短剧）。"""
         name = normalize_adaptation_type(adaptation_type)
         p = store.create_project(
             title=title.strip(),

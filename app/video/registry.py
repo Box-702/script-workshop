@@ -125,12 +125,7 @@ def get_registry() -> ProviderRegistry:
 
 
 def _register_builtins(registry: ProviderRegistry) -> None:
-    """注册所有内置 Provider 类。"""
-    from .providers.cogvideo import CogVideoProvider
-    from .providers.kling import KlingProvider
+    """注册内置 Provider 类。产品只走 MiniMax（D-08），不再内置其他厂商。"""
     from .providers.minimax import MiniMaxProvider
-    from .providers.runway import RunwayProvider
-    from .providers.sora import SoraProvider
 
-    for cls in [RunwayProvider, KlingProvider, CogVideoProvider, SoraProvider, MiniMaxProvider]:
-        registry.register_class(cls)
+    registry.register_class(MiniMaxProvider)

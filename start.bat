@@ -60,7 +60,7 @@ if not exist frontend\dist\index.html (
 
 echo.
 echo  ============================================================
-echo   Script Workshop  -^>  http://127.0.0.1:8000
+echo   Wenju  -^>  http://127.0.0.1:8000
 echo   Press Ctrl+C to stop. Keep this window open.
 echo  ============================================================
 echo.

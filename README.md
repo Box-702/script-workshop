@@ -1,4 +1,4 @@
-# 剧本工坊（Script Workshop）
+# 问剧（Wenju）
 
 小说 → 剧本 → AI 短剧 全链路 Agent 工作台。
 
@@ -189,7 +189,7 @@ uv run uvicorn app.main:app --port 8000
 ## 项目结构
 
 ```
-Script Workshop/
+Wenju/
 ├── README.md
 ├── pyproject.toml
 ├── docker-compose.yml        # Postgres

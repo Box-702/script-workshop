@@ -58,7 +58,7 @@ function openWorkbench() {
 
     <h1 class="brand">
       <span class="logo" aria-hidden="true"><LogoMark :size="22" /></span>
-      <span class="brand-name">映叙</span>
+      <span class="brand-name">问剧</span>
       <span class="brand-mode">YINGXU</span>
     </h1>
 

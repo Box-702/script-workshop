@@ -50,7 +50,7 @@ function useTemplate(t) {
         <span class="hero-brandmark" aria-hidden="true"><LogoMark :size="18" /></span>
         AI VIDEO STORY STUDIO
       </p>
-      <h2 class="hero-title">把一个想法，变成一场戏</h2>
+      <h2 class="hero-title">把一部小说，变成一部短剧</h2>
       <p class="hero-sub">
         从一句灵感、一段原文或一个人物开始，AI 会先搭出故事骨架，再带你进入镜头创作。
       </p>

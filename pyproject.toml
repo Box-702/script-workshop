@@ -21,7 +21,7 @@ version = "0.2.0"
 description = "基于 LangGraph 的剧本改写智能体 —— 核心 Agent 工作台（简历项目）"
 readme = "README.md"
 requires-python = ">=3.12"
-authors = [{ name = "Script Workshop" }]
+authors = [{ name = "Wenju" }]
 dependencies = [
     # ---- LangGraph 状态图 / 预构建组件 / checkpoint ----
     "langgraph>=1.2,<1.3",

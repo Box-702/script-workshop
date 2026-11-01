@@ -32,7 +32,7 @@ def _client(store: Store, settings: Settings, monkeypatch) -> TestClient:
 
 
 def _project(client: TestClient) -> str:
-    resp = client.post("/api/projects/import", data={"raw_text": "雨夜。凌晨三点的剧本工坊，霓虹灯还亮着，键盘声停不下来，改稿的人还没走。", "title": "素材测试"})
+    resp = client.post("/api/projects/import", data={"raw_text": "雨夜。凌晨三点的问剧，霓虹灯还亮着，键盘声停不下来，改稿的人还没走。", "title": "素材测试"})
     assert resp.status_code == 200, resp.text
     return resp.json()["id"]
 

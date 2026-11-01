@@ -10,15 +10,9 @@
 import { ref, watch, nextTick, onUnmounted } from 'vue'
 import { store, submitNewProject } from '../stores/app'
 
-// 改编类型：当前产品主线只做短剧，其余保留用于已存在的老项目。
-// 漫剧不在这里——它不是类型，是短剧的一种画风（见下面的 VISUAL_STYLES）。
-const ADAPT_TYPES = [
-  { value: 'short_drama', label: '短剧（主线）' },
-  { value: 'film', label: '电影' },
-  { value: 'series', label: '剧集' },
-  { value: 'stage', label: '舞台剧' },
-  { value: 'other', label: '自定义' },
-]
+// 产品只做短剧。电影/剧集/舞台剧的入口已移除——多一个类型就多一条生成分支、
+// 多一套没人维护的文案，而产品不会走到。老项目里已存的类型仍能正常打开。
+const ADAPT_TYPE = 'short_drama'
 
 // 画风：决定定妆图怎么出、提示词怎么写、配音用哪套声线。
 // 「二次元」就是漫剧——同一部短剧换一种画法，不改节奏与导演逻辑。
@@ -31,7 +25,7 @@ const VISUAL_STYLES = [
 const ACCEPT = /\.(txt|md|markdown|docx|pdf)$/i
 
 const title = ref('')
-const adapt = ref('short_drama')
+const adapt = ref(ADAPT_TYPE)
 const visual = ref('realistic')
 const raw = ref('')
 const file = ref(null)          // 选中的 File 对象
@@ -102,10 +96,8 @@ async function submit() {
       <label>剧名</label>
       <input ref="titleInput" v-model="title" placeholder="例如：雨夜" style="width: 100%" @keydown.enter="submit" />
 
-      <label>改编类型</label>
-      <select v-model="adapt" style="width: 100%">
-        <option v-for="t in ADAPT_TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
-      </select>
+      <label>体裁</label>
+      <div class="fixed-type">短剧 · 竖屏 1–2 分钟 · 前 3 秒必须抓人</div>
 
       <label>画风 <span class="muted">—— 漫剧＝短剧选「二次元」，不是另一种类型</span></label>
       <div class="styles">
@@ -177,6 +169,10 @@ textarea { width: 100%; min-height: 110px; }
   border-color: var(--accent);
 }
 .hint { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+.fixed-type {
+  font-size: 12.5px; color: var(--ink); padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 8px; background: oklch(1 0 0 / 0.03);
+}
 
 /* 入场动画：遮罩淡入 + 弹窗轻缩放（纯视觉，不影响关闭的可靠性） */
 .modal-backdrop { animation: fade-in 180ms var(--ease); }

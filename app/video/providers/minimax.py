@@ -15,7 +15,15 @@ from typing import Any
 
 import httpx
 
-from ...keys import error_message, key_failure, minimax_keys, mask, ring_for
+from ...keys import (
+    RATE_LIMIT_COOLDOWN_SEC,
+    error_message,
+    is_rate_limited,
+    key_failure,
+    minimax_keys,
+    mask,
+    ring_for,
+)
 from ..base import VideoJobParams, VideoJobResponse, VideoJobStatus, VideoProvider
 
 log = logging.getLogger(__name__)
@@ -122,7 +130,10 @@ class MiniMaxProvider(VideoProvider):
                 data = _payload(resp)
                 if key_failure(resp.status_code, data):
                     reason = error_message(data, resp.status_code)
-                    ring.mark_bad(key, reason)
+                    ring.mark_bad(
+                        key, reason,
+                        cooldown=RATE_LIMIT_COOLDOWN_SEC if is_rate_limited(resp.status_code, data) else None,
+                    )
                     failures.append(f"{mask(key)} {reason}")
                     continue
                 # 账号里查不到这个任务：可能是换了账号，继续试下一把，不判 key 坏。
@@ -140,6 +151,66 @@ class MiniMaxProvider(VideoProvider):
         raise RuntimeError(
             f"MiniMax {action}失败：所有 key 都不可用（{'；'.join(failures)}）"
         )
+
+    async def _send_with_backoff(
+        self,
+        method: str,
+        url: str,
+        *,
+        body: dict[str, Any] | None = None,
+        timeout: float = 60.0,
+        action: str = "请求",
+        task_id: str = "",
+        attempts: int = 4,
+    ) -> Any:
+        """在 ``_send`` 之外再包一层「限流退避」。
+
+        为什么必须有这一层：MiniMax 对**并发任务数**有限制，批量出片时连着提交
+        十几镜会直接吃到 429。旧代码把它当普通失败抛出去，结果是一整批镜头全挂
+        （2026-11-01 实测：13 镜 1 秒间隔提交，13 个全 429 失败）。
+        429 是「现在不行，等会儿可以」，不是「这个请求有问题」——必须退避重试。
+
+        注意 key 轮换在 ``_send`` 里已经做过，这一层只管时间维度的重试，
+        不要重复换 key（换 key 解决不了并发限流，换账号也一样受限）。
+        """
+        import asyncio
+
+        last: Exception | None = None
+        for i in range(attempts):
+            try:
+                return await self._send(
+                    method, url, body=body, timeout=timeout,
+                    action=action, task_id=task_id,
+                )
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code != 429:
+                    raise
+                last = e
+                if i == attempts - 1:
+                    break
+                # 2/4/8 秒退避；并发限流通常几秒内就腾出配额。
+                wait = 2 ** (i + 1)
+                log.warning("MiniMax %s被限流（429），%ss 后重试（第 %d/%d 次）",
+                            action, wait, i + 2, attempts)
+                await asyncio.sleep(wait)
+            except RuntimeError as e:
+                # 全部 key 都被限流时 _send 会抛「所有 key 都不可用（… Too Many Requests）」。
+                # 这也只是时间问题，同样该退避。但欠费/鉴权失败（1004/1008）不能退避——
+                # 那是要人工处理的，重试一百次也一样。
+                msg = str(e).lower()
+                limited = "所有 key 都不可用" in str(e) and (
+                    "too many requests" in msg or "429" in msg or "rate limit" in msg
+                )
+                if not limited:
+                    raise
+                last = e
+                if i == attempts - 1:
+                    break
+                wait = 2 ** (i + 1)
+                log.warning("MiniMax %s：全部 key 被限流，%ss 后重试（第 %d/%d 次）",
+                            action, wait, i + 2, attempts)
+                await asyncio.sleep(wait)
+        raise RuntimeError(f"MiniMax {action}被限流：重试 {attempts} 次仍 429") from last
 
     # ---- 多模态 content 组装（V2 接口：文本 / 图片 / 视频 / 音频） ----
 
@@ -207,7 +278,7 @@ class MiniMaxProvider(VideoProvider):
         }
         body.update(extra)
 
-        data = await self._send(
+        data = await self._send_with_backoff(
             "POST",
             f"{self.base_url}/v2/video_generation",
             body=body,
@@ -231,7 +302,7 @@ class MiniMaxProvider(VideoProvider):
         return VideoJobResponse(external_task_id=task_id, status="queued", cost_estimate=cost)
 
     async def poll_job(self, external_task_id: str) -> VideoJobStatus:
-        data = await self._send(
+        data = await self._send_with_backoff(
             "GET",
             f"{self.base_url}/v2/query/video_generation/{external_task_id}",
             timeout=30,

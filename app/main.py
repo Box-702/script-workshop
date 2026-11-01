@@ -148,7 +148,7 @@ def create_app() -> FastAPI:
     _wire_video_qa()
     _wire_video_batch()
     app = FastAPI(
-        title="剧本工坊（Script Workshop）",
+        title="问剧（Wenju）",
         version="0.3.0",
         description="小说 → 剧本 → AI 短剧 全链路 Agent 工作台",
     )

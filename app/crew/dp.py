@@ -38,7 +38,9 @@ log = logging.getLogger(__name__)
 
 
 # 原生支持中文提示词的模型（其余按英文处理）。
-_ZH_PROVIDERS = {"cogvideo", "kling", "minimax"}
+# 产品只走 MiniMax，它原生吃中文；保留这个判断是为了让 language_for 的
+# 语义完整（有 provider 名不等于能用中文），不是为多厂商留口子。
+_ZH_PROVIDERS = {"minimax"}
 
 # 视觉风格兜底（未提供风格指南时使用）。
 _DEFAULT_STYLE = "写实电影质感，色调统一，轻微胶片颗粒，画面稳定。"
