@@ -6,7 +6,7 @@
 #
 # 架构要点（提示词优先 + 单一事实来源）：
 #   - 视觉锚的唯一来源是美术指导的 StyleGuide：
-#       character_appearances（按人物名） + environment_descriptions（按地点名）
+#       character_appearances / environment_descriptions（存 id 键，用时转显示名）
 #     本模块【逐字复用】它们拼进每个镜头，杜绝同一角色/场景跨镜漂移。
 #   - LLM 只负责本步骤独有的部分：每个镜头出场哪些人 + 这一镜的动作与运镜。
 #   - 模型感知：按目标 provider 的方言输出（中文 / 英文）并遵守其时长约束。
@@ -22,6 +22,7 @@ from typing import Any
 
 from ..domain import SceneBreakdown, Script, Shot, StyleGuide
 from ..llm import LLM
+from ..media.assets import as_name_map, build_index
 from ..skills import render_skill
 from .base import CrewAgent, CrewTaskResult
 from .dramaturgy import (
@@ -312,12 +313,16 @@ class DPAgent(CrewAgent):
 
         parts = [f"剧本：《{script.title}》", f"梗概：{script.logline}", ""]
         if has_anchors and style_guide:
+            # 锚以 id 存、以名字展示：这里若不是转成名字，模型会看到一串 char_004。
+            idx = build_index(script)
+            env_names = as_name_map(style_guide.environment_descriptions, idx)
+            char_names = as_name_map(style_guide.character_appearances, idx)
             parts.append("【已固定的视觉锚（不要改写，仅供你写动作时对齐）】")
-            if style_guide.environment_descriptions:
-                for name, desc in list(style_guide.environment_descriptions.items())[:8]:
+            if env_names:
+                for name, desc in list(env_names.items())[:8]:
                     parts.append(f"  环境·{name}：{desc}")
-            if style_guide.character_appearances:
-                for name, desc in list(style_guide.character_appearances.items())[:12]:
+            if char_names:
+                for name, desc in list(char_names.items())[:12]:
                     parts.append(f"  人物·{name}：{desc}")
             parts.append("")
 
@@ -466,9 +471,11 @@ class DPAgent(CrewAgent):
                 if isinstance(sh, dict) and sh.get("shot_id"):
                     shot_meta[str(sh["shot_id"])] = sh
 
-        # 规范锚（风格指南 = 单一事实来源）
-        canon_chars: dict[str, str] = dict(style_guide.character_appearances) if style_guide else {}
-        canon_envs: dict[str, str] = dict(style_guide.environment_descriptions) if style_guide else {}
+        # 规范锚（风格指南 = 单一事实来源）。存的是 id 键，拼提示词要用显示名——
+        # 视频模型不认识 char_004，只认识「孔乙己」。
+        _idx = build_index(script)
+        canon_chars = as_name_map(style_guide.character_appearances if style_guide else {}, _idx)
+        canon_envs = as_name_map(style_guide.environment_descriptions if style_guide else {}, _idx)
         loc_map = {loc.id: loc.name for loc in script.locations}
         scene_loc = {sc.id: loc_map.get(sc.location_id, "") for sc in script.scenes}
         char_map = {c.id: c.name for c in script.characters}
@@ -580,8 +587,9 @@ class DPAgent(CrewAgent):
         loc_map = {loc.id: loc.name for loc in script.locations}
         scene_map = {sc.id: sc for sc in script.scenes}
         char_map = {c.id: c.name for c in script.characters}
-        canon_chars = dict(style_guide.character_appearances) if style_guide else {}
-        canon_envs = dict(style_guide.environment_descriptions) if style_guide else {}
+        _idx = build_index(script)
+        canon_chars = as_name_map(style_guide.character_appearances if style_guide else {}, _idx)
+        canon_envs = as_name_map(style_guide.environment_descriptions if style_guide else {}, _idx)
 
         for shot in shots:
             sc = scene_map.get(shot.scene_id)

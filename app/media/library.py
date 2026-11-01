@@ -25,11 +25,18 @@ from __future__ import annotations
 from typing import Any
 
 from ..domain import Script, normalize_visual_style
+from .assets import (
+    CHARACTER_GENDERS,
+    VOICE_CASTING,
+    build_index,
+    lookup,
+    normalize_style,
+)
 from .casting import VOICE_LABELS, cast_script
 
 # 资产库在 video_style 里占用的键（写回时只动这几个，其余字段原样保留）。
-VOICE_KEY = "voice_casting"
-GENDER_KEY = "character_genders"
+VOICE_KEY = VOICE_CASTING
+GENDER_KEY = CHARACTER_GENDERS
 
 
 def _speech_stats(script: Script) -> dict[str, dict[str, int]]:
@@ -65,6 +72,9 @@ def build_library(
     visual_style = normalize_visual_style(
         visual_style if visual_style is not None else style.get("visual_style")
     )
+    # 五份资产统一成「按实体 id 索引」再往下走：老项目存的是名字键，这里顺手换掉。
+    style = normalize_style(style, script)
+    idx = build_index(script)
     appearances = dict(style.get("character_appearances") or {})
     environments = dict(style.get("environment_descriptions") or {})
     images = dict(style.get("reference_images") or {})
@@ -87,7 +97,7 @@ def build_library(
             "role": (c.role if c else None) or "other",
             "speech_chars": st["lines"],
             "scenes": st["scenes"],
-            "confirmed": m.name in casting,   # 音色是否经人工确认
+            "confirmed": bool(m.char_id and m.char_id in casting),   # 音色是否经人工确认
             "has_image": bool(m.image),
         })
     # 台词量降序，方便一眼看出谁是主要角色（资产库是给人看的，不是给程序）。
@@ -99,10 +109,10 @@ def build_library(
         locations.append({
             "loc_id": loc.id,
             "name": loc.name,
-            "description": environments.get(loc.name, "") or (loc.description or ""),
-            "image": images.get(loc.name, ""),
+            "description": lookup(environments, loc.id, idx) or (loc.description or ""),
+            "image": lookup(images, loc.id, idx),
             "scenes": st["scenes"],
-            "has_image": bool(images.get(loc.name)),
+            "has_image": bool(lookup(images, loc.id, idx)),
         })
     locations.sort(key=lambda x: (-x["scenes"], x["name"]))
 
@@ -143,6 +153,7 @@ def voice_options(visual_style: str | None = None) -> list[dict[str, str]]:
 def apply_library_patch(
     style: dict[str, Any],
     patch: dict[str, Any],
+    script: Script | None = None,
 ) -> dict[str, Any]:
     """把资产库的人工修改合并进 video_style（不覆盖未提及的字段）。
 
@@ -154,7 +165,17 @@ def apply_library_patch(
 
     ``voice_id`` 为空串表示「撤销人工指定，回到自动选角」。
     """
-    merged = dict(style or {})
+    # 进来先整体规整成 id 键：这样用户**第一次改资产**时，整份老数据就顺手迁移完了，
+    # 之后改名才真正安全（否则只有被改到的那个角色变成 id 键，其余仍是名字键）。
+    merged = normalize_style(style, script)
+    # patch 的键来自前端（通常是人名，也可能已经是 id）：统一解析成 id 再落库。
+    # 解析不出来的（剧本里没有这个名字）原样保留——那是用户的数据，直接丢掉
+    # 等于「他说改了、其实没保存」，比留一个孤儿键更糟。
+    idx = build_index(script)
+
+    def _key(name: str) -> str:
+        return idx.resolve(name) or str(name)
+
     appearances = dict(merged.get("character_appearances") or {})
     images = dict(merged.get("reference_images") or {})
     casting = dict(merged.get(VOICE_KEY) or {})
@@ -163,47 +184,49 @@ def apply_library_patch(
     for name, change in (patch.get("characters") or {}).items():
         if not isinstance(change, dict):
             continue
+        k = _key(name)
         if "gender" in change:
             g = str(change.get("gender") or "").strip().lower()
             if g in ("male", "female"):
-                genders[name] = g
+                genders[k] = g
             else:
-                genders.pop(name, None)
+                genders.pop(k, None)
         if "voice_id" in change:
             v = str(change.get("voice_id") or "").strip()
             if v:
-                casting[name] = v
+                casting[k] = v
             else:
-                casting.pop(name, None)
+                casting.pop(k, None)
         if "appearance" in change:
             a = str(change.get("appearance") or "").strip()
             if a:
-                appearances[name] = a
+                appearances[k] = a
             else:
-                appearances.pop(name, None)
+                appearances.pop(k, None)
         if "image" in change:
             img = str(change.get("image") or "").strip()
             if img:
-                images[name] = img
+                images[k] = img
             else:
-                images.pop(name, None)
+                images.pop(k, None)
 
     descs = dict(merged.get("environment_descriptions") or {})
     for name, change in (patch.get("locations") or {}).items():
         if not isinstance(change, dict):
             continue
+        k = _key(name)
         if "description" in change:
             d = str(change.get("description") or "").strip()
             if d:
-                descs[name] = d
+                descs[k] = d
             else:
-                descs.pop(name, None)
+                descs.pop(k, None)
         if "image" in change:
             img = str(change.get("image") or "").strip()
             if img:
-                images[name] = img
+                images[k] = img
             else:
-                images.pop(name, None)
+                images.pop(k, None)
 
     merged["environment_descriptions"] = descs
 

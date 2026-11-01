@@ -6,8 +6,9 @@
 # 不再各写各的，从根上避免同一角色/同一场景在不同镜头里长得不一样。
 #
 # 键约定：
-#   - character_appearances：以【人物名】为键（不是 id），方便提示词直接查表；
-#   - environment_descriptions：以【地点名】为键。
+#   - character_appearances / environment_descriptions：**落库时按角色/地点 id 做键**
+#     （模型仍按名字写，parse 时用 media.assets.rekey 换成 id）。名字会被用户改，
+#     id 不会——按名字存等于「改个名，定妆图和音色全丢」，而且不报错。
 # =====================================================================
 
 from __future__ import annotations
@@ -127,7 +128,7 @@ class ArtDirectorAgent(CrewAgent):
         user_prompt = self._build_prompt(script, director_notes, visual_style)
         try:
             raw = self._invoke_json(art_system(language), user_prompt)
-            guide = self._parse_guide(raw, visual_style)
+            guide = self._parse_guide(raw, script, visual_style)
             summary = (
                 f"美术指导完成风格指南：{len(guide.color_palette)} 色、"
                 f"{len(guide.character_appearances)} 角色造型、{len(guide.environment_descriptions)} 场景"
@@ -165,7 +166,18 @@ class ArtDirectorAgent(CrewAgent):
         return "\n".join(parts)
 
     @staticmethod
-    def _parse_guide(raw: dict[str, Any], visual_style: str | None = None) -> StyleGuide:
+    def _parse_guide(
+        raw: dict[str, Any], script: Script | None = None, visual_style: str | None = None,
+    ) -> StyleGuide:
+        """解析风格指南，并把两个「按名字索引」的表换成按 id。
+
+        模型照旧按名字写（让它直接写 char_004 准确率很低），但落库前代码按剧本
+        把名字映射成 id：名字是用户随时会改的，id 不会。这样「酒客甲」改名叫
+        「短衣帮甲」时，外貌锚与定妆图仍然跟着这个人走。
+        """
+        from ..media.assets import build_index, rekey
+
+        _idx = build_index(script)
         chars = raw.get("character_appearances") or {}
         envs = raw.get("environment_descriptions") or {}
         return StyleGuide(
@@ -175,8 +187,10 @@ class ArtDirectorAgent(CrewAgent):
             # 画风以项目设定为准；模型给的只作兜底（它常把 anime 写成 "动漫风"）。
             visual_style=visual_style or raw.get("visual_style") or "realistic",
             visual_references=raw.get("visual_references", []) or [],
-            character_appearances={str(k): str(v) for k, v in chars.items() if v} if isinstance(chars, dict) else {},
-            environment_descriptions={str(k): str(v) for k, v in envs.items() if v} if isinstance(envs, dict) else {},
+            character_appearances=rekey({str(k): str(v) for k, v in chars.items() if v}, _idx)
+            if isinstance(chars, dict) else {},
+            environment_descriptions=rekey({str(k): str(v) for k, v in envs.items() if v}, _idx)
+            if isinstance(envs, dict) else {},
         )
 
     @staticmethod

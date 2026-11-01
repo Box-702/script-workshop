@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from ..domain import Script, normalize_gender, normalize_visual_style
+from .assets import build_index, lookup, rekey
 from ..llm.tts import (
     VOICE_FEMALE_MATURE,
     VOICE_FEMALE_YOUNG,
@@ -309,6 +310,13 @@ def cast_script(
     genders = {k: normalize_gender(v) for k, v in (genders or {}).items()}
     appearances = appearances or {}
     images = images or {}
+    # 资产表可能是按名字存的（老项目）也可能是按 id 存的（新数据）：统一成 id 键，
+    # 之后一律用 char_id 取。名字变了不会丢锚点，这是「长篇不跑偏」的前提。
+    idx = build_index(script)
+    casting = rekey(casting, idx)
+    genders = rekey(genders, idx)
+    appearances = rekey(appearances, idx)
+    images = rekey(images, idx)
     male_pool, female_pool = voice_pools(visual_style)
 
     result = Casting(male_pool=male_pool)
@@ -317,7 +325,7 @@ def cast_script(
     guessed: list[str] = []
 
     for c in _cast_order(script):
-        look = appearances.get(c.name) or ""
+        look = lookup(appearances, c.id, idx)
         gender, basis, source = infer_gender(
             c.name,
             role=c.role,
@@ -328,8 +336,8 @@ def cast_script(
         char_gender = normalize_gender(getattr(c, "gender", None))
         if char_gender != "unknown":
             gender, basis, source = char_gender, "剧本标注", "gender"
-        if genders.get(c.name) in ("male", "female"):
-            gender, basis, source = genders[c.name], "资产库指定", "casting"
+        if genders.get(c.id) in ("male", "female"):
+            gender, basis, source = genders[c.id], "资产库指定", "casting"
         if gender == "unknown":
             gender = "male"  # 兜底：默认男声，见文件头说明
             basis = (basis + "→ 默认男声") if basis else "默认男声"
@@ -337,7 +345,7 @@ def cast_script(
             guessed.append(c.name)
 
         # 显式选角（人工确认）优先于一切推断，包括性别推断。
-        explicit = casting.get(c.name)
+        explicit = casting.get(c.id)
         if explicit:
             voice_id = explicit
             source, basis = "casting", "资产库指定音色"
@@ -356,7 +364,8 @@ def cast_script(
 
         result.members.append(CastMember(
             name=c.name, char_id=c.id, gender=gender, voice_id=voice_id,
-            basis=basis, source=source, appearance=look, image=images.get(c.name, ""),
+            basis=basis, source=source, appearance=look,
+            image=lookup(images, c.id, idx),
         ))
 
     if guessed:

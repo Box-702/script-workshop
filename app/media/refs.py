@@ -19,6 +19,7 @@ import logging
 from typing import Any
 
 from ..domain import Script, Shot, StyleGuide
+from .assets import build_index, rekey
 from ..llm import ImageClient, VisionClient
 
 log = logging.getLogger(__name__)
@@ -119,28 +120,37 @@ def build_reference_assets(
         if on_progress:
             on_progress(msg)
 
+    # 注册表以**实体 id** 为键：角色的名字会被用户改，改一次图就找不到了。
+    # 老数据里存的是名字键，rekey 会就地换成 id（解析不出来的原样保留）。
+    idx = build_index(script)
     refs: dict[str, str] = {}
-    appearances = dict(getattr(style_guide, "character_appearances", {}) or {}) if style_guide else {}
-    environments = dict(getattr(style_guide, "environment_descriptions", {}) or {}) if style_guide else {}
+    appearances = rekey(dict(getattr(style_guide, "character_appearances", {}) or {}), idx) if style_guide else {}
+    environments = rekey(dict(getattr(style_guide, "environment_descriptions", {}) or {}), idx) if style_guide else {}
     # 画风决定出的是「剧照」还是「立绘」：漫剧用写实 prompt 会毁掉整片一致性。
     visual_style = getattr(style_guide, "visual_style", None) if style_guide else None
 
-    # 角色：优先用风格指南的固定外貌；缺失则退化为人物名
-    names = list(appearances.keys()) or [c.name for c in script.characters]
-    for name in names:
-        appearance = appearances.get(name, "")
+    # 角色：优先用风格指南的固定外貌；缺失则退化为人物名（prompt 里永远写名字）
+    char_ids = [c.id for c in script.characters]
+    if appearances:
+        char_ids = [cid for cid in char_ids if cid in appearances]
+    for cid in char_ids:
+        name = idx.display(cid)
+        appearance = appearances.get(cid, "")
         prompt = character_prompt(name, appearance, visual_style)
-        refs[name] = _generate_with_qa(
+        refs[cid] = _generate_with_qa(
             provider, prompt, _QA_CHARACTER.format(expect=appearance or name),
             kind=f"角色·{name}", vision=vision, max_retry=max_retry, emit=_emit,
         )
 
     # 场景：优先用风格指南的环境描述；缺失则退化为地点名
-    loc_names = list(environments.keys()) or [loc.name for loc in script.locations]
-    for name in loc_names:
-        desc = environments.get(name, "")
+    loc_ids = [loc.id for loc in script.locations]
+    if environments:
+        loc_ids = [lid for lid in loc_ids if lid in environments]
+    for lid in loc_ids:
+        name = idx.display(lid)
+        desc = environments.get(lid, "")
         prompt = environment_prompt(name, desc, visual_style)
-        refs[name] = _generate_with_qa(
+        refs[lid] = _generate_with_qa(
             provider, prompt, _QA_ENVIRONMENT.format(expect=desc or name),
             kind=f"场景·{name}", vision=vision, max_retry=max_retry, emit=_emit,
         )
@@ -193,8 +203,9 @@ def apply_reference_images(
     """
     if not refs:
         return 0
-    loc_map = {loc.id: loc.name for loc in script.locations}
-    char_map = {c.id: c.name for c in script.characters}
+    # 注册表可能来自老版本（名字键）或新版本（id 键）：先统一成 id 键再查。
+    idx = build_index(script)
+    refs = rekey(refs, idx)
     scene_map = {sc.id: sc for sc in script.scenes}
 
     filled = 0
@@ -203,11 +214,11 @@ def apply_reference_images(
         if sc is None:
             continue
         urls: list[str] = []
-        env_url = refs.get(loc_map.get(sc.location_id, ""))
+        env_url = refs.get(sc.location_id) or refs.get(idx.display(sc.location_id))
         if env_url:
             urls.append(env_url)
         for cid in sc.characters:
-            url = refs.get(char_map.get(cid, ""))
+            url = refs.get(cid) or refs.get(idx.display(cid))
             if url and url not in urls:
                 urls.append(url)
         if urls:

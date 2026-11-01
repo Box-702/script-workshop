@@ -90,7 +90,8 @@ def patch_library(project_id: str, payload: LibraryPatch) -> dict[str, Any]:
         },
     }
     style = store.get_video_style(project_id) or {}
-    merged = apply_library_patch(style, patch)
+    # 传 script：patch 的键是人名，落库前要换成角色 id（名字会被改，id 不会）。
+    merged = apply_library_patch(style, patch, script)
     store.set_video_style(project_id, merged)
 
     # 记一条给人看的日志：改了什么、改到哪个角色的声音上。
