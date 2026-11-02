@@ -9,6 +9,7 @@
 
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import HeaderBar from './components/HeaderBar.vue'
+import HomePage from './components/HomePage.vue'
 import AssetPanel from './components/AssetPanel.vue'
 import ChatThread from './components/ChatThread.vue'
 import ChatComposer from './components/ChatComposer.vue'
@@ -188,50 +189,56 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <HeaderBar @open-palette="paletteRef?.openPalette()" />
-  <!-- 拖拽导入覆盖层 -->
-  <Transition name="fade">
-    <div v-if="dragging" class="drop-overlay" @dragleave="onDragLeave" @drop="onDrop">
-      <div class="drop-zone">
-        <div class="drop-icon">DROP</div>
-        <div class="drop-text">松开以导入剧本文件</div>
-        <div class="drop-hint">.txt / .md / .docx / .pdf</div>
-      </div>
-    </div>
-  </Transition>
-  <div
-    ref="layoutEl" class="layout"
-    @dragenter="onDragEnter" @dragover="onDragOver"
-  >
-    <!-- 左：作品入口 + 资产库（桌面=分栏；窄屏=抽屉） -->
-    <div class="panel-wrap panel-left-wrap" :class="{ closed: !store.leftOpen }" :style="{ '--pw': leftW + 'px' }">
-      <div class="pane pane-left" :style="{ width: leftW + 'px' }">
-        <div class="left-body">
-          <AssetPanel />
+  <!-- 首页模式：品牌 + 我的作品；点作品进入工作区 -->
+  <HomePage v-if="store.mode === 'home'" />
+
+  <!-- 工作区模式：三栏创作布局 -->
+  <template v-else>
+    <HeaderBar @open-palette="paletteRef?.openPalette()" />
+    <!-- 拖拽导入覆盖层 -->
+    <Transition name="fade">
+      <div v-if="dragging" class="drop-overlay" @dragleave="onDragLeave" @drop="onDrop">
+        <div class="drop-zone">
+          <div class="drop-icon">DROP</div>
+          <div class="drop-text">松开以导入剧本文件</div>
+          <div class="drop-hint">.txt / .md / .docx / .pdf</div>
         </div>
       </div>
-      <div class="split" @pointerdown="startDrag('left', $event)"></div>
-    </div>
-    <!-- 中：创作区 -->
-    <main class="pane-mid">
-      <ChatThread />
-      <ChatComposer />
-    </main>
-    <!-- 右：Inspector 面板 -->
-    <div class="panel-wrap panel-right-wrap" :class="{ closed: !store.rightOpen }" :style="{ '--pw': rightW + 'px' }">
-      <div class="split" @pointerdown="startDrag('right', $event)"></div>
-      <ViewerPanel class="pane pane-right" :style="{ width: rightW + 'px' }" />
-    </div>
-    <!-- 窄屏抽屉遮罩：任一面板打开时出现，点击关闭 -->
-    <Transition name="fade">
-      <div
-        v-if="isNarrow && (store.leftOpen || store.rightOpen)"
-        class="drawer-scrim"
-        aria-hidden="true"
-        @click="store.leftOpen = false; store.rightOpen = false"
-      ></div>
     </Transition>
-  </div>
+    <div
+      ref="layoutEl" class="layout"
+      @dragenter="onDragEnter" @dragover="onDragOver"
+    >
+      <!-- 左：作品入口 + 资产库（桌面=分栏；窄屏=抽屉） -->
+      <div class="panel-wrap panel-left-wrap" :class="{ closed: !store.leftOpen }" :style="{ '--pw': leftW + 'px' }">
+        <div class="pane pane-left" :style="{ width: leftW + 'px' }">
+          <div class="left-body">
+            <AssetPanel />
+          </div>
+        </div>
+        <div class="split" @pointerdown="startDrag('left', $event)"></div>
+      </div>
+      <!-- 中：创作区 -->
+      <main class="pane-mid">
+        <ChatThread />
+        <ChatComposer />
+      </main>
+      <!-- 右：Inspector 面板 -->
+      <div class="panel-wrap panel-right-wrap" :class="{ closed: !store.rightOpen }" :style="{ '--pw': rightW + 'px' }">
+        <div class="split" @pointerdown="startDrag('right', $event)"></div>
+        <ViewerPanel class="pane pane-right" :style="{ width: rightW + 'px' }" />
+      </div>
+      <!-- 窄屏抽屉遮罩：任一面板打开时出现，点击关闭 -->
+      <Transition name="fade">
+        <div
+          v-if="isNarrow && (store.leftOpen || store.rightOpen)"
+          class="drawer-scrim"
+          aria-hidden="true"
+          @click="store.leftOpen = false; store.rightOpen = false"
+        ></div>
+      </Transition>
+    </div>
+  </template>
   <CommandPalette ref="paletteRef" />
   <SearchOverlay />
   <NewProjectModal />

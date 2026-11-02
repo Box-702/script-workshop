@@ -33,6 +33,8 @@ export const store = reactive({
 
   // 左侧面板开关（默认展开，记忆在 localStorage）
   leftOpen: true,
+  // 应用模式：home=品牌首页（作品列表） / workspace=创作工作区（三栏）
+  mode: 'home',
   // 场景聚焦模式（点击左侧场景时设置，右栏显示单个场景详情）
   focusedSceneId: null,
   // 右侧查看面板开关（默认收起，记忆在 localStorage）
@@ -253,9 +255,10 @@ export async function reorderScenes(fromId, toId) {
   }
 }
 
-/** 选中项目：重置对话选择，自动选第一个对话，刷新右侧面板。 */
+/** 选中项目：重置对话选择，自动选第一个对话，刷新右侧面板。进入工作区模式。 */
 export async function selectProject(pid) {
   const token = ++_navSeq
+  store.mode = 'workspace'
   // 中止进行中的流式回复：流属于旧会话，继续写只会产生孤儿数据。
   if (_streamAbort) _streamAbort.abort()
   store.pid = pid
@@ -270,6 +273,12 @@ export async function selectProject(pid) {
     setHint('已选择剧本项目，可直接提改编需求')
     await loadViewer(token)
   }
+}
+
+/** 退出工作区回首页。中止进行中的流：流属于工作区上下文，回首页不再消费。 */
+export function exitWorkspace() {
+  if (_streamAbort) _streamAbort.abort()
+  store.mode = 'home'
 }
 
 /** 选中对话：加载历史消息并刷新右侧面板。token 沿用发起导航时的值。 */

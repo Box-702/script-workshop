@@ -7,7 +7,7 @@
 // =====================================================================
 
 import { computed, onMounted } from 'vue'
-import { store, toggleRightPanel, toggleLeftPanel, loadModelStatus } from '../stores/app'
+import { store, toggleRightPanel, toggleLeftPanel, loadModelStatus, exitWorkspace } from '../stores/app'
 import LogoMark from './LogoMark.vue'
 
 const emit = defineEmits(['open-palette'])
@@ -56,10 +56,10 @@ function openWorkbench() {
       </svg>
     </button>
 
-    <h1 class="brand">
+    <h1 class="brand" title="回到首页" @click="exitWorkspace">
       <span class="logo" aria-hidden="true"><LogoMark :size="22" /></span>
       <span class="brand-name">问剧</span>
-      <span class="brand-mode">YINGXU</span>
+      <span class="brand-mode">WENJU</span>
     </h1>
 
     <button class="cmd-trigger" aria-label="搜索或执行命令" @click="emit('open-palette')">
@@ -112,6 +112,7 @@ header {
 h1 {
   font-size: 13px; margin: 0; display: flex; align-items: center; gap: 7px;
   font-weight: 700; letter-spacing: 0.02em; flex: none; color: var(--ink);
+  cursor: pointer;
 }
 .logo { display: inline-flex; flex: none; }
 /* 品牌字标：现代互联网风——重字重无衬线 + 一道掠过的高光渐变（楷书 UI 里的现代锚点） */
