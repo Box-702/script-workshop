@@ -16,6 +16,9 @@ import pytest
 # 保证默认走内存 checkpoint，避免测试污染全局单例。
 os.environ.setdefault("CHECKPOINTER", "memory")
 os.environ.setdefault("OPENAI_API_KEY", "")
+# 测试里绝不跑孤儿任务巡检：否则 TestClient 触发 lifespan 时，sweeper 会去连
+# 开发库（Postgres）甚至真把任务挂回轮询线程——测试不该碰任何真实服务商。
+os.environ.setdefault("VIDEO_SWEEPER_ENABLED", "false")
 
 from app.config import Settings  # noqa: E402
 from app.llm import LLM  # noqa: E402

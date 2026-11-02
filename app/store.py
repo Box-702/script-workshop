@@ -1204,6 +1204,21 @@ class Store:
                 .all()
             )
 
+    def list_unfinished_video_jobs(self, limit: int = 200) -> list[VideoJob]:
+        """还没到终态的任务（供启动时接管孤儿任务，见 app/video/sweeper.py）。
+
+        这些状态在数据库里都表示「还在跑」，但进程一旦重启，内存里的轮询线程
+        就没了——数据库会永远停在 `generating`，用户看到的是「卡住了」。
+        """
+        with self.session() as s:
+            return (
+                s.query(VideoJob)
+                .filter(VideoJob.status.in_(("pending", "submitting", "queued", "generating")))
+                .order_by(VideoJob.created_at.asc())
+                .limit(limit)
+                .all()
+            )
+
     def update_video_job(self, job_id: str, **fields: Any) -> VideoJob | None:
         with self.session() as s:
             j = s.get(VideoJob, job_id)

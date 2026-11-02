@@ -102,6 +102,10 @@ class Settings(BaseSettings):
     video_qa_enabled: bool = Field(default=True, alias="VIDEO_QA_ENABLED")
     video_qa_max_reroll: int = Field(default=1, alias="VIDEO_QA_MAX_REROLL")
     video_qa_frames: int = Field(default=5, alias="VIDEO_QA_FRAMES")
+    # 孤儿任务巡检：轮询线程活在内存里，进程重启后 DB 会停在 generating 且无人更新。
+    # 巡检把「DB 说还在跑、内存没人盯」的任务重新挂回轮询（绝不再提交一次）。
+    video_sweeper_enabled: bool = Field(default=True, alias="VIDEO_SWEEPER_ENABLED")
+    video_sweeper_interval_sec: float = Field(default=60.0, alias="VIDEO_SWEEPER_INTERVAL_SEC")
     # ffmpeg 可执行文件路径（抽帧/拼接用）；留空则用 PATH 里的 ffmpeg。
     ffmpeg_path: str = Field(default="", alias="FFMPEG_PATH")
 

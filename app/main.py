@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -140,6 +141,36 @@ def _wire_video_batch() -> None:
     video_manager().on_complete(_on_finished)
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """应用生命周期：启动时接管孤儿任务，关闭时停掉巡检线程。
+
+    为什么放在 lifespan 而不是 `create_app()` 里：`create_app()` 在测试里被反复
+    调用（每个用例一个新 app），放那里会攒出一堆线程；而 lifespan 只在真的跑
+    ASGI 服务时触发（`TestClient` 不带 `with` 时并不触发）。
+    """
+    import logging
+
+    settings = get_settings()
+    log = logging.getLogger(__name__)
+    if settings.video_sweeper_enabled:
+        from .video.sweeper import start_sweeper
+
+        try:
+            start_sweeper(interval_sec=settings.video_sweeper_interval_sec)
+        except Exception as e:  # noqa: BLE001
+            log.warning("孤儿任务巡检启动失败（不影响服务）：%s", e)
+    yield
+    from .video.queue import shutdown_manager
+    from .video.sweeper import stop_sweeper
+
+    stop_sweeper()
+    try:
+        shutdown_manager()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     # 启动时注入 LangSmith 监控环境变量（LANGSMITH_* -> LANGCHAIN_*）。
@@ -151,6 +182,7 @@ def create_app() -> FastAPI:
         title="问剧（Wenju）",
         version="0.3.0",
         description="小说 → 剧本 → AI 短剧 全链路 Agent 工作台",
+        lifespan=_lifespan,
     )
 
     # 开发环境 CORS（前端可能用不同端口）。
