@@ -9,7 +9,7 @@
 
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import HeaderBar from './components/HeaderBar.vue'
-import ChatList from './components/ChatList.vue'
+import AssetPanel from './components/AssetPanel.vue'
 import ChatThread from './components/ChatThread.vue'
 import ChatComposer from './components/ChatComposer.vue'
 import ViewerPanel from './components/ViewerPanel.vue'
@@ -20,7 +20,7 @@ import WorkspaceModal from './components/WorkspaceModal.vue'
 import SettingsModal from './components/settings/SettingsModal.vue'
 import PatchDrawer from './components/PatchDrawer.vue'
 import Toast from './components/Toast.vue'
-import { loadTree, loadWorkspace, loadGlobalConversations, loadWorkspaceTree, restorePanelPrefs, toggleRightPanel, toggleLeftPanel, notify, store, pollVideoBatch, ensureBatchPolling, loadModelStatus } from './stores/app'
+import { loadTree, loadWorkspace, loadWorkspaceTree, restorePanelPrefs, toggleRightPanel, toggleLeftPanel, notify, store, pollVideoBatch, ensureBatchPolling, loadModelStatus } from './stores/app'
 import { importProject } from './api'
 
 // ---- 命令面板 ----
@@ -158,7 +158,7 @@ watch(() => store.view, () => {
   if (isNarrow.value && store.rightOpen) store.leftOpen = false
 })
 
-// ---- 左栏：单一对话列表（对话自动按项目归档），不再分段 tab ----
+// ---- 左栏：作品 + 资产库（工作区化：对话收敛为每作品一个）----
 
 watch(() => store.rightOpen, () => clampAll())
 
@@ -174,7 +174,6 @@ onMounted(async () => {
   window.addEventListener('keydown', globalKey)
   await loadWorkspace()
   await loadTree()
-  await loadGlobalConversations()
   await loadWorkspaceTree()
   // 启动时若已有进行中的批次，立刻接上全局轮询（刷新页面不断进度）
   await pollVideoBatch()
@@ -204,11 +203,11 @@ onUnmounted(() => {
     ref="layoutEl" class="layout"
     @dragenter="onDragEnter" @dragover="onDragOver"
   >
-    <!-- 左：对话（桌面=分栏；窄屏=抽屉） -->
+    <!-- 左：作品入口 + 资产库（桌面=分栏；窄屏=抽屉） -->
     <div class="panel-wrap panel-left-wrap" :class="{ closed: !store.leftOpen }" :style="{ '--pw': leftW + 'px' }">
       <div class="pane pane-left" :style="{ width: leftW + 'px' }">
         <div class="left-body">
-          <ChatList />
+          <AssetPanel />
         </div>
       </div>
       <div class="split" @pointerdown="startDrag('left', $event)"></div>

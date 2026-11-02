@@ -5,6 +5,7 @@
 # 按域拆在这里，一个文件一个域：
 #
 #   screenplay.py   剧本域：建项目 / 章节地图 / 选段 / 初稿 / 改编 / 咨询
+#   production.py   生产域：一键跑「小说 → 提示词」整条流水线
 #   crew.py         剧组域：拆解 / 风格指南 / 定妆图 / 视频提示词（后台任务）
 #   video.py        出片域：批准 / 提交 / 重跑 / 素材 / 合成 / 查进度
 #   memory_tools.py 轻件域：记忆（remember/recall）与技能加载（load_skill）
@@ -13,7 +14,7 @@
 # 跨域共享的小件（项目上下文、状态标签、文本截断）收在 context.py。
 # =====================================================================
 
-from . import crew, memory_tools, screenplay, video
+from . import crew, memory_tools, production, screenplay, video
 from .context import Collector, ToolContext, short
 
 
@@ -28,6 +29,7 @@ def build_chat_tools(
     return [
         *memory_tools.build(ctx),
         *screenplay.build(ctx),
+        *production.build(ctx),
         *crew.build(ctx),
         *video.build(ctx),
     ]

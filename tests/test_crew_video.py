@@ -700,6 +700,37 @@ def test_dp_apply_strips_quoted_dialogue_from_prompt_body():
     assert "然后抬头" in out
 
 
+def test_dp_apply_tags_anchors_with_asset_ids():
+    """提示词里的每个视觉锚（人物/场景）都带资产库映射编号。
+
+    用户拿到提示词后要能回答「这个人用的哪份资产」：顺着 [资产:char_a] 找到
+    资产库条目，换一张定妆图就能影响所有引用它的镜头。
+    """
+    script = _script()
+    guide = StyleGuide(
+        character_appearances={"char_a": "二十岁男性，短发，深色夹克"},
+        environment_descriptions={"loc_room": "昏暗的密室，铁桌居中"},
+    )
+    shots = [Shot(id="shot_scene_001_000", scene_id="scene_001", order=0,
+                  camera=CameraMovement(type="static"))]
+    llm_out = {"scenes": [{"scene_id": "scene_001", "shots": [
+        {"shot_id": "shot_scene_001_000", "characters": ["齐夏"],
+         "prompt_body": "齐夏推门而入。"},
+    ]}]}
+    out = _dp()._apply(shots, llm_out, script, "", guide)[0].video_prompt
+    assert "［资产:char_a］" in out      # 人物锚带编号
+    assert "［资产:loc_room］" in out    # 环境锚带编号
+
+    # 无风格指南：人物名仍可从剧本解析出编号；环境锚没有可靠归属，不乱标。
+    out2 = _dp()._apply(
+        [Shot(id="shot_scene_001_000", scene_id="scene_001", order=0,
+              camera=CameraMovement(type="static"))],
+        llm_out, script, "", None,
+    )[0].video_prompt
+    assert "［资产:char_a］" in out2
+    assert "［资产:loc_room］" not in out2
+
+
 def test_resolve_submission_references_chains_videos_and_fills_images():
     """提交时解析：前镜成片接力（chain_from / reference_group）+ 定妆图回填。"""
     script = _script()

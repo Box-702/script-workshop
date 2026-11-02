@@ -11,6 +11,7 @@
 #   chat.py        对话式 Agent 与会话管理
 #   video.py       Provider / 模型偏好 / 视频版本 / 生成任务
 #   cast.py        资产库（角色形象 / 声音 / 图片 / 场景）与试听
+#   production.py  生产工作流（小说 → 提示词 整条流水线的启动与状态）
 #
 #   common.py      共享的序列化与落盘辅助
 #   schemas.py     请求模型
@@ -21,11 +22,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from . import agent_runs, assets, cast, chat, projects, system, versions, video
+from . import agent_runs, assets, cast, chat, production, projects, system, versions, video
 
 router = APIRouter(prefix="/api")
 
-for _sub in (system, projects, versions, agent_runs, chat, video, assets, cast):
+for _sub in (system, projects, versions, agent_runs, chat, video, assets, cast, production):
     router.include_router(_sub.router)
 
 __all__ = ["router"]

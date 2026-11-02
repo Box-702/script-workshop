@@ -1,0 +1,60 @@
+# =====================================================================
+# production.py —— 生产工作流 API
+#
+#   POST /projects/{id}/production   启动「小说 → 提示词」整条流水线
+#   GET  /projects/{id}/production   读最近一次流水线的结果快照
+#
+# 为什么走后台任务：五个阶段（剧本 / 拆解 / 风格 / 资产图 / 提示词）要跑
+# 几十次模型调用，HTTP 请求等不起。启动即返回 task_id，进度与结果经
+# SubAgentRunner 落库，前端用 /api/tasks 轮询（与剧组工具同一套面板）。
+# =====================================================================
+
+from __future__ import annotations
+
+import logging
+
+from fastapi import APIRouter, HTTPException
+
+from . import deps
+
+router = APIRouter()
+log = logging.getLogger(__name__)
+
+
+@router.post("/projects/{project_id}/production")
+def start_production(project_id: str) -> dict[str, object]:
+    store = deps.store()
+    if store.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail=f"项目不存在：{project_id}")
+    from ..agent.production import STAGE_LABELS, run_production
+
+    runner = deps.subagent_runner()
+
+    def _run(task) -> str:
+        result = run_production(
+            store, deps.llm(), deps.settings(), project_id,
+            on_progress=lambda stage, msg: runner.update_step(task.id, msg, "running"),
+        )
+        return "；".join(result.get("notes") or [])
+
+    task_id = runner.start("生产流水线（小说→提示词）", _run)
+    return {
+        "task_id": task_id,
+        "stages": [{"key": k, "label": v} for k, v in STAGE_LABELS.items()],
+    }
+
+
+@router.get("/projects/{project_id}/production")
+def production_status(project_id: str) -> dict[str, object]:
+    """最近一次生产任务的状态。
+
+    说明：SubAgentTask 不带 project_id（任务面板是全局的），这里返回的是
+    **全局最近一次**生产任务——单机单用户场景下即当前用户刚点的那次。
+    """
+    from ..agent.tasks import get_runner
+
+    runner = get_runner()
+    for t in runner.list_tasks():
+        if t.name.startswith("生产流水线"):
+            return {"task_id": t.id, "status": t.status, "result": t.result}
+    return {"task_id": None, "status": "idle", "result": None}

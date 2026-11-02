@@ -63,6 +63,18 @@ def _mentions_camera(text: str) -> bool:
     return any(w in low for w in _CAMERA_WORDS)
 
 
+def _asset_tag(asset_id: str, language: str) -> str:
+    """资产库映射标记：提示词里的每个视觉锚都带上它在资产库的编号。
+
+    为什么：用户拿到提示词后要能回答「这个人物/场景用的哪份资产」——
+    顺着编号能定位到资产库条目，换一张定妆图就影响所有引用它的镜头；
+    没有编号，锚只是提示词里的一段话，改资产= 全量重写一遍提示词。
+    """
+    if not asset_id:
+        return ""
+    return f"［资产:{asset_id}］" if language == "zh" else f"[asset:{asset_id}]"
+
+
 
 _MISSING_HINTS: dict[str, dict[str, str]] = {
     "zh": {
@@ -479,6 +491,9 @@ class DPAgent(CrewAgent):
         loc_map = {loc.id: loc.name for loc in script.locations}
         scene_loc = {sc.id: loc_map.get(sc.location_id, "") for sc in script.scenes}
         char_map = {c.id: c.name for c in script.characters}
+        # 名字 -> 资产编号（提示词里的映射标记用；重名时第一个命中，重名本身
+        # 由 assets.resolve 拒绝猜测，不在这里补救）。
+        char_ids = {c.name: c.id for c in script.characters}
         scene_map = {sc.id: sc for sc in script.scenes}
 
         updated: list[Shot] = []
@@ -532,7 +547,8 @@ class DPAgent(CrewAgent):
             cast: list[str] = []
             for n in focus:
                 desc = canon_chars.get(str(n)) or llm_cast.get(str(n))
-                cast.append(f"{n}：{desc}" if desc else str(n))
+                name_with_tag = f"{n}{_asset_tag(char_ids.get(str(n), ''), language)}"
+                cast.append(f"{name_with_tag}：{desc}" if desc else name_with_tag)
 
             # LLM 偶尔整段漏掉运镜：导演方案里本来就有，这里兜底补上。
             # 判据是「body 里有没有提到摄影机」而不是逐字比对——模型通常会把
@@ -555,7 +571,14 @@ class DPAgent(CrewAgent):
 
             pieces: list[str] = []
             if env:
-                pieces.append(env.strip().rstrip("。"))
+                # 环境锚的资产编号：只有当环境锚确实来自该场景地点（风格指南）
+                # 时才标注；单环境兜底拿到的锚归属不明，宁可不标。
+                sc_obj = scene_map.get(shot.scene_id)
+                env_from_loc = (
+                    canon_envs.get(loc_map.get(sc_obj.location_id, ""), "") if sc_obj else ""
+                )
+                env_tag = _asset_tag(sc_obj.location_id if sc_obj and env_from_loc == env else "", language)
+                pieces.append(env.strip().rstrip("。") + env_tag)
             if cast:
                 shift = "人物：" if language == "zh" else "Characters: "
                 pieces.append(shift + "；".join(c.strip().rstrip("。") for c in cast))
@@ -587,6 +610,7 @@ class DPAgent(CrewAgent):
         loc_map = {loc.id: loc.name for loc in script.locations}
         scene_map = {sc.id: sc for sc in script.scenes}
         char_map = {c.id: c.name for c in script.characters}
+        char_ids = {c.name: c.id for c in script.characters}
         _idx = build_index(script)
         canon_chars = as_name_map(style_guide.character_appearances if style_guide else {}, _idx)
         canon_envs = as_name_map(style_guide.environment_descriptions if style_guide else {}, _idx)
@@ -595,10 +619,14 @@ class DPAgent(CrewAgent):
             sc = scene_map.get(shot.scene_id)
             env = canon_envs.get(loc_map.get(sc.location_id, ""), "") if sc else ""
             names = [char_map.get(cid, cid) for cid in (sc.characters if sc else [])]
-            cast = [f"{n}：{canon_chars[n]}" if n in canon_chars else n for n in names]
+            cast = []
+            for n in names:
+                name_with_tag = f"{n}{_asset_tag(char_ids.get(str(n), ''), language)}"
+                cast.append(f"{name_with_tag}：{canon_chars[n]}" if n in canon_chars else name_with_tag)
             zh = language == "zh"
             head = f"{shot.shot_type}，{shot.camera.type} 运镜" if zh else f"{shot.shot_type} shot, {shot.camera.type}"
-            pieces = [env, head, f"{shot.subject}。{shot.action}".strip("。")]
+            env_id = sc.location_id if (sc and env) else ""
+            pieces = [env + _asset_tag(env_id, language), head, f"{shot.subject}。{shot.action}".strip("。")]
             if cast:
                 pieces.append(("人物：" if zh else "Characters: ") + "、".join(cast))
             # 没有模型时也要把运镜/空间/背景这几类信息带上，否则提示词退化成一句话。

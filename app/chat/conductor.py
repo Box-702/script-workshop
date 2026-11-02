@@ -80,6 +80,8 @@ SYSTEM_PROMPT_TEMPLATE = (
     "· 风格指南（视觉风格 / 角色造型 / 画面风格）→ generate_style_guide\n"
     "· 定妆图（参考图 / 人物形象图 / 视觉参考）→ generate_reference_assets\n"
     "· 视频 prompt（生成 prompt / 镜头描述）→ generate_video_prompts\n"
+    "· 开始制作（一键制作 / 跑完整流程 / 出一版提示词）→ start_production，"
+    "五阶段（剧本→拆解→风格→资产图→提示词）自动跑完，已完成的阶段自动复用\n"
     "· 问进度（到哪了 / 拆好了吗 / 出片了吗 / 合成好了没 / 哪些还没批准）→ get_status，"
     "一次问清，不要凭记忆答，也不要靠猜\n"
     "· 批准提示词 → approve_video_prompts（只在用户明确说「批准」时）\n"

@@ -452,7 +452,7 @@ render_skill() 取 SKILL.md 全文 → 拼进 system prompt → llm.chat() 一�
 
 | 位置 | 原问题 | 处理 |
 |---|---|---|
-| `app/api.py` | 单文件 1400+ 行，业务逻辑写在路由里 | 拆成 `app/api/` 包（7 个域模块 + common/schemas/deps）；路由表逐条比对无增删（66 → 66） |
+| `app/api.py` | 单文件 1400+ 行，业务逻辑写在路由里 | 拆成 `app/api/` 包（域模块 + common/schemas/deps）；路由表逐条比对无增删 |
 | `app/chat/conductor.py` | 部分工具直接用 `store.session()` 操作 ORM，绕过 `Store` | 收敛为 `Store` 方法（`get/set_version_breakdown`、`get/set/merge_video_style`） |
 | `app/agent/tasks.py` | 后台任务只在内存，进程重启即丢 | 起止两个时刻快照落库（`subagent_tasks` 表）；`/api/tasks` 合并内存态与历史态 |
 | `app/api/video.py` | `cancel` 只改本地状态，未通知服务商 | 先尽力调用 provider 的 `cancel_job`，失败不影响本地状态收尾 |

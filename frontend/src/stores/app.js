@@ -39,7 +39,7 @@ export const store = reactive({
   rightOpen: false,
 
   // 右侧作品工作台：剧本（默认）/ 场景 / 视频
-  view: 'editor',
+  view: 'video',   // 工作区化默认：右侧直接展示产出（提示词 + 视频）；剧本/场景一键切回
   viewerText: '',      // 最新版本剧本全文（纯文本，供复制）
   viewerScript: null,  // 最新版本结构化剧本（供剧本排版渲染）
 
