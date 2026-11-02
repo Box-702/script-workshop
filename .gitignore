@@ -53,3 +53,6 @@ clear_db.py
 blender/renders/
 blender/*.blend1
 .zcode/
+
+# ---------- WorkBuddy 工作区数据 ----------
+.workbuddy/
