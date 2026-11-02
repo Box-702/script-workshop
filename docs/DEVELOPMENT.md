@@ -124,7 +124,7 @@ cd frontend && npm install && npm run build   # 构建产物由 FastAPI 托管
 
 1. 在 `app/crew/` 新建文件，继承 `CrewAgent`（`app/crew/base.py`），实现 `run()`。
 2. 在 `app/crew/__init__.py` 导出。
-3. 若要在对话里触发，在 `app/chat/conductor.py` 的 `build_chat_tools()` 加工具。
+3. 若要在对话里触发，在 `app/chat/tools/` 对应域文件（screenplay/crew/video/memory_tools）加 `@tool` 并挂进该域 `build()` 的返回列表。
 4. 参考 `director.py`：LLM 输出必须做**枚举容错 + 范围钳制 + 有界重做**（见 5.2）。
 
 ### 4.3 新增一个 API 路由
@@ -500,7 +500,7 @@ MiniMax 按 token 计费（6s/768P ≈ 19.5 万 token/条）。反复「盲出�
 - **现象**：用户选了 3 章的区间，生成结果只覆盖了选段**开头一小段**。
 - **根因**：单次生成的原文容量约 **1.2 万字**（`novel_map.ARC_CHAR_BUDGET = 12000`），
   超过就截断。注意这与「触发长篇提示」的阈值不是同一个数——
-  后者是 `conductor.LONG_TEXT_CHARS = 1200 × 12 = 14400`（约 1.44 万字）。
+  后者是 `chat/tools/context.py` 的 `LONG_TEXT_CHARS = 1200 × 12 = 14400`（约 1.44 万字）。
 - **解法**：有章节地图时，不传 `to_chapter` 就按 `next_to_chapter()` 按容量自动续接；
   选段超容量时在回复里**明确告知**「初稿只覆盖了选段开头，建议切到 2 章左右」。
 

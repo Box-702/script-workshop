@@ -214,20 +214,26 @@ def test_main_skills_end_with_related_tools():
 
 
 def _real_tool_names() -> set[str]:
-    """从 conductor.build_chat_tools 里取真实工具名（AST 解析，不依赖运行时装配）。"""
+    """取真实工具名（AST 解析，不依赖运行时装配）。
+
+    工具实现按域拆在 app/chat/tools/（conductor.py 只剩编排），全目录扫一遍；
+    conductor.py 也扫——它应该已经没有 @tool 了，留着扫描是为了防止有人
+    把工具悄悄加回去却绕过这套对齐检查。
+    """
     import ast
     from pathlib import Path
 
-    src = Path("app/chat/conductor.py").read_text(encoding="utf-8")
-    tree = ast.parse(src)
+    files = list(Path("app/chat/tools").glob("*.py")) + [Path("app/chat/conductor.py")]
     names: set[str] = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        for deco in node.decorator_list:
-            target = deco.func if isinstance(deco, ast.Call) else deco
-            if isinstance(target, ast.Name) and target.id == "tool":
-                names.add(node.name)
+    for path in files:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for deco in node.decorator_list:
+                target = deco.func if isinstance(deco, ast.Call) else deco
+                if isinstance(target, ast.Name) and target.id == "tool":
+                    names.add(node.name)
     return names
 
 

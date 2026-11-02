@@ -19,7 +19,7 @@ app/
 ├── llm/        模型接入层   —— 对上提供能力，对下屏蔽厂商
 ├── pipeline/   内容生产线   —— 纯逻辑，不依赖 LangGraph / HTTP
 ├── agent/      改编智能体   —— LangGraph 状态图 + 后台任务运行器
-├── chat/       对话编排层   —— 对话式 Agent（复用 agent 的工作流）
+├── chat/       对话编排层   —— 对话式 Agent（复用 agent 的工作流）；工具实现在 chat/tools/ 按域拆分
 ├── crew/       剧组 Agent   —— 导演 / 美术指导 / 摄影指导
 ├── media/      参考资产层   —— 资产键解析（assets：id 是主键、名字是别名）/ 定妆图 → 质检 → 注册 → 回填 / 配音 / 字幕
 └── video/      视频生成层   —— Provider 抽象 + 队列 + 连续性 + 拼接 + 成片合成
@@ -175,7 +175,9 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
 系统提示分两层：**触发器留在提示词**（决定该调哪个工具，每轮都要用），**执行细则进技能**
 （`audience: main` 的四个 SKILL.md，由 `load_skill` 工具按需拉）。见 [`DECISIONS.md` D-14](DECISIONS.md)。
 
-工具按职责分四组（2026-11-01 由 23 个合到 19 个）：
+19 个工具的实现按域拆在 `app/chat/tools/`（conductor 只留编排，`build_chat_tools` 是装配壳）：
+`screenplay.py`（项目与改编）/ `crew.py`（剧组）/ `video.py`（出片与素材）/ `memory_tools.py`（记忆与技能），
+跨域小件（ToolContext、状态标签、文本截断）收在 `context.py`。分组（2026-11-01 由 23 个合到 19 个）：
 
 | 组 | 工具 |
 |---|---|
@@ -359,7 +361,7 @@ render_skill() 取 SKILL.md 全文 → 拼进 system prompt → llm.chat() 一�
 | 1 | ~~资产按名字做 key~~ | 角色锚、定妆图、音色、性别分存四个 dict，主键都是**中文名**。改一次名四份锚点全断且不报错 | ✅ **已修（见 5.2）**：统一按实体 id 索引，老数据读取期兼容 |
 | 2 | **台词引用不校验真伪** | 实测 35 个引用里 28 个是模型编的 id（`beat_003_dlg_001`）。配音找不到台词就静默跳过，画面照常生成，两条线永不交汇 | ✅ 已修：prompt 补 beat id + 校验反向检查（见 DEVELOPMENT 5.22） |
 | 3 | ~~没有服务端轮询器~~ | 出片进度靠前端轮询驱动（`/batch/advance`）。脱离前端跑批量，任务会停在 `submitted` 不动。这是「任务队列缺失」的真正形态——缺的不是 broker，是**驱动状态机的那只手** | ✅ **已修（见 5.3）**：sweeper 后台线程接管孤儿任务 |
-| 4 | **`conductor.py` 1595 行** | 对话层同时干着：拼系统提示、读写 DB、算配音时间轴、拼提示词参数、管批次进度。每加一个功能都在同一个文件里打补丁 | 按域拆出「工具实现」与「编排」；先拆出片与素材两块 |
+| 4 | ~~`conductor.py` 1595 行~~ | 对话层同时干着：拼系统提示、读写 DB、算配音时间轴、拼提示词参数、管批次进度。每加一个功能都在同一个文件里打补丁 | ✅ **已修（见 5.4）**：工具实现按域拆进 `app/chat/tools/`，conductor 只剩编排（745 行） |
 
 > 1 和 2 有同一个根：**没有实体层**。搞完 1 之后，「台词归属、快照锁定」也有了落点
 > ——`dialogue_ref` 指向的是 `beat_xxx`，而 beat 属于 `scene_xxx`，链路终于是一条而不是几张散表。
@@ -421,6 +423,31 @@ render_skill() 取 SKILL.md 全文 → 拼进 system prompt → llm.chat() 一�
 
 
 
+### 5.4 对话层拆分：工具实现出 `conductor.py`（2026-11-02 已做）
+
+**病灶**：`conductor.py` 1595 行，系统提示、19 个工具实现、对话图、历史压缩、
+编造拦截、SSE 流式全部在一个文件里。每加一个工具都要在同一个文件里打补丁，
+改动半径无限大。
+
+**做法**：
+
+| 位置 | 放什么 |
+|---|---|
+| `app/chat/tools/context.py` | `ToolContext`（store / llm / collector / runner 一轮一份）+ 跨域取数助手（`project` / `latest_video_version` / `latest_job_by_shot`）+ 状态标签 + `short()` |
+| `app/chat/tools/screenplay.py` | 剧本域：建项目 / 章节地图 / 选段 / 初稿 / 改编 / 咨询 |
+| `app/chat/tools/crew.py` | 剧组域：拆解 / 风格指南 / 定妆图 / 提示词（都是「启动后台任务」） |
+| `app/chat/tools/video.py` | 出片域：批准 / 提交 / 重跑 / 素材 / 合成 / 查进度 |
+| `app/chat/tools/memory_tools.py` | 轻件域：remember / recall / load_skill |
+| `conductor.py`（745 行） | 只剩编排：系统提示、对话图、轮次服务、审阅确定性路径 |
+
+两条拆分约束：
+
+1. **工具仍是闭包工厂**：每个域一个 `build(ctx)`，返回绑定上下文的 `@tool`
+   列表。不搞工具类、不搞注册表装饰器——19 个工具的装配就一屏，显式比聪明好。
+2. **conductor 不准再 import 工具的实现细节**：它只经 `tools.build_chat_tools`
+   拿工具列表。测试 `test_skills` 的 AST 扫描改为全目录扫 `app/chat/tools/`，
+   防止有人把工具悄悄加回去绕过「技能 ↔ 工具名对齐」检查。
+
 ### 5.1 已解决
 
 | 位置 | 原问题 | 处理 |
@@ -463,11 +490,11 @@ render_skill() 取 SKILL.md 全文 → 拼进 system prompt → llm.chat() 一�
 |---|---|
 | 加一个模型厂商 | `app/llm/providers.py` 加一条 `ProviderSpec`；需要 `.env` 配置就同时在 `config.py` 与 `registry._from_settings()` 补字段 |
 | 换首屏底纹 / 品牌图 | 放 `frontend/public/brand/`（构建时原样拷到 `dist/brand/`）；新目录要同时在 `app/main.py` 补一个 `mount` |
-| 加一个剧组 Agent | `app/crew/` 新建继承 `CrewAgent` 的文件 → `crew/__init__.py` 导出 → 要在对话里触发就在 `chat/conductor.py` 的 `build_chat_tools()` 加工具 |
-| 加一个视频 Provider | `app/video/providers/` 新建继承 `VideoProvider` 的适配器 → `video/registry.py` 的 `_register_builtins()` 注册 → **同时清掉 5 处硬编码 `provider="minimax"`**（`conductor.py` 两处、`api/video.py` 两处、`crew/dp.py` 的 `_ZH_PROVIDERS`），再跑「Provider 体检」（见 DEVELOPMENT.md 5.1） |
+| 加一个剧组 Agent | `app/crew/` 新建继承 `CrewAgent` 的文件 → `crew/__init__.py` 导出 → 要在对话里触发就在 `app/chat/tools/crew.py`（或对应域文件）加 `@tool` 并挂进 `build()` 返回列表 |
+| 加一个视频 Provider | `app/video/providers/` 新建继承 `VideoProvider` 的适配器 → `video/registry.py` 的 `_register_builtins()` 注册 → **同时清掉 5 处硬编码 `provider="minimax"`**（`chat/tools/video.py` 两处、`api/video.py` 两处、`crew/dp.py` 的 `_ZH_PROVIDERS`），再跑「Provider 体检」（见 DEVELOPMENT.md 5.1） |
 | 加一个 API 路由 | 在 `app/api/` 对应域模块里加 `@router.xxx`；新域就新建文件并在 `api/__init__.py` 的列表里注册 |
 | 加一个持久化字段 | `app/store.py` 加模型字段（新表由 `create_all` 自动建；给老表加列要在 `_ensure_columns()` 里补 ALTER） |
-| 加一个生成阶段 | `app/pipeline/` 加模块，由 `agent/nodes.py` 或 `chat/conductor.py` 调用 |
+| 加一个生成阶段 | `app/pipeline/` 加模块，由 `agent/nodes.py` 或 `chat/tools/` 对应域模块调用 |
 | 改剧组写作规则 | 直接改 `app/skills/<技能名>/SKILL.md`，**不用动代码**；改完跑 `python -m evals.run` 确认质量没退化 |
 | 加一个技能 | 建 `app/skills/<name>/SKILL.md`（frontmatter 必填 `name` + `description` + `audience`），代码里 `render_skill(name, **vars)` 取正文 |
 | 加一个查询能力 | **不要加新工具**——先看 `get_status` 的 `detail` 参数能不能扩。五个查询工具合并成一个就是因为模型会选错，选错后它会编结果 |

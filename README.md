@@ -252,7 +252,8 @@ Wenju/
 │   │   └── script-review/SKILL.md        # 改编审阅闭环（main）
 │   │
 │   ├── chat/
-│   │   └── conductor.py      # 对话式 Agent（ChatConductor）
+│   │   ├── conductor.py      # 对话编排：系统提示 + 对话图 + 轮次服务
+│   │   └── tools/            # 19 个工具的实现，按域拆分（screenplay/crew/video/memory_tools）
 │   ├── media/
 │   │   └── refs.py           # 参考资产流水线（定妆图 → 质检 → 回填）
 │   ├── crew/                 # 剧组 Agent
