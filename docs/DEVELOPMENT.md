@@ -1243,6 +1243,49 @@ LangChain 消息类型的测试需要改成断言 dict 协议）。然后再用*
 
 ---
 
+### 5.25 「我改了 .env 怎么不生效」——两条读取路径 + 一条优先级压制（2026-11-05）
+
+排查一次「更新 .env 后没反应」，发现是三个独立原因叠在一起。三个都容易复发。
+
+#### （1）有一批配置不走 Settings，而是直接读 `os.environ`
+
+- **症状**：CLI / 自写脚本里，`.env` 明明配了 `MINIMAX_API_KEY_FALLBACKS`，
+  但 `minimax_keys()` 返回 **0 把**——备用 key 完全没被用上。
+- **根因**：`Settings` 自己会读 `.env`（`SettingsConfigDict(env_file=...)`），
+  但 `app/keys.py`（多 key 轮换 + 冷却）、`app/video/qa.py`（`FFMPEG_PATH` 兜底）、
+  LangChain 的 `LANGCHAIN_*` 都是**直接读 `os.environ`**。而 `load_dotenv()` 之前只在
+  `app/main.py` 里调——CLI 等入口从来没把 `.env` 落进进程环境。
+- **解法**：`config.bootstrap_env()` 统一做两件事（`load_dotenv` + LangSmith 映射），
+  `app/main.py` 与 `app/cli.py` 都调它。新写入口（脚本 / worker）也要调。
+- **判据**：`minimax_keys()` 从 0 把变成实际配置的条数。
+- **测试**：`tests/test_bootstrap.py`（含「入口必须调用 bootstrap_env」的断言）。
+
+#### （2）`Settings` 读了 `.env` ≠ 配置生效：界面偏好优先级更高
+
+- **症状**：`.env` 写 `DEEPSEEK_MODEL_NAME=deepseek-flash`，`/api/status` 却报
+  `deepseek-v4-pro`，且 `source: db`。
+- **根因**：这是**有意设计**——`resolve_chat` 里「用户在设置里选的模型」压过 `.env`
+  （否则设置入口形同虚设）。库里留着一条旧偏好，就一直压着新的 `.env`。
+- **解法**：界面上点「恢复 .env 默认」（写一条 `provider_id=null` 的偏好），
+  或调新增的 `DELETE /api/models/preferences/{task_type}`。
+  排查时先看 `/api/status` 的 `source` 字段：`db` = 界面偏好生效，`env` = .env 生效。
+
+#### （3）`reset_llm()` 假设 llm 是 `lru_cache` 函数
+
+- **症状**：`AttributeError: 'function' object has no attribute 'cache_clear'`
+  （在 `set_preference` / `clear_preference` 的收尾处）。
+- **根因**：`reset_llm()` 里直接 `llm.cache_clear()`；测试会把 `deps.llm`
+  替换成普通 lambda，于是炸在请求收尾，整个接口 500。
+- **解法**：`getattr(llm, "cache_clear", None)` 取，拿不到就跳过。
+  这类「清理动作」不该成为接口失败的原因。
+
+**通用教训**：`.env` 有三条落地路径——`Settings`、`os.environ`、数据库偏好。
+new 一个配置项时先想清楚它走哪条，并在文档里写明；排查「不生效」时三条都要看。
+
+**相关**：`app/config.py::bootstrap_env` · `app/keys.py` · `app/llm/registry.py::resolve_chat` · `.env.example`
+
+---
+
 ## 六、排查手册（症状 → 先查什么）
 
 | 症状 | 先查 |
@@ -1264,6 +1307,8 @@ LangChain 消息类型的测试需要改成断言 dict 协议）。然后再用*
 | 前端没有流式效果 | `build_chat_model()` 少了 `streaming=True`（见 5.10(1)） |
 | 工具收到的参数是空的 / 半个 JSON | 流式分片没聚合，直接读了 `chunk.tool_calls`（见 5.24(1)） |
 | 对话里模型说「我没有这个工具」 | 工具没绑上，或 dict 消息转 LangChain 时工具调用结构不对（见 5.24(2)） |
+| 改了 .env 但模型/Key 没变 | ① 入口没调 `bootstrap_env()`；② 界面偏好压过 .env（看 `/api/status` 的 source）；见 5.25 |
+| 备用 key 不生效 | `os.environ` 里没有 → 入口没 bootstrap（见 5.25(1)） |
 | 流式 token 一个都不出来 | 用 `type == "ai"` 过滤 chunk，应改 `isinstance`（见 5.10(2)） |
 | 模型报「已生成 ver_xxx」但版本不存在 | 编造护栏没触发，或本轮确实调过工具；查 `_CLAIM_PATTERNS`（见 5.11(2)） |
 | 长篇选段只生成了开头一小段 | 选段超单次容量（约 1.2 万字），需切小（见 5.11(1)） |

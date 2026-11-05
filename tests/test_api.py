@@ -481,3 +481,36 @@ def test_节奏默认时长有建议值():
     assert clamp_duration(99) == 15.0
     ladder = suggest_ladder("fast", 4)
     assert len(ladder) == 4 and ladder[0] > ladder[-1]      # 越切越短
+
+
+# ---------- 清除模型偏好（回落到 .env） ----------
+
+
+def test_clear_model_preference_falls_back_to_env(client):
+    """.env 与界面偏好冲突时，必须有一条正规出口回到 .env。
+
+    背景：界面选的模型优先级高于 .env，一旦选过就一直生效。用户改了 .env
+    的模型名却不生效时，没有清除入口只能删库。
+    """
+    # 先写一条界面偏好（模拟「用户在设置里选过模型」）
+    resp = client.put("/api/models/preferences", json={
+        "task_type": "chat", "provider_id": "prov_demo", "model_name": "demo-model",
+        "is_default": True,
+    })
+    assert resp.status_code == 200, resp.text
+    prefs = client.get("/api/models/preferences").json()
+    assert any(p["task_type"] == "chat" and p["model_name"] == "demo-model" for p in prefs)
+
+    # 清除后这条偏好不应再出现
+    resp = client.delete("/api/models/preferences/chat")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["removed"] >= 1
+    prefs = client.get("/api/models/preferences").json()
+    assert not any(p["task_type"] == "chat" for p in prefs)
+
+
+def test_clear_model_preference_is_idempotent(client):
+    """清除一个不存在的偏好不该报错（前端可能重复点）。"""
+    resp = client.delete("/api/models/preferences/some_unknown_task")
+    assert resp.status_code == 200
+    assert resp.json()["removed"] == 0

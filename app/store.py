@@ -1214,6 +1214,22 @@ class Store:
         with self.session() as s:
             return s.query(ModelPreference).order_by(ModelPreference.task_type).all()
 
+    def clear_model_preference(self, task_type: str) -> int:
+        """清除某类任务的模型偏好，返回删掉的行数。
+
+        偏好一旦写入就一直压过 `.env`（UI 选择优先）。没有清除入口的话，
+        用户改了 `.env` 的模型名却怎么都不生效、也看不出原因——所以必须留这个出口。
+        清空后该任务回落到 `.env` 的厂商优先级链。
+        """
+        with self.session() as s:
+            deleted = (
+                s.query(ModelPreference)
+                .filter_by(task_type=task_type)
+                .delete(synchronize_session=False)
+            )
+            s.commit()
+            return int(deleted)
+
     def set_model_preference(
         self,
         *,

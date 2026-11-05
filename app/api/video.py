@@ -203,6 +203,18 @@ def set_preference(payload: ModelPreferenceSet) -> dict[str, Any]:
     return {"id": pref.id, "task_type": pref.task_type, "ok": True}
 
 
+@router.delete("/models/preferences/{task_type}")
+def clear_preference(task_type: str) -> dict[str, Any]:
+    """清除某类任务的模型偏好，回落到 .env 的厂商优先级链。
+
+    存在的理由：模型偏好（界面上选的）优先级高于 `.env`，一旦选过就一直生效。
+    用户改了 `.env` 里的模型名却不生效时，没有这个出口只能删库。
+    """
+    removed = deps.store().clear_model_preference(task_type)
+    deps.reset_llm()
+    return {"task_type": task_type, "removed": removed, "ok": True}
+
+
 @router.get("/models/available")
 def available_models() -> dict[str, Any]:
     """列出所有可用的模型 Provider（按 kind 分组）。"""

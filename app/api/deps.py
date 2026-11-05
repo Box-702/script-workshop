@@ -34,5 +34,12 @@ __all__ = [
 
 
 def reset_llm() -> None:
-    """用户增删 provider / 改模型偏好后调用：下一个请求重建 LLM 单例。"""
-    llm.cache_clear()
+    """用户增删 provider / 改模型偏好后调用：下一个请求重建 LLM 单例。
+
+    用 getattr 取 cache_clear 而不是直接调：测试里 deps.llm 会被替换成普通
+    函数（lambda），直接调 cache_clear 会 AttributeError——而这个函数在
+    「设置模型」这类接口的收尾处，炸在这里会让整个请求 500。
+    """
+    clear = getattr(llm, "cache_clear", None)
+    if callable(clear):
+        clear()

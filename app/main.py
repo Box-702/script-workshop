@@ -17,15 +17,15 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from dotenv import load_dotenv
 from sqlalchemy.exc import OperationalError
 
 from .api import router as api_router
-from .config import apply_langsmith_env, get_settings
+from .config import bootstrap_env, get_settings
 
-# .env 里的密钥（MINIMAX_API_KEY 等）不只有 Settings 在读：视频 provider 与 TTS
-# 的回落链直接读 os.environ，必须在进程启动时先落进环境变量。
-load_dotenv()
+# 进程启动引导：.env 落进 os.environ + 注入 LANGSMITH -> LANGCHAIN 监控变量。
+# 必须在导入后立刻执行——有一批参数（多 key 轮换、ffmpeg 路径）直接读
+# os.environ、不经过 Settings（原因见 config.bootstrap_env 的注释）。
+bootstrap_env()
 
 # 站点目录：前端由 frontend/ 的 Vue 工程构建（frontend/dist），
 # FastAPI 直接托管构建产物（API 与 Web 页面同源）。
@@ -173,8 +173,7 @@ async def _lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    # 启动时注入 LangSmith 监控环境变量（LANGSMITH_* -> LANGCHAIN_*）。
-    apply_langsmith_env(settings)
+    # LangSmith 监控变量已由模块级 bootstrap_env() 注入；这里只取 settings。
     _wire_video_job_writeback()
     _wire_video_qa()
     _wire_video_batch()

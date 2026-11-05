@@ -187,3 +187,36 @@ def apply_langsmith_env(settings: Settings) -> None:
 def get_settings() -> Settings:
     """缓存的配置单例。"""
     return Settings()
+
+
+def bootstrap_env() -> Settings:
+    """进程启动引导：把 .env 落进 os.environ，再注入 LangSmith 监控变量。
+
+    **必须在每个真正的入口调用一次**（`main.py` / `cli.py`），否则会出现
+    「配置存在但代码看不见」：有一批参数不走 `Settings`，而是直接读
+    `os.environ`——
+
+      - `app/keys.py`：`MINIMAX_API_KEY` / `MINIMAX_API_KEY_FALLBACKS` /
+        `KEY_COOLDOWN_SEC`（多把 key 轮换与冷却）；
+      - `app/video/qa.py`：`FFMPEG_PATH` 兜底；
+      - LangChain：`LANGCHAIN_*`（由 `apply_langsmith_env` 写入）。
+
+    `Settings` 自己会读 `.env`（`SettingsConfigDict(env_file=...)`），所以只跑
+    Settings 的场合看起来一切正常；但上面这些直读 `os.environ` 的地方会拿到空值。
+    实测症状：CLI 下 `minimax_keys()` 返回 0 把，备用 key 全部失效。
+
+    `load_dotenv` 默认不覆盖已存在的环境变量——测试里用 monkeypatch 设置的值
+    优先级更高，不会被 .env 盖掉。
+    """
+    from dotenv import load_dotenv
+
+    env_path = _PROJECT_ROOT / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+    else:
+        # 允许从当前目录取 .env（例如在子目录里跑脚本）。
+        load_dotenv()
+
+    settings = get_settings()
+    apply_langsmith_env(settings)
+    return settings

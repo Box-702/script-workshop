@@ -41,6 +41,12 @@ def _print_json(label: str, payload: Any) -> None:
 
 
 def main() -> None:
+    # 与 Web 入口一致：CLI 也必须先把 .env 落进 os.environ，
+    # 否则多 key 轮换（app/keys.py）、FFMPEG_PATH 这些直读环境变量的功能会拿到空值。
+    from .config import bootstrap_env
+
+    bootstrap_env()
+
     cfg = settings()
     store_ = store()
     llm_ = llm()
