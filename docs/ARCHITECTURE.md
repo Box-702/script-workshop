@@ -5,40 +5,103 @@
 
 ---
 
+## 零、一页速览
+
+**是什么**：把一部小说改编成短剧并出片的本地单机工具。对话是主入口，工具是手脚，
+资产与版本全部落库。
+
+```
+用户 ←→ 对话 Agent（手写工具循环，20 个工具）
+          ├── 改编工作流（LangGraph 7 节点 + interrupt 人审）→ 剧本版本
+          ├── 剧组三函数（导演 → 美术 → 摄影）→ 分镜 / 视觉锚 / 视频提示词
+          ├── 出片（Provider 抽象 → 队列 → 巡检 → 拼接 → 配音字幕）
+          └── 资产库（角色/场景/声音/素材，一律按实体 id 索引）
+```
+
+**四种「东西」必须分清**（最容易混）：
+
+| 形态 | 谁 | 特征 |
+|---|---|---|
+| **真正的 Agent** | 只有对话层 1 个 | 模型自己决定下一步：循环调工具，直到不需要为止 |
+| **固定工作流** | 改编 7 节点图 | 流程由代码定死，模型只在 `plan`/`propose` 产出内容；`review` 处 `interrupt` 等人 |
+| **模板函数** | 剧组三角色 | 单次结构化调用，没有自己的工具与上下文循环 |
+| **纯规则** | `crew/dramaturgy.py` | 词表 + 正则，判定确定性，零 LLM |
+
+**三条贯穿全局的约定**：
+
+1. **视觉锚只产一次，下游逐字复用**——环境与人物描述由美术指导产出一次，代码逐字拼进每个镜头。
+   风格段相反：**只补空、不覆盖**（body 已写光影/运镜就不再贴，否则模型收到两套矛盾指令）。
+2. **AI 只提议，人做决定**——改编走四决策闭环；视频先审 Prompt 再审成片，全部进链式快照。
+3. **能用规则判的绝不用 LLM 判**——空洞词、否定句、引用台词、跨镜锚复用都是确定性检查。
+
+**改东西先看哪里**：
+
+| 想改 | 去哪 |
+|---|---|
+| 写作 / 分镜规则 | `app/skills/*/SKILL.md`（不用动代码，改完跑 `python -m evals.run`） |
+| 对话行为与工具 | `app/chat/loop.py`（内核）+ `app/chat/tools/*`（20 个工具按域拆） |
+| 改编流程 | `app/agent/graph.py` + `nodes.py` |
+| 模型厂商 | `app/llm/providers.py` 加一条 `ProviderSpec` |
+| 出片供应商 | `app/video/providers/` + `registry.py` |
+| 配置项 | `app/config.py`（走 Settings）或 `app/keys.py`（直读 environ，入口须 bootstrap） |
+
+---
+
 ## 一、包结构与分层
+
 
 ```
 app/
-├── main.py / cli.py                         入口层（HTTP / CLI）
+├── main.py / cli.py                         入口层（HTTP / CLI，都调 config.bootstrap_env）
 ├── api/           REST 路由包 —— 按业务域分模块
 ├── config.py / deps.py                      配置与依赖装配（全项目唯一装配点）
+├── keys.py                                 同厂商多把 key 的轮换与冷却（「哪把能过用哪把」）
 ├── domain.py / store.py / workspace.py      领域模型 / 持久化 / 文件系统
-├── memory.py                                 三层用户记忆 + 会话滚动摘要
+├── memory.py                               三层用户记忆 + 会话滚动摘要
 │
 ├── skills/     技能（长指令）—— SKILL.md 按需加载，代码只留装配
 ├── llm/        模型接入层   —— 对上提供能力，对下屏蔽厂商
 ├── pipeline/   内容生产线   —— 纯逻辑，不依赖 LangGraph / HTTP
-├── agent/      改编智能体   —— LangGraph 状态图 + 后台任务运行器
-├── chat/       对话编排层   —— 对话式 Agent（复用 agent 的工作流）；工具实现在 chat/tools/ 按域拆分
+├── agent/      改编智能体   —— LangGraph 状态图（固定流程 + interrupt 人机协同）+ 后台任务运行器
+├── chat/       对话编排层   —— 手写工具循环（loop.py）+ 工具实现按域拆分（chat/tools/）
 ├── crew/       剧组 Agent   —— 导演 / 美术指导 / 摄影指导
 ├── media/      参考资产层   —— 资产键解析（assets：id 是主键、名字是别名）/ 定妆图 → 质检 → 注册 → 回填 / 配音 / 字幕
-└── video/      视频生成层   —— Provider 抽象 + 队列 + 连续性 + 拼接 + 成片合成
+└── video/      视频生成层   —— Provider 抽象 + 队列 + 巡检 + 连续性 + 拼接 + 成片合成
 ```
+
+**体量分布**（约 2.1 万行 Python，越靠上越重业务）：
+
+| 包 / 模块 | 行数 | 说明 |
+|---|---|---|
+| `pipeline/` | 2870 | 内容生产线：导入、两阶段生成、patch、评审、题材画像 |
+| `api/` | 2646 | 9 个域模块（+ common/schemas/deps），83 条路由 |
+| `video/` | 2518 | Provider 适配 + 队列 + 巡检 + 拼接 + 合成 |
+| `crew/` | 2262 | 三个剧组角色的编排（提示词正文已外置到 `skills/`） |
+| `chat/` | 2166 | 内核 323 行 + 编排 718 行 + 20 个工具实现 |
+| `media/` | 1846 | 参考资产 / 配音 / 字幕 / 资产实体层 |
+| `agent/` | 1678 | 7 节点图 + 后台任务运行器 |
+| `llm/` | 1302 | 门面 + 厂商表 + 视觉/文生图/TTS 客户端 |
+| `skills/` | 284 | 只有加载器；**长指令在 8 个 SKILL.md 里**（不计入 Python 行数） |
+| `store.py` | 1449 | 13 张表的持久化层 |
+| `domain.py` | 614 | Pydantic 领域模型（含 id 格式约束） |
 
 `app/api/` 内部再分一层，避免路由堆在一个大文件里：
 
 ```
 api/
-├── __init__.py   组装 /api 前缀的父 router
-├── deps.py       依赖入口（路由统一 deps.store() 取值，测试可整体替换）
-├── common.py     共享的序列化与落盘辅助
-├── schemas.py    请求模型
-├── system.py     运行状态 / 后台任务 / 工作目录
-├── projects.py   项目生命周期、初稿生成、导入、落盘、笔记、文件浏览
-├── versions.py   剧本版本（含导出）
-├── agent_runs.py 改编智能体的运行与审阅
-├── chat.py       对话式 Agent 与会话管理
-└── video.py      Provider / 模型偏好 / 视频版本 / 生成任务
+├── __init__.py    组装 /api 前缀的父 router
+├── deps.py        依赖入口（路由统一 deps.store() 取值，测试可整体替换）
+├── common.py      共享的序列化与落盘辅助
+├── schemas.py     请求模型
+├── system.py      运行状态 / 后台任务 / 工作目录
+├── projects.py    项目生命周期、初稿生成、导入、落盘、笔记、文件浏览
+├── versions.py    剧本版本（含导出）
+├── agent_runs.py  改编智能体的运行与审阅
+├── chat.py        对话式 Agent 与会话管理（含图片上传/回放）
+├── production.py  生产工作流（一键跑「剧本→拆解→风格→资产图→提示词」）
+├── cast.py        资产库：角色形象 / 声音 / 图片 / 场景的唯一入口
+├── assets.py      项目媒体素材入库（上传字节 or 公网直链）
+└── video.py       Provider / 模型偏好 / 视频版本 / 生成任务
 ```
 
 **依赖方向（单向向下，不允许反向或跨层回指）**
@@ -61,7 +124,12 @@ api/
    测试替换一处即可覆盖全部路由。
 4. 所有单例（Store / LLM / 视频队列 / 后台任务管理器）只在 `app/deps.py` 里创建，
    入口层取值；测试可以单独构造。后台任务的落库依赖也在这里注入。
-5. 状态里只放可序列化数据，依赖（store / llm / tools）通过闭包注入图节点。
+5. **`chat/` 是手写循环、`agent/` 是状态图**，两者不要混：对话需要「模型自己决定下一步」，
+   用循环；改编是固定七步 + `interrupt` 人机协同，用图。状态里只放可序列化数据，
+   store / llm / tools 通过闭包注入。
+6. **配置分两类**：走 `Settings` 的（pydantic 直接读 `.env`）和直读 `os.environ` 的
+   （多 key 轮换、`FFMPEG_PATH`、`LANGCHAIN_*`）。后者要求入口先调
+   `config.bootstrap_env()`——`main.py` / `cli.py` 已调，新写脚本别忘了（见 DEVELOPMENT 5.25）。
 
 
 ---
@@ -302,6 +370,10 @@ render_skill() 取 SKILL.md 全文 → 拼进 system prompt → llm.chat() 一�
 
 ## 四、核心链路（端到端）
 
+> 产品侧还有一条**一键入口**：`POST /projects/{id}/production`（对话工具 `start_production`）
+> 按 剧本 → 拆解 → 风格 → 资产图 → 提示词 五阶段自动跑完，已完成的阶段自动复用。
+> 下面画的是每一阶段内部的真实细节。
+
 ```
 ① 导入              小说 / 剧本文件（txt / md / docx / 粘贴）
   pipeline/importer.py    编码容错解析 → 原文 + 章节结构
@@ -335,8 +407,10 @@ render_skill() 取 SKILL.md 全文 → 拼进 system prompt → llm.chat() 一�
   （锚逐字复用）。用户可以逐镜编辑、保存草稿、标记需修改或批准。
   每次人工操作创建新的 VideoVersion 快照；只有 prompt_status=approved 的镜头可提交。
   工作台支持多选镜头批量审批，版本列表展示 Prompt 审阅汇总，单镜可沿 parent_version_id 查看历史与差异。
-  七条写作铁律见 dp.py::_BODY_RULES_ZH：动作与运镜并重 / 呼吸感 / 光的方向 / 人物编号与距离 /
-  背景人物各有各的事 / 只写看得见的东西 / 接触动作写物理过程
+  写作规则共十一条，正文在 `app/skills/video-prompt-zh/SKILL.md`（英文版 -en）：
+  动作与运镜并重 / 呼吸感 / 光的方向 / 人物编号与距离 / 背景人物各有各的事 /
+  只写看得见的东西 / 接触动作物理过程（一镜只给一个主事件）/ 禁止否定句 /
+  台词不进提示词 / 以 final_frame 收尾 / 情绪翻译成身体线索并禁占位词
   （LLM 整段漏写运镜时用 camera.path 兜底补一次）
 
 ⑧ 视频生成          app/video/
@@ -354,7 +428,7 @@ render_skill() 取 SKILL.md 全文 → 拼进 system prompt → llm.chat() 一�
   → 成片 + SRT 注册为项目素材（source="finalize"），前端经 /api/assets/file/{id} 播放
   降级阶梯：配音失败→静片+估算字幕；烧录失败→无字幕成片；单镜下载失败→跳过并警告
   致命只有两种：没有任何可用镜头、拼装失败
-  入口三处：工作台成片卡片 / 对话工具 finalize_film·check_finalize / POST /projects/{id}/video/finalize
+  入口三处：工作台成片卡片 / 对话工具 finalize_film / POST /projects/{id}/video/finalize
 ```
 
 **两条贯穿全链路的原则**
@@ -366,16 +440,17 @@ render_skill() 取 SKILL.md 全文 → 拼进 system prompt → llm.chat() 一�
 
 ## 五、技术债与已完成的整理
 
-### 5.0 当前四个结构缺口（2026-11-01 真跑一条完整链路后确认）
+### 5.0 曾经的四个结构缺口（2026-11-01 真跑一条完整链路后确认，现已全部修复）
 
-这四条不是「代码风格」，是**会让产品出错**的缺口，按修复顺序排：
+这四条当时不是「代码风格」，是**会让产品出错**的缺口。留在这里是因为它们揭示了
+「看起来在跑」和「真的对」之间的差距——修复顺序也值得复用：先做实体层，再做校验，最后拆编排。
 
 | # | 缺口 | 现在怎么表现的 | 修法 |
 |---|---|---|---|
 | 1 | ~~资产按名字做 key~~ | 角色锚、定妆图、音色、性别分存四个 dict，主键都是**中文名**。改一次名四份锚点全断且不报错 | ✅ **已修（见 5.2）**：统一按实体 id 索引，老数据读取期兼容 |
 | 2 | **台词引用不校验真伪** | 实测 35 个引用里 28 个是模型编的 id（`beat_003_dlg_001`）。配音找不到台词就静默跳过，画面照常生成，两条线永不交汇 | ✅ 已修：prompt 补 beat id + 校验反向检查（见 DEVELOPMENT 5.22） |
 | 3 | ~~没有服务端轮询器~~ | 出片进度靠前端轮询驱动（`/batch/advance`）。脱离前端跑批量，任务会停在 `submitted` 不动。这是「任务队列缺失」的真正形态——缺的不是 broker，是**驱动状态机的那只手** | ✅ **已修（见 5.3）**：sweeper 后台线程接管孤儿任务 |
-| 4 | ~~`conductor.py` 1595 行~~ | 对话层同时干着：拼系统提示、读写 DB、算配音时间轴、拼提示词参数、管批次进度。每加一个功能都在同一个文件里打补丁 | ✅ **已修（见 5.4）**：工具实现按域拆进 `app/chat/tools/`，conductor 只剩编排（745 行） |
+| 4 | ~~`conductor.py` 1595 行~~ | 对话层同时干着：拼系统提示、读写 DB、算配音时间轴、拼提示词参数、管批次进度。每加一个功能都在同一个文件里打补丁 | ✅ **已修（见 5.4）**：工具实现按域拆进 `app/chat/tools/`，conductor 只剩编排（718 行）；随后内核也从 LangGraph 图换成手写循环（见 3.1 / D-29） |
 
 > 1 和 2 有同一个根：**没有实体层**。搞完 1 之后，「台词归属、快照锁定」也有了落点
 > ——`dialogue_ref` 指向的是 `beat_xxx`，而 beat 属于 `scene_xxx`，链路终于是一条而不是几张散表。
@@ -477,7 +552,7 @@ render_skill() 取 SKILL.md 全文 → 拼进 system prompt → llm.chat() 一�
 | 位置 | 问题 | 影响 | 建议 |
 |---|---|---|---|
 | 全仓 | `ruff` 配置为 `select = ["E","F","I","B","UP"]`、`line-length = 100`，但全量检查有 200 处 `E501` 等未清 | 一旦在 CI 里加 ruff 就会红 | 要么清账（主要是长行拆分），要么把 `E501` 移出 select。`app/api/`、`app/llm/` 这两个新目录目前是全绿的 |
-| `app/chat/conductor.py` | 每轮对话重建图与全部工具闭包 | 实测开销可忽略（纯对象装配，无 I/O；LLM 调用才是耗时大头） | 仅在压测显示瓶颈后再做，需要先把 collector 从闭包挪进图状态 |
+| `app/chat/` | 每轮对话重建 `AgentLoop` 与全部工具闭包 | 实测开销可忽略（纯对象装配，无 I/O；LLM 调用才是耗时大头） | 仅在压测显示瓶颈后再做，需要先把 collector 从闭包挪进显式状态 |
 | `app/agent/tasks.py` | 进行中的任务只有内存态（历史已落库） | 重启后运行中的任务面板清空——这是真实情况，不假装还活着 | 若要多实例部署再接队列 |
 | `app/api/` | 全部路由无鉴权，且默认可设置任意工作目录 | 仅限本机使用 | 已默认 `API_HOST=127.0.0.1`；若要做多用户需先加鉴权 |
 
@@ -510,6 +585,8 @@ render_skill() 取 SKILL.md 全文 → 拼进 system prompt → llm.chat() 一�
 | 加一个持久化字段 | `app/store.py` 加模型字段（新表由 `create_all` 自动建；给老表加列要在 `_ensure_columns()` 里补 ALTER） |
 | 加一个生成阶段 | `app/pipeline/` 加模块，由 `agent/nodes.py` 或 `chat/tools/` 对应域模块调用 |
 | 改剧组写作规则 | 直接改 `app/skills/<技能名>/SKILL.md`，**不用动代码**；改完跑 `python -m evals.run` 确认质量没退化 |
+| 换对话内核 / 加 transport | 内核在 `app/chat/loop.py`；换 provider 只需重写 `_to_lc_messages()` 这一个适配层 |
+| 加一把备用 key | 不用改代码：`.env` 里 `MINIMAX_API_KEY_FALLBACKS` 逗号分隔，轮换逻辑见 `app/keys.py` |
 | 加一个技能 | 建 `app/skills/<name>/SKILL.md`（frontmatter 必填 `name` + `description` + `audience`），代码里 `render_skill(name, **vars)` 取正文 |
 | 加一个查询能力 | **不要加新工具**——先看 `get_status` 的 `detail` 参数能不能扩。五个查询工具合并成一个就是因为模型会选错，选错后它会编结果 |
 | 改完工具名 | 全仓搜一遍技能里的旧名；`tests/test_skills.py::test_skill_tool_refs_exist` 会拦住漏改（技能里提到的工具必须真实存在） |
