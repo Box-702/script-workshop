@@ -78,6 +78,8 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None  # 项目下的具体对话（线程）；缺省用项目默认对话
     message: str = Field(default="")  # 审阅动作（meta.intent=resume）时可为空
     meta: dict[str, Any] | None = None  # 结构化意图（如 {"intent": "resume", ...}）
+    # 本轮消息附带的图片 id（先经 /chat/images 上传拿 id）；进入上下文且随消息持久化。
+    images: list[str] = Field(default_factory=list)
 
 
 class ConversationCreate(BaseModel):

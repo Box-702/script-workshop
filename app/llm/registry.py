@@ -229,7 +229,12 @@ def resolve_vision(settings: Any, store: Any = None) -> ModelConfig | None:
 
 
 def resolve_image(settings: Any, store: Any = None) -> ModelConfig | None:
-    """文生图模型：显式指定 > DB > 智谱 CogView > OpenAI Images。"""
+    """文生图模型：显式指定 > 用户在设置里选的（DB 偏好） > 智谱 CogView > OpenAI Images。
+
+    用户偏好（task_type=image_gen）不需要在 DB 里存 key：provider 行没填 key 时
+    回落 .env 的同厂商 key（CogView 与智谱 GLM 共用 ZHIPUAI_API_KEY）——
+    这样设置页只让用户「选模型」，不用重复粘贴 key。
+    """
     forced = _canonical(_settings_attr(settings, "image_provider"))
     explicit_key = _settings_attr(settings, "image_api_key")
 
@@ -249,6 +254,31 @@ def resolve_image(settings: Any, store: Any = None) -> ModelConfig | None:
                 or (spec.default_base_url if spec else ""),
                 source="env",
             )
+
+    # 用户在设置里选过生图模型：模型/端点以用户选择为准，key 缺失时回落 .env。
+    if store is not None:
+        try:
+            pref = store.get_model_preference("image_gen")
+            if pref and pref.provider_id:
+                row = store.get_api_provider(pref.provider_id)
+                if row:
+                    name = _canonical(row.name) or "cogview"
+                    spec = get_provider_spec(name)
+                    source = _from_settings("zhipu" if name in ("cogview", "zhipu") else name, settings)
+                    api_key = (row.api_key or "") or (source.api_key if source else "")
+                    model = pref.model_name or (row.config.get("model") or "")
+                    model = model or (spec.image_model if spec else "")
+                    if model and api_key:
+                        return ModelConfig(
+                            provider=name,
+                            label=row.label or (spec.label if spec else name),
+                            model=model,
+                            api_key=api_key,
+                            base_url=row.base_url or (spec.default_base_url if spec else ""),
+                            source="db",
+                        )
+        except Exception as e:  # noqa: BLE001
+            log.debug("读取生图模型偏好失败：%s", e)
 
     from_store = _from_store(store, "image", "image_gen")
     if from_store:

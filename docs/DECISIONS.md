@@ -812,6 +812,47 @@ character_genders:     {"孔乙己": "male"}
 的实体；① 的级联更新是「每个写入点都要记得更新四处」，漏一处就静默丢——正是现在这个 bug
 的放大版。② 把「名字→id」的转换收敛到**两个边界**（落库、拼提示词），中间全程用 id。
 
+---
+
+## D-23 用户数据全部存数据库，本地不落成品文件 —— 已定（2026-11-02）
+
+**背景**：产品定位向「网页版 AI 视频工具」看齐，用户明确要求「本地不留文件，全部用户数据
+存数据库」。此前状态：元数据在 Postgres，但媒体文件本体（上传素材、成片、SRT）落盘在
+`data/assets/<project_id>/`，工作区镜像目录（01_原稿/02_版本/03_导出/04_知识库）也写磁盘。
+
+**决定**：
+
+1. **媒体文件本体入库**：`media_assets` 表新增 `content BYTEA` 列。上传（`assets.py`）与
+   成片/SRT 登记（`finalize._register_asset`）都改为字节入库，本地不落成品文件。
+   回放端点优先读 DB，对历史 `file_path` 记录向下兼容。合成/配音过程中的**临时文件仍然
+   本地**（ffmpeg 要求文件路径），finalize 完成即清理——「本地不留」指最终产物，不是过程。
+2. **工作区镜像默认关闭**：`.env` 设 `WORKSPACE_PERSIST=false`（in_app 模式），
+   01_原稿等镜像目录不再写盘；文本数据本来就在库里。
+3. **存量迁移**：`scripts/migrate_assets_to_db.py` 一次性把 DB 登记过的磁盘素材读入
+   （实际只有 2 条，约 1.7MB）；`data/assets/` 下 35MB 为临时测试库遗留的孤儿文件，直接删除。
+4. 200MB 单文件上限不变；Postgres TOAST 足够覆盖当前规模（单镜成片 ~1-6MB）。
+
+**后果**：数据库成为唯一事实源，备份 = 备份数据库；数据目录不再无限膨胀。
+代价是 DB 体积随素材增长（可接受），且回放响应无 Range 支持（预览够用，拖动进度条
+需整段加载——将来要精剪时再考虑分块或对象存储）。
+
+**相关**：`app/api/assets.py`、`app/video/finalize.py`、`app/store.py`（MediaAsset）、
+`app/workspace.py`（persist=in_app）、`scripts/migrate_assets_to_db.py`
+
+---
+
+## D-24 UI 简化：去命令面板，模型入口收敛到输入区 —— 已定（2026-11-02）
+
+**背景**：用户反馈顶栏拥挤：命令输入框（Ctrl+K 面板）用不上；模型徽标、新建剧本按钮
+散在顶栏；对话输入框里的「＋」点开的是新建剧本弹窗，位置误导。
+
+**决定**：顶栏只留 品牌 + 批次状态 + 面板开关；移除命令面板（CommandPalette /
+SearchOverlay 挂载与入口，组件文件暂留）；模型徽标移到输入框工具行（点击进设置，
+模型配置本就只有设置里能改——.env 级，无运行时切换 API）；输入框「＋」删除，
+新建作品入口只保留首页与左侧栏；工作步骤展示去 emoji，用纯文本符号 + 行色区分。
+
+**相关**：`frontend/src/components/{HeaderBar,ChatComposer,MessageItem,App}.vue`
+
 **代价**：迁移前写入的名字键，在角色改过名之后无法再映射（没有改名历史）。所以
 「改名不丢锚点」只对迁移后的写入成立；新项目从第一笔数据起就是 id 键。
 
@@ -820,6 +861,54 @@ character_genders:     {"孔乙己": "male"}
 
 **相关**：`app/media/assets.py`、`app/media/library.py`、`app/media/casting.py`、
 `app/media/refs.py`、`docs/ARCHITECTURE.md` 五·5.2、`tests/test_entity_assets.py`
+
+<a id="d-25-开发环境切-sqlite"></a>
+## D-25 开发环境默认切 SQLite —— 已定（2026-11-02）
+
+**背景**：本地工具阶段，Docker Postgres 成为试用门槛（忘开 Docker 就 5432 连不上、
+请求挂起），而单机场景的并发量（单用户 + 线程池）SQLite + WAL 完全够用。
+**选项**：① 维持 Postgres 默认，SQLite 仅测试用；② 默认 SQLite（data/script_agent.db），
+.env 可切回 Postgres。
+**决定**：选 ②。DATABASE_URL 默认值改为 SQLite 文件库；checkpointer 默认 memory；
+存量 Postgres 数据用 `scripts/migrate_pg_to_sqlite.py` 一次性搬入（按源表/源列存在性
+跳过缺失部分，幂等可重跑）。
+**理由**：本地工具「双击就能跑」优先于生产级并发；SQLite 路径的连接参数、WAL、
+busy_timeout 已在 store.py 就绪（历史上就是为单测准备的）。图片字节入 BLOB 两者等价。
+**什么时候该推翻**：出现多用户/局域网部署、或单库写并发导致 database is locked 频发时，
+切回 Postgres（.env 改 DATABASE_URL + CHECKPOINTER=postgres 即可，无需改代码）。
+**相关**：`app/config.py`、`app/store.py`、`scripts/migrate_pg_to_sqlite.py`
+
+<a id="d-26-对话图片常驻上下文"></a>
+## D-26 对话支持传图且图片常驻上下文 —— 已定（2026-11-02）
+
+**背景**：用户要把参考图（分镜草图、角色照片）发给对话模型识别，且后续轮次模型
+不能「忘图」。此前聊天只有纯文本。
+**选项**：① 只在当轮传图，历史不带；② 图片字节入库（chat_images 表），消息记快照，
+每轮重建上下文时把最近窗口内所有历史图片重新编码为 base64 data URL 喂给多模态模型。
+**决定**：选 ②，上限 MAX_CONTEXT_IMAGES=12 张（超出降级为文字占位，防请求体膨胀）。
+带图轮次自动换多模态模型（LLM.chat_multimodal()：DeepSeek 对话模型不看图，切其
+spec.vision_model 视觉型号；其余 OpenAI 兼容厂商直接透传 image_url 内容块）。
+**理由**：「不能忘图」是硬需求——剧本协作里参考图是长期上下文；12 张 base64 约
+几十万字节，在本地工具可接受。选型走 ProviderSpec 既有声明，不引入新配置。
+**什么时候该推翻**：图片对话量大到上下文/延迟不可接受时，改为「图片摘要入库 +
+按需重取图」的两级方案。
+**相关**：`app/chat/conductor.py`、`app/llm/client.py`、`app/api/chat.py`、
+`frontend/src/components/{ChatComposer,MessageItem}.vue`
+
+<a id="d-27-生图与视频模型用户可选"></a>
+## D-27 生图与视频模型用户可选 —— 已定（2026-11-02）
+
+**背景**：生图固定 CogView-3-Flash、视频固定 H3，用户无法按质量/成本取舍。
+**决定**：设置页新增「生图模型」页签（CogView 系列 + 自定义），保存为
+kind=image 的 provider 行 + task_type=image_gen 偏好；key 允许为空——resolve_image
+回落 .env 的同厂商 key（CogView 与 GLM 共用 ZHIPUAI_API_KEY），用户只选模型名不重复贴 key。
+视频页签的模型改为下拉（H3 / Hailuo-02 / T2V-01 / I2V-01 + 自定义），仍存 provider
+config.model，`_resolve_video_provider` / 前端 submitVideoJob 既有链路直接生效。
+**理由**：复用 ApiProvider/ModelPreference 既有表结构，零迁移；偏好为空时回落 .env
+保持向后兼容。
+**什么时候该推翻**：需要按项目粒度（而非全局）选模型时，把偏好挂到 project 上。
+**相关**：`app/llm/registry.py`（resolve_image）、`app/llm/client.py`（describe_image）、
+`frontend/src/components/settings/SettingsModal.vue`
 
 ---
 

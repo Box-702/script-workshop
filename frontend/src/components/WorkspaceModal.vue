@@ -12,6 +12,7 @@
 import { ref, watch, nextTick, onUnmounted } from 'vue'
 import FolderIcon from './FolderIcon.vue'
 import FolderTree from './FolderTree.vue'
+import AppIcon from './AppIcon.vue'
 import { store, setWorkspace, selectWorkspaceDirectory } from '../stores/app'
 
 const MODES = [
@@ -112,7 +113,7 @@ async function browse() {
         <div class="path-row">
           <input ref="pathInput" v-model="customRoot" placeholder="例如：C:\Users\你\Documents\我的剧本" @input="err = ''" @keydown.enter="apply" />
           <button class="ghost" :disabled="picking" @click="browse">
-            <svg viewBox="0 0 16 16" class="ic-folder" aria-hidden="true"><path d="M2.5 4.5c0-.55.45-1 1-1h1.6c.27 0 .52.11.71.29l.44.44c.19.19.44.29.71.29h3.05c.55 0 1 .45 1 1v6.98c0 .55-.45 1-1 1H3.5c-.55 0-1-.45-1-1V4.5z" fill="currentColor"/></svg>
+            <AppIcon name="folder" class="ic-folder" aria-hidden="true" />
             {{ picking ? '选择中…' : '选择文件夹' }}
           </button>
         </div>
@@ -137,7 +138,7 @@ async function browse() {
         <FolderTree :root="mode === 'in_app' ? '（仅应用内）' : (mode === 'custom' ? (customRoot || '（待设置）') : (baseRoot() || '（待设置）'))" />
       </div>
 
-      <div v-if="err" class="err">⚠️ {{ err }}</div>
+      <div v-if="err" class="err"><AppIcon name="warning" /> {{ err }}</div>
 
       <div class="foot">
         <button class="ghost" :disabled="saving" @click="store.showWorkspace = false">取消</button>

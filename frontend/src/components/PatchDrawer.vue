@@ -13,6 +13,7 @@
 import { computed, reactive, ref, watch, onUnmounted } from 'vue'
 import { store, closePatchDrawer, resumeReview, toggleCheck, notify } from '../stores/app'
 import { DIM_LABEL, ISSUE_CAT_LABEL, FIELD_LABEL, fmtVal, groupPatch } from '../utils/format'
+import AppIcon from './AppIcon.vue'
 
 const drawer = computed(() => store.drawer)
 const payload = computed(() => store.drawer.payload)
@@ -107,10 +108,10 @@ function regenerateWith(txt) { resumeReview(runId.value, 'regenerate', { feedbac
     <aside class="drawer" role="dialog" aria-modal="true" aria-label="改编提议审阅">
       <header class="d-head">
         <div class="d-title">
-          <h3>✍️ 改编提议（审阅）</h3>
-          <div class="muted mono">run: {{ runId }}<template v-if="payload.error"> · ⚠ {{ payload.error }}</template></div>
+          <h3><AppIcon name="edit" /> 改编提议（审阅）</h3>
+          <div class="muted mono">run: {{ runId }}<template v-if="payload.error"> · <AppIcon name="warning" /> {{ payload.error }}</template></div>
         </div>
-        <button class="x" aria-label="关闭" @click="closePatchDrawer()">✕</button>
+        <button class="x" aria-label="关闭" @click="closePatchDrawer()"><AppIcon name="close" /></button>
       </header>
 
       <div class="d-body">
@@ -120,7 +121,7 @@ function regenerateWith(txt) { resumeReview(runId.value, 'regenerate', { feedbac
           <div class="rv-top">
             <span class="rv-score mono" :class="review.passed ? 'ok' : 'bad'">{{ review.overall_score }}<small>/100</small></span>
             <span class="rv-verdict" :class="review.passed ? 'ok' : 'bad'">{{ review.passed ? '通过' : '需调整' }}</span>
-            <span v-if="review.errors" class="rv-err mono">⚠ {{ review.errors }} 个 error</span>
+            <span v-if="review.errors" class="rv-err mono"><AppIcon name="warning" /> {{ review.errors }} 个 error</span>
           </div>
           <div v-if="review.dimensions && review.dimensions.length" class="rv-dims">
             <span v-for="d in review.dimensions" :key="d.name" class="rv-dim">
@@ -237,8 +238,8 @@ function regenerateWith(txt) { resumeReview(runId.value, 'regenerate', { feedbac
 .rv-dims { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .rv-dim {
   display: inline-flex; align-items: center; gap: 5px;
-  background: var(--panel2); border: 1px solid var(--line); border-radius: 999px;
-  padding: 2px 8px; font-size: 11px; color: var(--muted);
+  background: transparent; border: none; border-radius: 3px;
+  padding: 2px 6px; font-size: 11px; color: var(--muted);
 }
 .rv-dim-n { color: var(--ink); }
 .rv-dim-v { font-weight: 700; color: var(--ink); }

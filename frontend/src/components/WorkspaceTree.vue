@@ -17,8 +17,8 @@
       <div class="ws-root">{{ tree.root }}</div>
       <div v-for="folder in tree.folders" :key="folder.name" class="ws-folder">
         <div class="folder-header" @click="toggle(folder.name)">
-          <span class="expand-icon">{{ isOpen(folder.name) ? '▼' : '▶' }}</span>
-          <span class="folder-icon">/</span>
+          <span class="expand-icon" :class="{ open: isOpen(folder.name) }"><AppIcon name="chevron-right" /></span>
+          <span class="folder-icon"><AppIcon name="folder" /></span>
           <span class="folder-name">{{ folder.name }}</span>
         </div>
         <div v-if="isOpen(folder.name)" class="folder-children">
@@ -27,7 +27,7 @@
             :key="sub.name"
             class="folder-item"
           >
-            <span class="item-icon">{{ sub.type === 'dir' ? '/' : '·' }}</span>
+            <span class="item-icon"><AppIcon :name="sub.type === 'dir' ? 'folder' : 'file'" /></span>
             <span class="item-name">{{ sub.name }}</span>
           </div>
         </div>
@@ -39,6 +39,7 @@
 <script setup>
 import { computed, reactive } from 'vue'
 import { store, loadWorkspaceTree } from '../stores/app.js'
+import AppIcon from './AppIcon.vue'
 
 const tree = computed(() => store.workspaceTree)
 const openFolders = reactive(new Set())
@@ -86,13 +87,14 @@ function onRefresh() {
   cursor: pointer; font-size: 12px; color: var(--muted);
 }
 .folder-header:hover { background: rgba(255,255,255,.03); }
-.expand-icon { font-size: 9px; color: var(--cyan); }
-.folder-icon { font: 700 12px/1 var(--mono); color: var(--cyan); }
+.expand-icon { display: inline-flex; font-size: 10px; color: var(--cyan); transition: transform 130ms var(--ease); }
+.expand-icon.open { transform: rotate(90deg); }
+.folder-icon { display: inline-flex; font-size: 13px; color: var(--cyan); }
 .folder-name { flex: 1; }
 .folder-children { padding-left: 12px; }
 .folder-item {
   display: flex; align-items: center; gap: 5px; padding: 3px 12px;
   font-size: 11px; color: var(--dim);
 }
-.item-icon { width: 12px; color: var(--dim); font: 700 11px/1 var(--mono); }
+.item-icon { width: 14px; display: inline-flex; color: var(--dim); font-size: 12px; }
 </style>

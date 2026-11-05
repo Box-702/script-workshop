@@ -2,9 +2,9 @@
 # assets.py —— 项目媒体素材（参考视频等）
 #
 # 两条入库通道：
-#   - upload：文件落盘到 workspace_root/assets/<project_id>/，本服务提供回放；
-#     适合预览、归档与即梦等支持本地上传的平台。注意 MiniMax 等服务商
-#     拉取参考素材要求公网可访问 URL，本机回放地址对他们不可达。
+#   - upload：文件本体直接存数据库（media_assets.content bytea），本地不落盘，
+#     本服务提供回放；适合预览、归档。注意 MiniMax 等服务商拉取参考素材
+#     要求公网可访问 URL，本机回放地址对他们不可达——那类素材请走 url 登记。
 #   - url：直接登记外部公网链接（对象存储 / 图床 / 已生成成片的 CDN 地址）。
 # =====================================================================
 
@@ -13,9 +13,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from . import common, deps
@@ -27,9 +28,18 @@ log = logging.getLogger(__name__)
 _ALLOWED_EXTS = {".mp4", ".mov", ".webm", ".m4v", ".mkv", ".avi"}
 _MAX_BYTES = 200 * 1024 * 1024  # 200MB
 
+# 白模/定妆照等静态图片：用户自己导入的参考图
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+_MAX_IMAGE_BYTES = 20 * 1024 * 1024  # 20MB
+
 _MEDIA_TYPES = {
     ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime",
     ".webm": "video/webm", ".mkv": "video/x-matroska", ".avi": "video/x-msvideo",
+}
+
+_IMAGE_TYPES = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".webp": "image/webp", ".gif": "image/gif",
 }
 
 
@@ -52,13 +62,6 @@ def _asset_dict(a: Any) -> dict[str, Any]:
     }
 
 
-def _assets_dir(project_id: str) -> Path:
-    root = Path(deps.settings().effective_workspace_root)
-    d = root / "assets" / project_id
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
 @router.get("/projects/{project_id}/assets")
 def list_assets(project_id: str, kind: str | None = None) -> list[dict[str, Any]]:
     """列出项目的媒体素材（默认全部，可按 kind 过滤）。"""
@@ -68,31 +71,50 @@ def list_assets(project_id: str, kind: str | None = None) -> list[dict[str, Any]
 
 @router.post("/projects/{project_id}/assets/upload")
 async def upload_asset(project_id: str, file: UploadFile = File(...)) -> dict[str, Any]:  # noqa: B008
-    """上传一个媒体文件作为项目素材。"""
+    """上传一个媒体文件作为项目素材（文件本体存数据库，本地不落盘）。"""
     common.get_project(project_id)
     original = file.filename or "video.mp4"
     ext = Path(original).suffix.lower()
     if ext not in _ALLOWED_EXTS:
         raise HTTPException(400, f"不支持的格式 {ext}，可用：{' '.join(sorted(_ALLOWED_EXTS))}")
 
-    asset_id = gen_id("asset")
-    dest = _assets_dir(project_id) / f"{asset_id}{ext}"
-    size = 0
-    try:
-        with dest.open("wb") as out:
-            while chunk := await file.read(1024 * 1024):
-                size += len(chunk)
-                if size > _MAX_BYTES:
-                    raise HTTPException(400, "文件超过 200MB 上限")
-                out.write(chunk)
-    except Exception:
-        dest.unlink(missing_ok=True)
-        raise
+    data = bytearray()
+    while chunk := await file.read(1024 * 1024):
+        data.extend(chunk)
+        if len(data) > _MAX_BYTES:
+            raise HTTPException(400, "文件超过 200MB 上限")
 
-    rel = dest.relative_to(deps.settings().effective_workspace_root).as_posix()
+    asset_id = gen_id("asset")
     asset = deps.store().add_asset(
         project_id, kind="video", name=original, source="upload",
-        url=f"/api/assets/file/{asset_id}", file_path=rel, id=asset_id,
+        url=f"/api/assets/file/{asset_id}", id=asset_id, content=bytes(data),
+    )
+    return _asset_dict(asset)
+
+
+@router.post("/projects/{project_id}/images/upload")
+async def upload_image(project_id: str, file: UploadFile = File(...)) -> dict[str, Any]:  # noqa: B008
+    """上传一张参考图（角色定妆照 / 场景白模），字节入库，返回回放 URL。
+
+    供资产库把 AI 生成的白模换成用户自己的图：前端拿到 url 后
+    PATCH /library 把它绑到对应角色/场景上。
+    """
+    common.get_project(project_id)
+    original = file.filename or "image.png"
+    ext = Path(original).suffix.lower()
+    if ext not in _IMAGE_EXTS:
+        raise HTTPException(400, f"不支持的图片格式 {ext}，可用：{' '.join(sorted(_IMAGE_EXTS))}")
+
+    data = bytearray()
+    while chunk := await file.read(1024 * 1024):
+        data.extend(chunk)
+        if len(data) > _MAX_IMAGE_BYTES:
+            raise HTTPException(400, "图片超过 20MB 上限")
+
+    asset_id = gen_id("asset")
+    asset = deps.store().add_asset(
+        project_id, kind="image", name=original, source="upload",
+        url=f"/api/assets/file/{asset_id}", id=asset_id, content=bytes(data),
     )
     return _asset_dict(asset)
 
@@ -129,10 +151,21 @@ def delete_asset(asset_id: str) -> dict[str, Any]:
 
 
 @router.get("/assets/file/{asset_id}")
-def get_asset_file(asset_id: str) -> FileResponse:
-    """回放上传的素材文件（预览用；服务商拉取需要公网 URL）。"""
+def get_asset_file(asset_id: str) -> Response:
+    """回放素材：优先读数据库里的文件本体；历史磁盘素材向下兼容。"""
     asset = deps.store().get_asset(asset_id)
-    if asset is None or not asset.file_path:
+    if asset is None:
+        raise HTTPException(404, "素材不存在")
+    if asset.content is not None:
+        suffix = Path(asset.name).suffix.lower()
+        media_type = _MEDIA_TYPES.get(suffix) or _IMAGE_TYPES.get(suffix) or "application/octet-stream"
+        quoted = quote(asset.name, safe="")
+        return Response(
+            content=asset.content,
+            media_type=media_type,
+            headers={"Content-Disposition": f"inline; filename*=utf-8''{quoted}"},
+        )
+    if not asset.file_path:
         raise HTTPException(404, "素材不存在")
     p = Path(deps.settings().effective_workspace_root) / asset.file_path
     if not p.is_file():

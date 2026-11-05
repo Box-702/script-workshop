@@ -28,7 +28,7 @@
     <div v-else class="shots-by-scene">
       <div v-for="(group, sceneId) in groupedShots" :key="sceneId" class="scene-group">
         <div class="scene-label" @click="toggleScene(sceneId)">
-          <span class="expand-icon">{{ expanded[sceneId] ? '▼' : '▶' }}</span>
+          <span class="expand-icon" :class="{ open: expanded[sceneId] }"><AppIcon name="chevron-right" /></span>
           <span>{{ sceneLabel(sceneId) }}</span>
           <span class="shot-count">{{ group.length }} 镜</span>
         </div>
@@ -77,7 +77,7 @@
                 {{ promptStatusLabel(shot) }}
               </span>
               <span v-if="shot.prompt_audit?.length" class="audit-tag" title="提示词自动审计提醒，在审阅面板查看详情">
-                ⚠ {{ shot.prompt_audit.length }}
+                <AppIcon name="warning" /> {{ shot.prompt_audit.length }}
               </span>
               <span class="prompt-text">{{ truncate(shot.video_prompt, 100) }}</span>
             </div>
@@ -91,7 +91,7 @@
                 class="btn-tiny"
                 @click.stop="$emit('play-video', shot)"
                 v-if="shot.video_url"
-              >▶ 播放</button>
+              ><AppIcon name="play" /> 播放</button>
               <button
                 class="btn-tiny"
                 @click.stop="$emit('edit-prompt', shot)"
@@ -106,6 +106,7 @@
 
 <script setup>
 import { ref, computed, reactive, watch } from 'vue'
+import AppIcon from '../AppIcon.vue'
 
 const props = defineProps({
   shots: { type: Array, default: () => [] },
@@ -238,7 +239,8 @@ function truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '...' : s }
   font-size: 12px; font-weight: 600;
 }
 .scene-label:hover { background: rgba(255,255,255,.04); }
-.expand-icon { font-size: 10px; color: var(--text2, #666); }
+.expand-icon { display: inline-flex; font-size: 10px; color: var(--text2, #666); transition: transform 130ms var(--ease); }
+.expand-icon.open { transform: rotate(90deg); }
 .shot-count { margin-left: auto; font-size: 11px; color: var(--text2, #666); font-weight: 400; }
 
 .scene-shots { padding: 4px 0 4px 16px; }
@@ -276,10 +278,12 @@ function truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '...' : s }
 .prompt-label.approved { color: var(--ok); }
 .prompt-label.needs_revision { color: var(--bad); }
 .audit-tag {
+  display: inline-flex; align-items: center; gap: 3px;
   margin-right: 4px; padding: 0 4px; border-radius: 3px;
   color: var(--warn); border: 1px solid color-mix(in oklch, var(--warn) 40%, transparent);
   font-variant-numeric: tabular-nums;
 }
+.audit-tag .app-ic { font-size: 10px; }
 
 .meta-tag.ref-tag {
   color: var(--cyan);

@@ -8,13 +8,16 @@
 // =====================================================================
 
 import { store, dismissToast } from '../stores/app'
+import AppIcon from './AppIcon.vue'
+
+const TYPE_ICON = { error: 'warning', ok: 'check', info: 'info' }
 </script>
 
 <template>
   <div v-if="store.toast" class="toast" :class="store.toast.type || 'info'" role="status">
-    <span class="dot" aria-hidden="true"></span>
+    <AppIcon :name="TYPE_ICON[store.toast.type] || 'info'" class="type-ic" />
     <span class="msg">{{ store.toast.message }}</span>
-    <button class="close" :aria-label="store.toast.message" @click="dismissToast()">✕</button>
+    <button class="close" :aria-label="store.toast.message" @click="dismissToast()"><AppIcon name="close" /></button>
   </div>
 </template>
 
@@ -28,7 +31,7 @@ import { store, dismissToast } from '../stores/app'
   padding: 9px 12px;
   background: var(--panel2);
   border: 1px solid var(--line-strong);
-  border-radius: 12px;
+  border-radius: 8px;
   box-shadow: 0 14px 40px oklch(0 0 0 / 0.4);
   font-size: 12.5px; color: var(--ink);
   animation: toast-in 180ms var(--ease);
@@ -36,16 +39,17 @@ import { store, dismissToast } from '../stores/app'
 /* 入场：只动透明度与位移（不是布局属性） */
 @keyframes toast-in { from { opacity: 0; transform: translateX(-50%) translateY(-6px); } }
 
-.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--muted); }
-.toast.error .dot { background: var(--bad); }
-.toast.ok .dot { background: var(--ok); }
+.type-ic { font-size: 14px; color: var(--muted); flex: none; }
+.toast.error .type-ic { color: var(--bad); }
+.toast.ok .type-ic { color: var(--ok); }
 .toast.error { border-color: color-mix(in oklch, var(--bad) 45%, var(--line)); }
 .toast.ok { border-color: color-mix(in oklch, var(--ok) 45%, var(--line)); }
 
 .msg { flex: 1; min-width: 0; }
 .close {
+  display: inline-flex; align-items: center;
   background: transparent; border: none; color: var(--muted); cursor: pointer;
-  font-size: 12px; line-height: 1; padding: 2px 4px; border-radius: 6px; flex: none;
+  font-size: 11px; line-height: 1; padding: 3px; border-radius: 6px; flex: none;
 }
 .close:hover { color: var(--ink); background: color-mix(in oklch, var(--ink) 8%, transparent); }
 

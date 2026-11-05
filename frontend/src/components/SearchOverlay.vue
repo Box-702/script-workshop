@@ -8,6 +8,7 @@
 
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { store } from '../stores/app'
+import AppIcon from './AppIcon.vue'
 
 const open = ref(false)
 const query = ref('')
@@ -85,7 +86,7 @@ defineExpose({ openSearch, closeSearch })
   <Teleport to="body">
     <Transition name="search-slide">
       <div v-if="open" class="search-bar" role="search" aria-label="剧本搜索" @keydown="onKeydown">
-        <span class="search-icon">⌕</span>
+        <span class="search-icon"><AppIcon name="search" /></span>
         <input
           ref="inputRef"
           v-model="query"
@@ -100,7 +101,7 @@ defineExpose({ openSearch, closeSearch })
         </span>
         <button class="search-btn" :disabled="!total" aria-label="上一个" @click="prev">‹</button>
         <button class="search-btn" :disabled="!total" aria-label="下一个" @click="next">›</button>
-        <button class="search-btn search-close" aria-label="关闭搜索" @click="closeSearch">✕</button>
+        <button class="search-btn search-close" aria-label="关闭搜索" @click="closeSearch"><AppIcon name="close" /></button>
       </div>
     </Transition>
   </Teleport>

@@ -2,9 +2,9 @@
 // =====================================================================
 // App.vue —— 根组件：创作工作台布局
 //
-//   ┌─────────── 顶栏（品牌 + 命令面板入口 + Inspector 开关）────────┐
+//   ┌─────────── 顶栏（品牌 + 批次状态 + 面板开关）──────────────┐
 //   │ 项目/场景导航 │ 创作区（对话 + 编辑） │ Inspector 面板 │
-//   └────────────── 命令面板 (Ctrl+K) ──────────────────────────┘
+//   └──────────────────────────────────────────────────────┘
 // =====================================================================
 
 import { ref, onMounted, onUnmounted, watch } from 'vue'
@@ -14,8 +14,6 @@ import AssetPanel from './components/AssetPanel.vue'
 import ChatThread from './components/ChatThread.vue'
 import ChatComposer from './components/ChatComposer.vue'
 import ViewerPanel from './components/ViewerPanel.vue'
-import CommandPalette from './components/CommandPalette.vue'
-import SearchOverlay from './components/SearchOverlay.vue'
 import NewProjectModal from './components/NewProjectModal.vue'
 import WorkspaceModal from './components/WorkspaceModal.vue'
 import SettingsModal from './components/settings/SettingsModal.vue'
@@ -23,9 +21,6 @@ import PatchDrawer from './components/PatchDrawer.vue'
 import Toast from './components/Toast.vue'
 import { loadTree, loadWorkspace, loadWorkspaceTree, restorePanelPrefs, toggleRightPanel, toggleLeftPanel, notify, store, pollVideoBatch, ensureBatchPolling, loadModelStatus } from './stores/app'
 import { importProject } from './api'
-
-// ---- 命令面板 ----
-const paletteRef = ref(null)
 
 // ---- 拖拽导入 ----
 const dragging = ref(false)
@@ -194,7 +189,7 @@ onUnmounted(() => {
 
   <!-- 工作区模式：三栏创作布局 -->
   <template v-else>
-    <HeaderBar @open-palette="paletteRef?.openPalette()" />
+    <HeaderBar />
     <!-- 拖拽导入覆盖层 -->
     <Transition name="fade">
       <div v-if="dragging" class="drop-overlay" @dragleave="onDragLeave" @drop="onDrop">
@@ -239,8 +234,6 @@ onUnmounted(() => {
       </Transition>
     </div>
   </template>
-  <CommandPalette ref="paletteRef" />
-  <SearchOverlay />
   <NewProjectModal />
   <WorkspaceModal />
   <SettingsModal
@@ -304,16 +297,16 @@ onUnmounted(() => {
 }
 .drop-zone {
   display: flex; flex-direction: column; align-items: center; gap: 12px;
-  padding: 46px 64px; border-radius: 18px;
-  border: 1px dashed var(--gold);
+  padding: 40px 60px; border-radius: 10px;
+  border: 1px dashed var(--line-strong);
   background: var(--panel);
-  box-shadow: 0 20px 52px oklch(0.03 0.02 278 / 0.34);
+  box-shadow: var(--shadow-3);
 }
 .drop-icon {
-  display: grid; place-items: center; width: 72px; height: 72px; border-radius: 22px;
-  border: 1px solid color-mix(in oklch, var(--gold) 55%, var(--line));
-  color: var(--gold); font: 700 12px/1 var(--mono); letter-spacing: 0.12em;
-  background: color-mix(in oklch, var(--gold) 8%, transparent);
+  display: grid; place-items: center; width: 60px; height: 60px; border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  color: var(--gold); font: 500 12px/1 var(--mono); letter-spacing: 0.12em;
+  background: transparent;
 }
 .drop-text { font-size: 18px; font-weight: 600; color: var(--ink); }
 .drop-hint { font-size: 13px; color: var(--muted); }

@@ -31,7 +31,7 @@
 
     <div v-if="auditItems.length" class="prompt-audit">
       <div class="audit-head">
-        <span class="audit-mark">⚠</span>
+        <span class="audit-mark"><AppIcon name="warning" /></span>
         <span>自动审计 · {{ auditItems.length }} 项提醒</span>
       </div>
       <p v-for="(item, i) in auditItems" :key="i" class="audit-item">{{ item }}</p>
@@ -57,7 +57,7 @@
             title="移除这条参考视频"
             aria-label="移除参考视频"
             @click="refVideos.splice(i, 1)"
-          >×</button>
+          ><AppIcon name="close" /></button>
         </div>
         <button v-if="refVideos.length < 3" class="ref-add" @click="refVideos.push('')">
           ＋ 添加参考视频
@@ -117,6 +117,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
+import AppIcon from '../AppIcon.vue'
 
 const props = defineProps({
   shot: { type: Object, default: null },

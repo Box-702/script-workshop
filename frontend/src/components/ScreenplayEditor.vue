@@ -12,6 +12,7 @@
 
 import { ref, computed, watch } from 'vue'
 import EditableText from './EditableText.vue'
+import AppIcon from './AppIcon.vue'
 import { store, applyEdits, notify } from '../stores/app'
 
 const props = defineProps({
@@ -142,7 +143,7 @@ function cancel() { emit('cancel') }
       <button v-if="!standalone" class="ghost small" :disabled="saving" @click="cancel">取消</button>
       <button class="small" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存为新版本' }}</button>
     </div>
-    <div v-if="editErr" class="ed-err">⚠️ {{ editErr }}</div>
+    <div v-if="editErr" class="ed-err"><AppIcon name="warning" /> {{ editErr }}</div>
 
     <div class="ed-body">
       <div
@@ -183,14 +184,14 @@ function cancel() { emit('cancel') }
           <!-- 动作 -->
           <div v-else class="ed-action"><EditableText :model-value="b.text" ph="动作描写" @update:model-value="v => b.text = v" /></div>
 
-          <button class="mini del" title="删除该节拍" @click="removeBeat(sc, bi)">✕</button>
+          <button class="mini del" title="删除该节拍" @click="removeBeat(sc, bi)"><AppIcon name="close" /></button>
         </div>
 
         <div v-if="!sc.beats || !sc.beats.length" class="ed-beats-empty">本场景还没有节拍，点击下方添加。</div>
         <div class="ed-add">
-          <button class="mini" @click="addBeat(sc, 'action')">＋ 动作</button>
-          <button class="mini" @click="addBeat(sc, 'dialogue')">＋ 对白</button>
-          <button class="mini" @click="addBeat(sc, 'cue')">＋ 提示</button>
+          <button class="mini" @click="addBeat(sc, 'action')"><AppIcon name="plus" /> 动作</button>
+          <button class="mini" @click="addBeat(sc, 'dialogue')"><AppIcon name="plus" /> 对白</button>
+          <button class="mini" @click="addBeat(sc, 'cue')"><AppIcon name="plus" /> 提示</button>
         </div>
       </div>
     </div>

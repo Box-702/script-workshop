@@ -93,18 +93,18 @@ def _resolve_tts():
 
 
 def _register_asset(store: Any, project_id: str, path: Path, *, kind: str, name: str) -> dict[str, Any]:
-    """成片/SRT 落盘为项目素材，返回 {asset_id, url}。复用 upload 的落盘与回放约定。"""
-    from ..config import get_settings
+    """成片/SRT 文件本体存入数据库（media_assets.content），随后删除临时文件。
+
+    合成过程需要本地文件喂 ffmpeg，这里负责「最后一公里」：字节入库、
+    临时产物清理，保证 finalize 结束后本地不留成品文件。
+    """
     from ..store import gen_id
 
     asset_id = gen_id("asset")
-    dest_dir = Path(get_settings().effective_workspace_root) / "assets" / project_id
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / f"{asset_id}{path.suffix.lower()}"
-    shutil.move(str(path), str(dest))
-    rel = dest.relative_to(get_settings().effective_workspace_root).as_posix()
+    data = path.read_bytes()
+    path.unlink(missing_ok=True)
     store.add_asset(project_id, kind=kind, name=name, source="finalize",
-                    url=f"/api/assets/file/{asset_id}", file_path=rel, id=asset_id)
+                    url=f"/api/assets/file/{asset_id}", id=asset_id, content=data)
     return {"asset_id": asset_id, "url": f"/api/assets/file/{asset_id}"}
 
 

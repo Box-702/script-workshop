@@ -48,7 +48,7 @@ function useTemplate(t) {
     <div class="hero-main">
       <p class="hero-kicker">
         <span class="hero-brandmark" aria-hidden="true"><LogoMark :size="18" /></span>
-        AI VIDEO STORY STUDIO
+        <span class="hero-kicker-text">问剧 · 小说转短剧工作台</span>
       </p>
       <h2 class="hero-title">把一部小说，变成一部短剧</h2>
       <p class="hero-sub">
@@ -111,41 +111,28 @@ function useTemplate(t) {
 }
 
 .hero-backdrop { z-index: -2; background: var(--bg); }
-/* 背景层次：底纹是本地的（public/brand/hero-texture.svg），冷光、光带与胶片颗粒都在里面。
-   之前这里链的是一个第三方博客图床的 webp，那张图早就被浏览器以 ORB 拦掉——
-   首屏一直在为一个死链发请求，设计想有的底纹反而从来没有出现过。
-   现在零外部依赖：断网、内网、图床挂掉，看到的都是同一块光影。 */
-.hero-image {
-  background:
-    url('/brand/hero-texture.svg') center / cover,
-    linear-gradient(165deg, oklch(0.19 0.02 275) 0%, var(--bg) 62%);
-  opacity: .85;
-  filter: saturate(.92) contrast(1.02);
-  transform: scale(1.025);
-}
-.hero-vignette {
-  background:
-    linear-gradient(90deg, color-mix(in oklch, var(--bg) 88%, transparent) 0%, color-mix(in oklch, var(--bg) 42%, transparent) 54%, color-mix(in oklch, var(--bg) 52%, transparent) 100%),
-    linear-gradient(180deg, color-mix(in oklch, var(--bg) 56%, transparent) 0%, transparent 44%, color-mix(in oklch, var(--bg) 82%, transparent) 100%);
-}
+/* 背景：纯色即可，工具不需要氛围光。hero-image / vignette 保留类名，视觉归零 */
+.hero-image { background: none; }
+.hero-vignette { background: none; }
 
 .hero-main { max-width: 640px; }
 
 .hero-kicker {
   margin: 0 0 var(--space-4);
   display: inline-flex; align-items: center; gap: var(--space-2);
-  color: var(--accent);
-  font: 700 var(--fs-xs)/1 var(--mono);
-  letter-spacing: .16em;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  letter-spacing: .04em;
 }
 .hero-brandmark { display: inline-flex; }
 
 .hero-title {
   margin: 0;
-  font-size: clamp(var(--fs-xl), 5vw, var(--fs-display));
-  font-weight: 720;
-  letter-spacing: -.02em;
+  font-size: clamp(var(--fs-xl), 4.4vw, var(--fs-display));
+  font-weight: 600;
+  letter-spacing: -.01em;
   line-height: var(--lh-tight);
+  color: var(--ink);
 }
 
 .hero-sub {
@@ -207,7 +194,7 @@ function useTemplate(t) {
   border-color: color-mix(in oklch, var(--gold) 40%, var(--line));
   background: color-mix(in oklch, var(--panel) 82%, transparent);
 }
-.template-index { flex: none; font: 650 var(--fs-xs)/1.6 var(--mono); color: var(--gold); }
+.template-index { flex: none; font: 500 var(--fs-xs)/1.6 var(--mono); color: var(--dim); }
 .template-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .template-copy strong { font-size: var(--fs-sm); font-weight: 650; color: var(--ink); }
 .template-text {
@@ -225,7 +212,7 @@ function useTemplate(t) {
   flex-wrap: wrap;
 }
 .hero-flow li { display: inline-flex; align-items: baseline; gap: var(--space-2); }
-.flow-num { font: 650 var(--fs-xs)/1 var(--mono); color: var(--gold); }
+.flow-num { font: 500 var(--fs-xs)/1 var(--mono); color: var(--dim); }
 .flow-name { font-size: var(--fs-sm); color: var(--muted); font-weight: 550; }
 
 @media (max-width: 640px) {

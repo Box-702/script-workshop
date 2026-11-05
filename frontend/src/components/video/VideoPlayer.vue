@@ -2,7 +2,7 @@
   <div class="video-player" v-if="url">
     <div class="player-header">
       <span class="player-title">{{ title || '视频预览' }}</span>
-      <button class="btn-ghost" @click="$emit('close')">✕</button>
+      <button class="btn-ghost" @click="$emit('close')"><AppIcon name="close" /></button>
     </div>
     <video
       ref="videoEl"
@@ -23,6 +23,7 @@
 
 <script setup>
 import { ref, watch } from 'vue'
+import AppIcon from '../AppIcon.vue'
 
 const props = defineProps({
   url: { type: String, default: '' },

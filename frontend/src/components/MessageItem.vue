@@ -50,9 +50,10 @@ const visibleEvents = computed(() => {
 const hiddenCount = computed(() => Math.max(0, (props.message.events || []).length - STEP_COLLAPSE))
 
 function stepIcon(e) {
-  if (e.type === 'tool_call') return '⚙️'
-  if (e.type === 'step') return '⏳'
-  return '✅'
+  // 纯文本符号（非 emoji）：进行中的调用 ›，过程 ·，完成 ✓；颜色由行样式区分
+  if (e.type === 'tool_call') return '›'
+  if (e.type === 'step') return '·'
+  return '✓'
 }
 function stepLabel(e) {
   if (e.type === 'tool_call') return STAGE_LABELS[e.name] || '正在处理'
@@ -84,6 +85,19 @@ onUnmounted(() => clearTimeout(copiedTimer))
   <div class="msg" :class="isUser ? 'user' : 'agent'">
     <!-- 用户：简洁指令条 -->
     <template v-if="isUser">
+      <!-- 附带的图片：缩略图行，点击放大 -->
+      <div v-if="(message.images || []).length" class="cmd-images">
+        <a
+          v-for="img in message.images"
+          :key="img.id || img.url"
+          class="cmd-image"
+          :href="img.url"
+          target="_blank"
+          rel="noopener"
+        >
+          <img :src="img.url" :alt="img.name || '对话图片'" loading="lazy" />
+        </a>
+      </div>
       <div v-if="message.content" class="cmd-bar">
         <span class="cmd-prompt">›</span>
         <span class="cmd-text" v-html="bodyHtml"></span>
@@ -163,6 +177,11 @@ onUnmounted(() => clearTimeout(copiedTimer))
 }
 .cmd-prompt { color: var(--gold); font-weight: 700; font-size: 14px; flex: none; }
 .cmd-text { font-size: 13.5px; color: var(--ink); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+
+/* 用户消息附带的图片 */
+.cmd-images { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; margin-bottom: 6px; }
+.cmd-image { display: block; border-radius: 9px; overflow: hidden; border: 1px solid var(--line); max-width: min(60%, 280px); }
+.cmd-image img { display: block; max-height: 180px; width: auto; max-width: 100%; object-fit: cover; }
 
 /* 工作步骤面板 */
 .steps-panel {

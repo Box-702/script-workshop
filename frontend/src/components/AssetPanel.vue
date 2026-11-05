@@ -4,7 +4,7 @@
     <div class="panel-section">
       <div class="section-head">
         <span class="section-title">作品</span>
-        <button class="btn-new" @click="store.showNewProject = true" title="新建作品（导入小说原文）" aria-label="新建作品">＋</button>
+        <button class="btn-new" @click="store.showNewProject = true" title="新建作品（导入小说原文）" aria-label="新建作品"><AppIcon name="plus" /></button>
       </div>
       <div
         v-for="p in projects" :key="p.id"
@@ -52,7 +52,7 @@
         </div>
 
         <button class="produce-btn" :disabled="producing" @click="startProduction">
-          {{ producing ? '制作中…' : '▶ 开始制作（剧本→资产→提示词）' }}
+          <AppIcon :name="producing ? 'pause' : 'play'" /> {{ producing ? '制作中…' : '开始制作（剧本→资产→提示词）' }}
         </button>
       </template>
     </div>
@@ -75,6 +75,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { store, selectProject, notify, loadShots } from '../stores/app.js'
 import { api } from '../api.js'
+import AppIcon from './AppIcon.vue'
 
 const projects = computed(() => store.projects)
 const lib = reactive({ loading: false, characters: [], locations: [], warnings: [] })

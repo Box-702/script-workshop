@@ -2,7 +2,7 @@
   <div class="chat-list">
     <div class="chat-header">
       <span class="chat-title">对话</span>
-      <button class="btn-new" @click="onNew" title="新建聊天" aria-label="新建聊天">＋</button>
+      <button class="btn-new" @click="onNew" title="新建聊天" aria-label="新建聊天"><AppIcon name="plus" /></button>
     </div>
 
     <!-- 未归类对话（还没落到任何项目下；在对话里创建项目后会自动归档） -->
@@ -27,8 +27,8 @@
         />
         <span class="conv-count" v-if="conv.user_message_count">{{ conv.user_message_count }}</span>
         <span class="conv-actions">
-          <button class="btn-tiny" @click.stop="startRename(conv)" title="重命名" aria-label="重命名">✎</button>
-          <button class="btn-tiny" @click.stop="onDelete(null, conv.id)" title="删除" aria-label="删除">×</button>
+          <button class="btn-tiny" @click.stop="startRename(conv)" title="重命名" aria-label="重命名"><AppIcon name="edit" /></button>
+          <button class="btn-tiny" @click.stop="onDelete(null, conv.id)" title="删除" aria-label="删除"><AppIcon name="close" /></button>
         </span>
       </div>
       <div v-if="!globalConvs.length" class="conv-empty">
@@ -40,7 +40,7 @@
     <!-- 项目（点组头打开该项目最近的对话；箭头折叠/展开） -->
     <div v-for="p in projects" :key="p.id" class="conv-group">
       <div class="group-header" @click="openProject(p.id)">
-        <span class="expand-icon" :class="{ open: expanded[p.id] }" @click.stop="toggleExpand(p.id)">▶</span>
+        <span class="expand-icon" :class="{ open: expanded[p.id] }" @click.stop="toggleExpand(p.id)"><AppIcon name="chevron-right" /></span>
         <span class="group-name">{{ p.title }}</span>
       </div>
       <div v-if="expanded[p.id]" class="group-children">
@@ -61,12 +61,12 @@
             @keydown.escape="editingId = null"
           />
           <span class="conv-actions">
-            <button class="btn-tiny" @click.stop="startRename(conv)" title="重命名" aria-label="重命名">✎</button>
-            <button class="btn-tiny" @click.stop="onDelete(p.id, conv.id)" title="删除" aria-label="删除">×</button>
+            <button class="btn-tiny" @click.stop="startRename(conv)" title="重命名" aria-label="重命名"><AppIcon name="edit" /></button>
+            <button class="btn-tiny" @click.stop="onDelete(p.id, conv.id)" title="删除" aria-label="删除"><AppIcon name="close" /></button>
           </span>
         </div>
         <button class="conv-add" @click="onNewProject(p.id)">
-          <span aria-hidden="true">＋</span> 新对话
+          <AppIcon name="plus" /> 新对话
         </button>
       </div>
     </div>
@@ -76,6 +76,7 @@
 <script setup>
 import { ref, computed, nextTick } from 'vue'
 import { store, newGlobalConversation, selectGlobalConversation, loadGlobalConversations, newConversation, selectConversation, selectProject, setConversationTitle, deleteConversation, loadConversations, toggleProject } from '../stores/app.js'
+import AppIcon from './AppIcon.vue'
 
 const globalConvs = computed(() => store.globalConvs)
 const projects = computed(() => store.projects)
@@ -251,7 +252,7 @@ function onDelete(pid, convId) {
   letter-spacing: .02em;
 }
 .group-header:hover { color: var(--muted); }
-.expand-icon { font-size: 8px; color: var(--dim); padding: 4px 2px; transition: transform 200ms var(--ease); }
+.expand-icon { display: inline-flex; font-size: 9px; color: var(--dim); padding: 4px 2px; transition: transform 200ms var(--ease); }
 .expand-icon.open { transform: rotate(90deg); }
 .group-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .group-children { padding-bottom: 2px; }

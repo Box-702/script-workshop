@@ -154,6 +154,27 @@ class LLM:
             )
         return self._model
 
+    def chat_multimodal(self) -> BaseChatModel:
+        """返回可识别图片的聊天模型（本轮用户消息带图时用）。
+
+        OpenAI 兼容端点对 image_url 内容块是透传的，所以视觉厂商（GLM /
+        GPT / Qwen / Ollama 多模态）直接用当前对话模型即可；唯一要换型号的
+        是 DeepSeek——它的对话模型不看图，需要切到同厂的视觉型号
+        （ProviderSpec.vision_model）。构造出的模型仍可 bind_tools。
+        """
+        base = self.chat()  # 未配置时统一报错
+        config = self.config
+        if not config:
+            return base
+        spec = get_provider_spec(config.provider)
+        if spec and spec.vision_model and config.provider == "deepseek" \
+                and "vision" not in (config.model or "").lower():
+            import dataclasses
+
+            vision_config = dataclasses.replace(config, model=spec.vision_model)
+            return build_chat_model(vision_config)
+        return base
+
     def structured(self, schema: type[T]) -> Any:
         """返回一个接受消息、输出 ``schema`` 实例的结构化可运行对象。
 
@@ -231,6 +252,7 @@ class LLM:
             "base_url": config.base_url if config else "",
             "source": config.source if config else "none",
             "vision": self.describe_vision(),
+            "image": self.describe_image(),
             "providers": describe_providers(),
         }
 
@@ -240,6 +262,17 @@ class LLM:
             "available": bool(config and config.api_key),
             "provider": config.provider if config else "",
             "model": config.model if config else "",
+        }
+
+    def describe_image(self) -> dict[str, Any]:
+        """当前生效的文生图配置（设置页「生图模型」展示用）。"""
+        config = resolve_image(self.settings, self._store)
+        return {
+            "available": bool(config and config.api_key),
+            "provider": config.provider if config else "",
+            "label": config.label if config else "",
+            "model": config.model if config else "",
+            "source": config.source if config else "none",
         }
 
 

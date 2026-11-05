@@ -14,6 +14,7 @@ import { ref, computed, watch, nextTick } from 'vue'
 import MessageItem from './MessageItem.vue'
 import WelcomeHero from './WelcomeHero.vue'
 import { store, focusComposer } from '../stores/app'
+import AppIcon from './AppIcon.vue'
 
 const thread = ref(null)        // 滚动容器
 const nearBottom = ref(true)    // 用户是否停在底部（80px 阈值）
@@ -89,7 +90,7 @@ watch(() => store.messages.length, () => { nearBottom.value = true; toBottom() }
     </div>
 
     <!-- 向上翻阅历史时出现，点击回到最新消息 -->
-    <button v-show="!nearBottom" class="jump ghost" @click="jumpToLatest">↓ 回到最新</button>
+    <button v-show="!nearBottom" class="jump ghost" @click="jumpToLatest"><AppIcon name="arrow-down" /> 回到最新</button>
   </div>
 </template>
 
@@ -111,22 +112,22 @@ watch(() => store.messages.length, () => { nearBottom.value = true; toBottom() }
   margin-top: var(--space-2);
 }
 .ee-chip {
-  min-height: var(--tap);
-  padding: 0 var(--space-4);
+  min-height: 34px;
+  padding: 0 var(--space-3);
   background: transparent;
   border: 1px solid var(--line);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-md);
   color: var(--muted);
   font-size: var(--fs-sm);
-  font-weight: 500;
+  font-weight: 400;
   transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
 .ee-chip:hover:not(:disabled) {
   color: var(--ink);
-  border-color: color-mix(in oklch, var(--gold) 40%, var(--line));
-  background: color-mix(in oklch, var(--gold) 7%, transparent);
+  border-color: var(--line-strong);
+  background: color-mix(in oklch, var(--ink) 4%, transparent);
 }
-.ee-focus { margin-top: var(--space-2); min-height: var(--tap); padding: 0 var(--space-5); border-radius: var(--radius-md); font-size: var(--fs-md); font-weight: 650; }
+.ee-focus { margin-top: var(--space-2); min-height: var(--tap); padding: 0 var(--space-5); border-radius: var(--radius-md); font-size: var(--fs-md); font-weight: 500; }
 
 /* 回到最新：悬浮在对话区底部中央 */
 .jump {

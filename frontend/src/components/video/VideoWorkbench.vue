@@ -11,6 +11,7 @@ import ShotList from './ShotList.vue'
 import VideoPlayer from './VideoPlayer.vue'
 import PromptEditor from './PromptEditor.vue'
 import CastLibrary from './CastLibrary.vue'
+import AppIcon from '../AppIcon.vue'
 import {
   store, loadShots, loadVideoJobs, submitVideoJob, playVideo, closeVideo, openPromptEditor,
   closePromptEditor, loadPromptHistory, saveShotPrompt, bulkReviewPrompts,
@@ -321,7 +322,7 @@ function formatVersionTime(value) {
         <div class="review-actions">
           <button class="rv ok" @click="batchCommand('approve')">✓ 通过，下一镜</button>
           <button class="rv" @click="batchCommand('reroll')">↻ 重跑本镜</button>
-          <button class="rv danger" @click="batchCommand('abort')">✕ 终止批次</button>
+          <button class="rv danger" @click="batchCommand('abort')"><AppIcon name="close" /> 终止批次</button>
         </div>
       </div>
       <div v-else-if="running || batch.status === 'failed' || batch.status === 'aborted'" class="review-actions">

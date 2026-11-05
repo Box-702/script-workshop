@@ -427,7 +427,7 @@ export async function loadHistory(token = _navSeq) {
   if (!_isCurrent(token)) return
   store.messages = messages.map((m) => ({
     role: m.role, content: m.content,
-    events: m.events || [], payloads: m.payloads || [], streaming: false,
+    events: m.events || [], payloads: m.payloads || [], images: m.images || [], streaming: false,
   }))
 }
 
@@ -582,11 +582,13 @@ export function focusComposer() {
   store.focusSeq++
 }
 
-/** 发送一条用户消息，流式接收回复并实时更新最后一条 assistant 消息。 */
-export async function sendMessage(text) {
-  if (store.streaming || !text) return
+/** 发送一条用户消息（可带图片 id 列表），流式接收回复并实时更新最后一条 assistant 消息。 */
+export async function sendMessage(text, imageIds = []) {
+  if (store.streaming || (!text && !imageIds.length)) return
   // 先渲染用户气泡 + 一个「打字中」的 assistant 气泡
-  store.messages.push({ role: 'user', content: text, events: [], payloads: [], streaming: false })
+  // 带图时用回放 url 预览（与历史消息渲染同一数据形状）。
+  const images = imageIds.map((id) => ({ id, url: `/api/chat/images/${id}` }))
+  store.messages.push({ role: 'user', content: text, images, events: [], payloads: [], streaming: false })
   const reply = reactive({ role: 'assistant', content: '', events: [], payloads: [], streaming: true })
   store.messages.push(reply)
 
@@ -595,7 +597,7 @@ export async function sendMessage(text) {
   _streamAbort = new AbortController()
   try {
     await streamChat(
-      { project_id: store.pid, conversation_id: store.convId, message: text, meta: null },
+      { project_id: store.pid, conversation_id: store.convId, message: text, meta: null, images: imageIds },
       (ev) => handleStreamEvent(ev, reply),
       _streamAbort.signal,
     )

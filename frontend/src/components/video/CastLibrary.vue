@@ -16,6 +16,7 @@
 import { computed, ref, watch } from 'vue'
 import { api } from '../../api'
 import { store, notify } from '../../stores/app'
+import AppIcon from '../AppIcon.vue'
 
 const props = defineProps({ open: { type: Boolean, default: false } })
 const emit = defineEmits(['close'])
@@ -54,7 +55,7 @@ async function load() {
   }
 }
 
-/** 改角色属性（性别 / 音色）——落库后整库返回，直接替换。 */
+/** 改角色属性（性别 / 音色 / 定妆图）——落库后整库返回，直接替换。 */
 async function patchCharacter(name, change) {
   saving.value = name
   try {
@@ -62,9 +63,61 @@ async function patchCharacter(name, change) {
       characters: { [name]: change },
     })
     if (change.voice_id) notify(`${name} 的音色已更新`)
+    if (change.image) notify(`${name} 的定妆图已更新`)
   } catch (e) {
     notify(`保存失败：${e.message}`)
   } finally {
+    saving.value = ''
+  }
+}
+
+/** 改场景图 / 环境描述。 */
+async function patchLocation(name, change) {
+  saving.value = name
+  try {
+    lib.value = await api(`/projects/${store.pid}/library`, 'PATCH', {
+      locations: { [name]: change },
+    })
+    if (change.image) notify(`${name} 的场景图已更新`)
+  } catch (e) {
+    notify(`保存失败：${e.message}`)
+  } finally {
+    saving.value = ''
+  }
+}
+
+// ---- 白模上传：用户自己的图替代 AI 生成的定妆照/场景图 ----
+const uploadTarget = ref(null)   // { kind: 'character' | 'location', name }
+const fileInput = ref(null)
+
+function pickImage(kind, name) {
+  uploadTarget.value = { kind, name }
+  fileInput.value?.click()
+}
+
+async function onImagePicked(e) {
+  const f = e.target.files?.[0]
+  e.target.value = ''
+  const t = uploadTarget.value
+  if (!f || !t) return
+  if (!/\.(png|jpe?g|webp|gif)$/i.test(f.name)) {
+    notify('仅支持 png / jpg / webp / gif 图片')
+    return
+  }
+  saving.value = t.name
+  try {
+    const fd = new FormData()
+    fd.append('file', f)
+    const res = await fetch(`/api/projects/${store.pid}/images/upload`, { method: 'POST', body: fd })
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}))
+      throw new Error(j.detail || res.statusText)
+    }
+    const { url } = await res.json()
+    if (t.kind === 'character') await patchCharacter(t.name, { image: url })
+    else await patchLocation(t.name, { image: url })
+  } catch (err) {
+    notify(`图片上传失败：${err.message}`)
     saving.value = ''
   }
 }
@@ -129,15 +182,18 @@ watch(() => props.open, (open) => { if (open) load() })
 
       <template v-else-if="lib">
         <div v-if="warnings.length" class="warns">
-          <div v-for="(w, i) in warnings" :key="i">⚠️ {{ w }}</div>
+          <div v-for="(w, i) in warnings" :key="i" class="warn-row"><AppIcon name="warning" /> {{ w }}</div>
         </div>
 
         <h4>角色</h4>
         <div class="grid">
           <div v-for="c in characters" :key="c.name" class="card">
-            <div class="portrait">
+            <div class="portrait" :class="{ busy: saving === c.name }">
               <img v-if="c.image" :src="c.image" :alt="c.name" />
               <div v-else class="no-img">无定妆图</div>
+              <button class="img-up" title="上传自己的定妆图" @click="pickImage('character', c.name)">
+                <AppIcon name="upload" /> 上传
+              </button>
             </div>
             <div class="info">
               <div class="name-row">
@@ -160,7 +216,7 @@ watch(() => props.open, (open) => { if (open) load() })
                   </optgroup>
                 </select>
                 <button class="play" :disabled="!!playing" @click="preview(c)">
-                  {{ playing === c.voice_id ? '…' : '▶ 试听' }}
+                  <AppIcon :name="playing === c.voice_id ? 'pause' : 'play'" /> {{ playing === c.voice_id ? '播放中' : '试听' }}
                 </button>
               </div>
 
@@ -174,9 +230,12 @@ watch(() => props.open, (open) => { if (open) load() })
         <h4>场景</h4>
         <div class="grid">
           <div v-for="l in locations" :key="l.name" class="card loc">
-            <div class="portrait">
+            <div class="portrait" :class="{ busy: saving === l.name }">
               <img v-if="l.image" :src="l.image" :alt="l.name" />
               <div v-else class="no-img">无场景图</div>
+              <button class="img-up" title="上传自己的场景图" @click="pickImage('location', l.name)">
+                <AppIcon name="upload" /> 上传
+              </button>
             </div>
             <div class="info">
               <div class="name-row"><span class="name">{{ l.name }}</span></div>
@@ -187,6 +246,7 @@ watch(() => props.open, (open) => { if (open) load() })
         </div>
       </template>
     </div>
+    <input ref="fileInput" type="file" accept=".png,.jpg,.jpeg,.webp,.gif" style="display: none" @change="onImagePicked" />
   </div>
 </template>
 
@@ -210,6 +270,8 @@ h4 { margin: 18px 0 8px; font-size: 13px; color: var(--muted); font-weight: 500;
   background: oklch(0.85 0.12 80 / 0.12); border: 1px solid oklch(0.8 0.12 80 / 0.35);
   color: var(--ink); display: flex; flex-direction: column; gap: 4px;
 }
+.warn-row { display: flex; align-items: center; gap: 6px; }
+.warn-row .app-ic { color: var(--warn); flex: none; }
 .empty { color: var(--muted); font-size: 12.5px; padding: 20px 0; }
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .card {
@@ -217,21 +279,35 @@ h4 { margin: 18px 0 8px; font-size: 13px; color: var(--muted); font-weight: 500;
   border-radius: 10px; background: var(--bg, transparent);
 }
 .portrait {
+  position: relative;
   width: 76px; height: 96px; flex: 0 0 auto; border-radius: 8px; overflow: hidden;
   background: oklch(0 0 0 / 0.15); display: flex; align-items: center; justify-content: center;
 }
 .portrait img { width: 100%; height: 100%; object-fit: cover; }
+.portrait.busy { opacity: 0.55; }
+/* 上传白模：悬停浮现的小按钮 */
+.img-up {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center; gap: 3px;
+  padding: 3px 0; border: none; cursor: pointer;
+  background: oklch(0 0 0 / 0.62); color: #fff;
+  font-size: 10px; line-height: 1;
+  opacity: 0; transition: opacity 140ms var(--ease);
+}
+.img-up .app-ic { font-size: 11px; }
+.portrait:hover .img-up { opacity: 1; }
 .no-img { font-size: 10.5px; color: var(--muted); text-align: center; padding: 4px; }
 .info { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 5px; }
 .name-row { display: flex; align-items: center; gap: 6px; }
 .name { font-size: 13.5px; font-weight: 600; }
 .badge {
-  font-size: 10px; padding: 1px 6px; border-radius: 999px;
-  border: 1px solid var(--line); color: var(--muted);
+  font-size: 10px; padding: 1px 6px; border-radius: 3px;
+  border: none; color: var(--muted);
+  background: color-mix(in oklch, var(--ink) 5%, transparent);
 }
-.badge.male { color: oklch(0.72 0.12 240); border-color: oklch(0.6 0.12 240 / 0.5); }
-.badge.female { color: oklch(0.72 0.14 340); border-color: oklch(0.6 0.14 340 / 0.5); }
-.badge.ok { color: var(--good, oklch(0.72 0.13 150)); border-color: oklch(0.6 0.13 150 / 0.5); }
+.badge.male { color: oklch(0.72 0.10 240); background: oklch(0.6 0.10 240 / 0.14); }
+.badge.female { color: oklch(0.72 0.11 340); background: oklch(0.6 0.11 340 / 0.14); }
+.badge.ok { color: var(--good, oklch(0.72 0.13 150)); background: oklch(0.6 0.13 150 / 0.14); }
 .meta { font-size: 11px; color: var(--muted); }
 .row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .row label { font-size: 10.5px; color: var(--muted); }
@@ -240,7 +316,7 @@ h4 { margin: 18px 0 8px; font-size: 13px; color: var(--muted); font-weight: 500;
   background: transparent; color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
 }
 .play {
-  font-size: 11px; padding: 2px 8px; border-radius: 999px; cursor: pointer;
+  font-size: 11px; padding: 2px 8px; border-radius: 3px; cursor: pointer;
   background: transparent; border: 1px solid var(--line); color: var(--muted);
 }
 .play:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }

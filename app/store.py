@@ -26,7 +26,7 @@ from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import ForeignKey, create_engine, desc
+from sqlalchemy import ForeignKey, LargeBinary, create_engine, desc
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 from .domain import Script
@@ -237,8 +237,9 @@ class Conversation(Base):
 class MediaAsset(Base):
     """项目媒体素材（参考视频等）。
 
-    source=upload：文件落盘在 workspace_root 下（file_path 相对路径），
-    url 为本服务回放地址；source=url：直接登记外部公网链接（MiniMax 等服务商要求公网可访问）。
+    source=upload / finalize：文件本体存数据库（content bytea），url 为本服务回放
+    地址，本地不落盘；历史记录可能仍带 file_path（相对 workspace_root 的磁盘文件，
+    回放端点向下兼容）。source=url：直接登记外部公网链接（MiniMax 等服务商要求公网可访问）。
     """
 
     __tablename__ = "media_assets"
@@ -247,9 +248,10 @@ class MediaAsset(Base):
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
     kind: Mapped[str] = mapped_column(default="video")          # video | image | audio
     name: Mapped[str] = mapped_column(default="")
-    source: Mapped[str] = mapped_column(default="upload")        # upload | url
+    source: Mapped[str] = mapped_column(default="upload")        # upload | url | finalize
     url: Mapped[str] = mapped_column(default="")
-    file_path: Mapped[str | None] = mapped_column(default=None)  # 相对 workspace_root
+    file_path: Mapped[str | None] = mapped_column(default=None)  # 兼容历史：相对 workspace_root
+    content: Mapped[bytes | None] = mapped_column(LargeBinary, default=None)  # 文件本体（DB 存储）
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
 
@@ -270,6 +272,8 @@ class ChatMessage(Base):
     content: Mapped[str] = mapped_column(default="")
     payload_json: Mapped[str] = mapped_column(default="[]")
     events_json: Mapped[str] = mapped_column(default="[]")
+    # 本条消息附带的图片（[{id,url,mime,name}]）——历史回放与 LLM 上下文都靠它重建。
+    images_json: Mapped[str] = mapped_column(default="[]")
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
     @property
@@ -279,6 +283,29 @@ class ChatMessage(Base):
     @property
     def events(self) -> list[dict[str, Any]]:
         return _json_load(self.events_json, [])
+
+    @property
+    def images(self) -> list[dict[str, Any]]:
+        return _json_load(self.images_json, [])
+
+
+class ChatImage(Base):
+    """对话中上传的图片（字节入库，本地不落盘）。
+
+    与消息解耦存表：前端先传图拿 id，发消息时带上 id 列表；消息落库时把
+    {id,url} 快照写进 ChatMessage.images_json。这样多轮对话重建上下文时
+    能随时取回原图字节（转 base64 data URL 喂给多模态模型），图片不会
+    「聊两句就忘」。
+    """
+
+    __tablename__ = "chat_images"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    thread_id: Mapped[str] = mapped_column(index=True, default="")
+    mime: Mapped[str] = mapped_column(default="image/png")
+    name: Mapped[str] = mapped_column(default="")
+    content: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(default=_now)
 
 
 class Memory(Base):
@@ -489,12 +516,26 @@ class Store:
                 if "breakdown_json" not in cols_ver:
                     conn.execute(text("ALTER TABLE script_versions ADD COLUMN breakdown_json VARCHAR DEFAULT '{}'"))
 
+            # ---- media_assets 表：content bytea（文件本体入库）----
+            if "media_assets" in tables:
+                cols_asset = {c["name"] for c in insp.get_columns("media_assets")}
+                if "content" not in cols_asset:
+                    with self.engine.begin() as conn:
+                        conn.execute(text("ALTER TABLE media_assets ADD COLUMN content BYTEA"))
+
             # ---- conversations 表：滚动摘要列（老库补列）----
             if "conversations" in tables:
                 cols_conv = {c["name"] for c in insp.get_columns("conversations")}
                 if "summary_json" not in cols_conv:
                     with self.engine.begin() as conn:
                         conn.execute(text("ALTER TABLE conversations ADD COLUMN summary_json VARCHAR DEFAULT '{}'"))
+
+            # ---- chat_messages 表：消息附带图片列（老库补列）----
+            if "chat_messages" in tables:
+                cols_msg = {c["name"] for c in insp.get_columns("chat_messages")}
+                if "images_json" not in cols_msg:
+                    with self.engine.begin() as conn:
+                        conn.execute(text("ALTER TABLE chat_messages ADD COLUMN images_json VARCHAR DEFAULT '[]'"))
 
             # ---- conversations 表：project_id 需可空（全局对话）----
             # 「聊天与项目解耦」只在新库里生效；老 Postgres 库的列仍是 NOT NULL，
@@ -537,7 +578,7 @@ class Store:
             return s.get(Project, project_id)
 
     def delete_project(self, project_id: str) -> None:
-        """删除项目及其所有关联数据（对话、消息、版本、运行记录、视频任务）。"""
+        """删除项目及其所有关联数据（对话、消息、版本、运行记录、媒体素材、视频任务）。"""
         with self.session() as s:
             # 批量删除对话消息（先查出对话 id，再按 thread_id 批量删）
             conv_ids = [
@@ -545,12 +586,16 @@ class Store:
             ]
             if conv_ids:
                 s.query(ChatMessage).filter(ChatMessage.thread_id.in_(conv_ids)).delete()
+                # 对话上传的图片本体一并清理。
+                s.query(ChatImage).filter(ChatImage.thread_id.in_(conv_ids)).delete()
             # 删除对话
             s.query(Conversation).filter_by(project_id=project_id).delete()
             # 删除版本
             s.query(ScriptVersion).filter_by(project_id=project_id).delete()
             # 删除运行记录
             s.query(AgentRun).filter_by(project_id=project_id).delete()
+            # 删除媒体素材（含入库的文件本体）
+            s.query(MediaAsset).filter_by(project_id=project_id).delete()
             # 删除视频任务和版本
             s.query(VideoJob).filter_by(project_id=project_id).delete()
             s.query(VideoVersion).filter_by(project_id=project_id).delete()
@@ -861,6 +906,7 @@ class Store:
         content: str,
         payload: list[dict[str, Any]] | None = None,
         events: list[dict[str, Any]] | None = None,
+        images: list[dict[str, Any]] | None = None,
     ) -> ChatMessage:
         with self.session() as s:
             m = ChatMessage(
@@ -870,6 +916,7 @@ class Store:
                 content=content,
                 payload_json=json.dumps(payload or [], ensure_ascii=False),
                 events_json=json.dumps(events or [], ensure_ascii=False),
+                images_json=json.dumps(images or [], ensure_ascii=False),
             )
             s.add(m)
             s.commit()
@@ -889,14 +936,45 @@ class Store:
             )
             return list(reversed(rows))
 
+    # ---- ChatImage（对话上传的图片，字节入库）----
+
+    def save_chat_image(
+        self, *, thread_id: str, mime: str, name: str, content: bytes,
+    ) -> ChatImage:
+        with self.session() as s:
+            img = ChatImage(
+                id=gen_id("cimg"), thread_id=thread_id or "",
+                mime=mime or "image/png", name=name or "",
+                content=content,
+            )
+            s.add(img)
+            s.commit()
+            s.refresh(img)
+            return img
+
+    def get_chat_image(self, image_id: str) -> ChatImage | None:
+        with self.session() as s:
+            return s.get(ChatImage, image_id)
+
+    def list_chat_images(self, thread_id: str) -> list[ChatImage]:
+        with self.session() as s:
+            return (
+                s.query(ChatImage)
+                .filter_by(thread_id=thread_id)
+                .order_by(ChatImage.created_at.asc())
+                .all()
+            )
+
     # ---- Conversation（项目下的对话线程）----
 
     # ---- Media assets ----
     def add_asset(self, project_id: str, *, kind: str, name: str, source: str,
-                  url: str, file_path: str | None = None, id: str | None = None) -> MediaAsset:
+                  url: str, file_path: str | None = None, id: str | None = None,
+                  content: bytes | None = None) -> MediaAsset:
         with self.session() as s:
             a = MediaAsset(id=id or gen_id("asset"), project_id=project_id, kind=kind,
-                           name=name, source=source, url=url, file_path=file_path)
+                           name=name, source=source, url=url, file_path=file_path,
+                           content=content)
             s.add(a)
             s.commit()
             s.refresh(a)
@@ -979,6 +1057,8 @@ class Store:
             if not c:
                 return False
             s.query(ChatMessage).filter_by(thread_id=conversation_id).delete()
+            # 对话上传的图片本体随对话一起清理（bytes 会在 SQLite 里越攒越大）。
+            s.query(ChatImage).filter_by(thread_id=conversation_id).delete()
             s.delete(c)
             s.commit()
             return True

@@ -3,8 +3,8 @@
     <div v-if="open" class="modal-mask" @click.self="$emit('close')">
       <div class="modal-box">
         <div class="modal-header">
-          <h3>⚙️ 模型与 API 设置</h3>
-          <button class="btn-ghost" @click="$emit('close')">✕</button>
+          <h3>模型与 API 设置</h3>
+          <button class="btn-ghost" @click="$emit('close')"><AppIcon name="close" /></button>
         </div>
 
         <div class="modal-tabs">
@@ -55,7 +55,7 @@
                 </div>
               </div>
               <div class="llm-card add" @click="openAddLlm()">
-                <span>＋ 添加自定义模型</span>
+                <span><AppIcon name="plus" /> 添加自定义模型</span>
               </div>
             </div>
 
@@ -141,7 +141,14 @@
             </div>
             <div class="form-row">
               <label>模型</label>
-              <input v-model.trim="videoForm.model" class="input" placeholder="MiniMax-H3" />
+              <select v-model="videoForm.model" class="input">
+                <option v-for="opt in VIDEO_MODEL_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                <option value="custom">自定义…</option>
+              </select>
+            </div>
+            <div v-if="videoForm.model === 'custom'" class="form-row">
+              <label>自定义模型名</label>
+              <input v-model.trim="videoForm.customModel" class="input" placeholder="例如 MiniMax-H3" />
             </div>
             <div class="form-row">
               <label>Base URL（可选）</label>
@@ -152,6 +159,39 @@
             </p>
             <div class="form-actions">
               <button class="btn ok" @click="saveMinimax">保存</button>
+            </div>
+          </div>
+
+          <!-- 生图模型 -->
+          <div v-if="tab === 'image'" class="section">
+            <h4>生图模型（定妆图 / 场景参考图）</h4>
+            <div class="active-line">
+              <template v-if="imageInfo.available">
+                当前生效：<strong>{{ imageInfo.label || imageInfo.provider }}</strong>
+                <template v-if="imageInfo.model"> · {{ imageInfo.model }}</template>
+                <span class="active-src">{{ imageSourceLabel }}</span>
+              </template>
+              <template v-else>未配置生图模型（需要智谱或 OpenAI 的 API Key）</template>
+            </div>
+            <p class="pref-hint">
+              生图与智谱 GLM 共用同一个 API Key，无需重复填写；在这里选择定妆图、场景参考图用哪个模型出图。
+            </p>
+            <div class="form-row">
+              <label>模型</label>
+              <select v-model="imageForm.model" class="input">
+                <option v-for="opt in IMAGE_MODEL_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                <option value="custom">自定义…</option>
+              </select>
+            </div>
+            <div v-if="imageForm.model === 'custom'" class="form-row">
+              <label>自定义模型名</label>
+              <input v-model.trim="imageForm.customModel" class="input" placeholder="例如 cogview-4" />
+            </div>
+            <div class="form-actions">
+              <button class="btn ok" @click="saveImageModel" :disabled="savingImage">
+                {{ savingImage ? '保存中…' : '保存' }}
+              </button>
+              <button v-if="imageInfo.source === 'db'" class="btn-ghost" @click="followEnvImage">恢复 .env 默认</button>
             </div>
           </div>
 
@@ -175,6 +215,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { api } from '../../api.js'
+import AppIcon from '../AppIcon.vue'
 
 const props = defineProps({ open: Boolean })
 const emit = defineEmits(['close'])
@@ -182,8 +223,22 @@ const emit = defineEmits(['close'])
 const tab = ref('llm')
 const tabs = [
   { key: 'llm', label: '对话模型' },
+  { key: 'image', label: '生图模型' },
   { key: 'video', label: '视频生成' },
   { key: 'prefs', label: '模型偏好' },
+]
+
+// ---- 可选模型清单（value=custom 时用自定义输入框） ----
+const IMAGE_MODEL_OPTIONS = [
+  { value: 'cogview-3-flash', label: 'CogView-3-Flash（速度快，有免费额度）' },
+  { value: 'cogview-4-250304', label: 'CogView-4（质量更好，推荐出定妆图）' },
+  { value: 'cogview-4', label: 'CogView-4（最新版本号）' },
+]
+const VIDEO_MODEL_OPTIONS = [
+  { value: 'MiniMax-H3', label: 'MiniMax-H3（默认，性价比高）' },
+  { value: 'MiniMax-Hailuo-02', label: 'MiniMax-Hailuo-02（质量更好）' },
+  { value: 'T2V-01', label: 'T2V-01（文生视频经典款）' },
+  { value: 'I2V-01', label: 'I2V-01（图生视频）' },
 ]
 
 // ---- 对话模型 ----
@@ -362,9 +417,68 @@ async function deleteLlm(p) {
 // ---- 视频 Provider（MiniMax，用户自带 Key 与模型）----
 const videoProviders = ref([])
 const showVideoKey = ref(false)
-const videoForm = reactive({ apiKey: '', model: '', baseUrl: '' })
+const videoForm = reactive({ apiKey: '', model: 'MiniMax-H3', customModel: '', baseUrl: '' })
 const minimaxRow = computed(() => videoProviders.value.find(p => p.name === 'minimax'))
 const minimaxModelLabel = computed(() => minimaxRow.value?.config?.model || 'MiniMax-H3')
+
+// ---- 生图模型（与智谱 GLM 共用 key，用户只选模型名）----
+const imageInfo = ref({ available: false, provider: '', label: '', model: '', source: 'none' })
+const imageForm = reactive({ model: 'cogview-4-250304', customModel: '' })
+const savingImage = ref(false)
+const imageSourceLabel = computed(() =>
+  ({ db: '界面指定', env: '.env 配置', default: '未配置' }[imageInfo.value.source] || imageInfo.value.source))
+
+async function loadImageInfo() {
+  try {
+    const d = await api('/status')
+    imageInfo.value = d.image || { available: false }
+    // 回填下拉：当前生效的模型在预设里就选中，否则进自定义
+    const current = imageInfo.value.model
+    if (current && !IMAGE_MODEL_OPTIONS.some((o) => o.value === current)) {
+      imageForm.model = 'custom'
+      imageForm.customModel = current
+    } else if (current) {
+      imageForm.model = current
+    }
+  } catch { /* 保持占位 */ }
+}
+
+async function saveImageModel() {
+  const model = imageForm.model === 'custom' ? imageForm.customModel.trim() : imageForm.model
+  if (!model) { alert('请选择或填写模型名'); return }
+  savingImage.value = true
+  try {
+    // 生图配置挂在 kind=image 的 cogview 行上（key 缺省复用 .env 的智谱 key）
+    let row = (await api('/providers?kind=image')).find((p) => p.name === 'cogview')
+    if (row) {
+      await api('/providers/' + row.id, 'PATCH', { config: { model } })
+    } else {
+      row = await api('/providers', 'POST', {
+        kind: 'image', name: 'cogview', label: '智谱 CogView',
+        api_key: '', config: { model }, enabled: true,
+      })
+    }
+    await api('/models/preferences', 'PUT', {
+      task_type: 'image_gen', provider_id: row.id, model_name: model, is_default: true,
+    })
+    await loadImageInfo()
+  } catch (e) {
+    alert('保存失败：' + e.message)
+  } finally {
+    savingImage.value = false
+  }
+}
+
+async function followEnvImage() {
+  try {
+    await api('/models/preferences', 'PUT', {
+      task_type: 'image_gen', provider_id: null, model_name: '', is_default: true,
+    })
+    await loadImageInfo()
+  } catch (e) {
+    alert('恢复失败：' + e.message)
+  }
+}
 
 // ---- 模型偏好 ----
 
@@ -384,18 +498,25 @@ async function loadProviders() {
 /** 用已保存的 MiniMax 配置回填表单（Key 永远留空，表示「保持不变」）。 */
 function syncVideoForm() {
   videoForm.apiKey = ''
-  videoForm.model = minimaxRow.value?.config?.model || 'MiniMax-H3'
+  const current = minimaxRow.value?.config?.model || 'MiniMax-H3'
+  if (!VIDEO_MODEL_OPTIONS.some((o) => o.value === current) && !videoForm.customModel) {
+    videoForm.model = 'custom'
+    videoForm.customModel = current
+  } else if (VIDEO_MODEL_OPTIONS.some((o) => o.value === current)) {
+    videoForm.model = current
+  }
   videoForm.baseUrl = minimaxRow.value?.base_url || ''
 }
 
 async function saveMinimax() {
   const key = videoForm.apiKey.trim()
+  const model = videoForm.model === 'custom' ? videoForm.customModel.trim() : videoForm.model
   if (!minimaxRow.value && !key) {
     alert('请先填入 MiniMax API Key')
     return
   }
   try {
-    const config = videoForm.model ? { model: videoForm.model } : {}
+    const config = model ? { model } : {}
     if (minimaxRow.value) {
       await api(`/providers/${minimaxRow.value.id}`, 'PATCH', {
         api_key: key || undefined,
@@ -423,6 +544,7 @@ watch(() => props.open, (v) => {
     loadProviders()
     loadModelInfo()
     loadChatPref()
+    loadImageInfo()
   }
 })
 
@@ -431,6 +553,7 @@ onMounted(() => {
     loadProviders()
     loadModelInfo()
     loadChatPref()
+    loadImageInfo()
   }
 })
 </script>
@@ -467,7 +590,8 @@ onMounted(() => {
 .active-line strong { color: var(--text, #eee); }
 .active-src {
   margin-left: auto; font-size: 10px; padding: 1px 6px;
-  border: 1px solid var(--border, #333); border-radius: 999px; color: var(--text2, #999);
+  border-radius: 3px; color: var(--text2, #999);
+  background: color-mix(in oklch, var(--ink, #eee) 5%, transparent);
 }
 .llm-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 .llm-card {
@@ -485,8 +609,9 @@ onMounted(() => {
 .llm-name { font-size: 13px; font-weight: 600; color: var(--text, #eee); }
 .llm-meta { font-size: 11px; color: var(--text2, #999); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .using-badge {
-  align-self: flex-start; font-size: 10px; padding: 1px 7px; border-radius: 999px;
-  color: var(--gold, #e94560); border: 1px solid var(--gold, #e94560);
+  align-self: flex-start; font-size: 10px; padding: 1px 7px; border-radius: 3px;
+  color: var(--gold, #e94560); border: none;
+  background: color-mix(in oklch, var(--gold, #e94560) 12%, transparent);
 }
 .llm-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .follow-env {

@@ -9,6 +9,7 @@
 
 import { ref, watch, nextTick, onUnmounted } from 'vue'
 import { store, submitNewProject } from '../stores/app'
+import AppIcon from './AppIcon.vue'
 
 // 产品只做短剧。电影/剧集/舞台剧的入口已移除——多一个类型就多一条生成分支、
 // 多一套没人维护的文案，而产品不会走到。老项目里已存的类型仍能正常打开。
@@ -29,7 +30,7 @@ const adapt = ref(ADAPT_TYPE)
 const visual = ref('realistic')
 const raw = ref('')
 const file = ref(null)          // 选中的 File 对象
-const dropText = ref('点击选择或拖入 .txt / .md / .docx 文件')
+const dropText = ref('点击选择或拖入文件')
 const dragOver = ref(false)
 const err = ref('')
 const fileInput = ref(null)
@@ -57,7 +58,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 /** 校验并记录选中的文件（点击与拖拽共用）。 */
 function pickFile(f) {
   if (!ACCEPT.test(f.name)) {
-    dropText.value = `⚠️ 不支持 ${f.name}，请选择 .txt/.md/.docx/.pdf`
+    dropText.value = `不支持 ${f.name}，请选择 .txt/.md/.docx/.pdf`
     file.value = null
     return
   }
@@ -90,39 +91,36 @@ async function submit() {
        不影响 DOM 移除时机），v-if 关闭即瞬时移除，任何环境都可靠。 -->
   <div v-if="store.showNewProject" class="modal-backdrop" @click.self="!submitting && (store.showNewProject = false)">
     <div class="modal" role="dialog" aria-label="新建剧本">
-      <h3>新建剧本 <span class="muted" style="font-size: 12px; font-weight: 400">＝ 新项目</span></h3>
-      <div class="sub">导入原著（.txt / .md / .docx）或粘贴原文，创建后可直接生成剧本初稿</div>
+      <h3>新建剧本</h3>
 
       <label>剧名</label>
       <input ref="titleInput" v-model="title" placeholder="例如：雨夜" style="width: 100%" @keydown.enter="submit" />
 
       <label>体裁</label>
-      <div class="fixed-type">短剧 · 竖屏 1–2 分钟 · 前 3 秒必须抓人</div>
+      <div class="fixed-type">短剧 · 竖屏</div>
 
-      <label>画风 <span class="muted">—— 漫剧＝短剧选「二次元」，不是另一种类型</span></label>
-      <div class="styles">
-        <button
-          v-for="s in VISUAL_STYLES" :key="s.value" type="button"
-          class="style-chip" :class="{ on: visual === s.value }"
-          :title="s.hint" @click="visual = s.value"
-        >{{ s.label }}</button>
-      </div>
-      <div class="hint">{{ VISUAL_STYLES.find(s => s.value === visual)?.hint }}</div>
+      <label>画风</label>
+      <select v-model="visual" class="style-select" style="width: 100%">
+        <option v-for="s in VISUAL_STYLES" :key="s.value" :value="s.value">{{ s.label }}</option>
+      </select>
 
-      <label>原著文件（可拖拽）</label>
+      <label>原著文件</label>
       <div
-        class="drop" :class="{ drag: dragOver }"
+        class="drop" :class="{ drag: dragOver, picked: file }"
         @click="fileInput.click()"
         @dragover.prevent="dragOver = true"
         @dragleave="dragOver = false"
         @drop.prevent="onDrop"
-      >{{ dropText }}</div>
+      >
+        <AppIcon :name="file ? 'file' : 'upload'" class="drop-ic" />
+        <span>{{ dropText }}</span>
+      </div>
       <input ref="fileInput" type="file" accept=".txt,.md,.markdown,.docx,.pdf" style="display: none" @change="onFileChange" />
 
-      <label>或直接粘贴原文</label>
-      <textarea v-model="raw" placeholder="粘贴小说 / 剧本原文（3 段以上最佳）"></textarea>
+      <label>或粘贴原文</label>
+      <textarea v-model="raw" placeholder="粘贴小说原文"></textarea>
 
-      <div v-if="err" class="err">⚠️ {{ err }}</div>
+      <div v-if="err" class="err"><AppIcon name="warning" /> {{ err }}</div>
 
       <div class="foot">
         <button class="ghost" :disabled="submitting" @click="store.showNewProject = false">取消</button>
@@ -138,37 +136,28 @@ async function submit() {
   display: flex; align-items: center; justify-content: center; z-index: 50;
 }
 .modal {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
   width: 520px; max-width: 94vw; max-height: 88vh; overflow-y: auto;
   padding: 18px 20px; box-shadow: 0 20px 60px oklch(0 0 0 / 0.5);
 }
 h3 { margin: 0 0 4px; font-size: 16px; }
-.sub { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
 label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px; }
 .drop {
-  border: 1.5px dashed var(--line); border-radius: 10px; padding: 18px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  border: 1.5px dashed var(--line); border-radius: 8px; padding: 16px;
   text-align: center; color: var(--muted); font-size: 12.5px; cursor: pointer;
   transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease), background-color var(--dur) var(--ease);
 }
-.drop:hover, .drop.drag { border-color: var(--accent); color: var(--ink); }
-.drop.drag { background: var(--accent-soft); }
+.drop-ic { font-size: 15px; flex: none; }
+.drop.picked { color: var(--ink); border-color: var(--line-strong); border-style: solid; }
+.drop:hover, .drop.drag { border-color: var(--gold); color: var(--ink); }
+.drop.drag { background: color-mix(in oklch, var(--gold) 7%, transparent); }
 .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 textarea { width: 100%; min-height: 110px; }
-.err { color: var(--bad); font-size: 12px; margin-top: 8px; }
+.err { display: flex; align-items: center; gap: 6px; color: var(--bad); font-size: 12px; margin-top: 8px; }
 
-/* 画风选择：一排芯片，选中用 accent 描边——比下拉更能表达「这是画风不是类型」 */
-.styles { display: flex; flex-wrap: wrap; gap: 6px; }
-.style-chip {
-  background: transparent; border: 1px solid var(--line); border-radius: 999px;
-  padding: 5px 12px; font-size: 12.5px; color: var(--muted); cursor: pointer;
-  transition: all var(--dur) var(--ease);
-}
-.style-chip:hover { color: var(--ink); border-color: var(--accent); }
-.style-chip.on {
-  color: var(--accent-ink, oklch(1 0 0)); background: var(--accent);
-  border-color: var(--accent);
-}
-.hint { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+/* 画风选择：下拉。分类选择统一用下拉，不用一排胶囊 */
+.style-select { height: 34px; }
 .fixed-type {
   font-size: 12.5px; color: var(--ink); padding: 8px 10px;
   border: 1px solid var(--line); border-radius: 8px; background: oklch(1 0 0 / 0.03);

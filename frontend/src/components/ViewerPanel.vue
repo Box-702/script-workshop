@@ -13,6 +13,7 @@ import { computed, ref, onUnmounted, watch } from 'vue'
 import ScreenplayEditor from './ScreenplayEditor.vue'
 import FolderTree from './FolderTree.vue'
 import VideoWorkbench from './video/VideoWorkbench.vue'
+import AppIcon from './AppIcon.vue'
 import { store, showView, focusScene, exportVersion, syncProjectToWorkspace, setVersionMilestone, notify, loadViewer, loadScenes, reorderScenes } from '../stores/app'
 
 const TABS = [
@@ -262,7 +263,7 @@ function onSceneDragEnd() {
       <div v-if="focusedScene" class="scene-focus">
         <div class="sf-header">
           <h3>{{ focusedScene.title || focusedScene.id }}</h3>
-          <button class="ghost small" @click="focusScene(null); showView('editor')">✕ 退出聚焦</button>
+          <button class="ghost small" @click="focusScene(null); showView('editor')"><AppIcon name="close" /> 退出聚焦</button>
         </div>
         <div v-if="focusedScene.purpose" class="sf-section">
           <div class="sf-label">目的</div>
@@ -274,9 +275,7 @@ function onSceneDragEnd() {
         </div>
         <div v-if="focusedScene.characters?.length" class="sf-section">
           <div class="sf-label">人物</div>
-          <div class="sf-chars">
-            <span v-for="cid in focusedScene.characters" :key="cid" class="pill dlg">{{ charMap[cid] || cid }}</span>
-          </div>
+          <div class="sf-chars">{{ (focusedScene.characters || []).map(cid => charMap[cid] || cid).join('、') }}</div>
         </div>
         <div v-if="focusedScene.beats?.length" class="sf-section">
           <div class="sf-label">节拍（{{ focusedScene.beats.length }}）</div>
@@ -371,10 +370,10 @@ function onSceneDragEnd() {
 .foot-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .foot-msg { color: var(--ok); font-size: 11.5px; }
 .foot-ws { background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
-.mile { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; padding: 1px 9px;
-  border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
-.mile-final { color: var(--ok); border-color: color-mix(in oklch, var(--ok) 55%, var(--line)); }
-.mile-candidate { color: var(--warn); border-color: color-mix(in oklch, var(--warn) 55%, var(--line)); }
+.mile { display: inline-flex; align-items: center; font-size: 11px; font-weight: 500; padding: 1px 7px;
+  border-radius: 3px; border: none; color: var(--muted); background: color-mix(in oklch, var(--ink) 5%, transparent); }
+.mile-final { color: var(--ok); background: color-mix(in oklch, var(--ok) 12%, transparent); }
+.mile-candidate { color: var(--warn); background: color-mix(in oklch, var(--warn) 12%, transparent); }
 .mile-draft { color: var(--muted); }
 
 /* 场景列表（从左栏迁入）：结构总览 + 拖拽排序 */
@@ -409,13 +408,13 @@ function onSceneDragEnd() {
 .sl-meta { font-size: 10px; color: var(--dim); flex: none; font-variant-numeric: tabular-nums; }
 
 /* 场景聚焦视图 */
-.scene-focus { padding: 16px; font-family: var(--font-kai); font-size: 13.5px; }
+.scene-focus { padding: 16px; font-size: 13.5px; }
 .sf-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .sf-header h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--ink); }
 .sf-section { margin-bottom: 14px; }
 .sf-label { font-size: 10px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 4px; }
 .sf-text { font-size: 13px; color: var(--ink); line-height: 1.6; }
-.sf-chars { display: flex; gap: 4px; flex-wrap: wrap; }
+.sf-chars { font-size: 12.5px; color: var(--muted); line-height: 1.6; }
 .sf-beat {
   display: flex; align-items: baseline; gap: 8px; padding: 4px 0;
   border-bottom: 1px dashed color-mix(in oklch, var(--ink) 6%, transparent);

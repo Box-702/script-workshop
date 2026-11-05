@@ -47,6 +47,19 @@ export async function uploadAsset(projectId, file) {
   return res.json()
 }
 
+/** 上传对话用图片（发送消息前调用，返回 { id, url }，随消息的 images 字段提交）。 */
+export async function uploadChatImage(file) {
+  const res = await fetch(`${BASE}/chat/images`, {
+    method: 'POST',
+    body: (() => { const fd = new FormData(); fd.append('file', file); return fd })(),
+  })
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}))
+    throw new Error(j.detail || res.statusText)
+  }
+  return res.json()
+}
+
 /** 登记一个外部素材 URL。 */
 export async function addAssetUrl(projectId, url, name = '') {
   return api(`/projects/${projectId}/assets/url`, 'POST', { url, name })

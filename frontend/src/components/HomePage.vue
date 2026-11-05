@@ -11,12 +11,9 @@
         <span class="brand-mode">WENJU</span>
       </div>
       <div class="home-top-actions">
-        <button class="ghost small" @click="store.showNewProject = true">＋ 新建作品</button>
+        <button class="ghost small" @click="store.showNewProject = true"><AppIcon name="plus" /> 新建作品</button>
         <button class="ghost small" title="设置" @click="store.showSettings = true">
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <circle cx="8" cy="8" r="2.2" />
-            <path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6L11 5M5 11l-1.4 1.4" />
-          </svg>
+          <AppIcon name="gear" />
         </button>
       </div>
     </div>
@@ -26,12 +23,7 @@
       <section class="home-hero" aria-label="问剧">
         <div class="mark-row">
           <span class="mark-badge" aria-hidden="true">
-            <!-- 问号设计：问号的点换成了播放键——「问出一个故事，然后看它发生」 -->
-            <svg viewBox="0 0 24 24" fill="none">
-              <path d="M8.4 6.2c.9-1.5 2.5-2.2 4.2-2 2.2.2 3.8 1.7 3.8 3.7 0 2.7-3.4 3-3.4 5.6"
-                    stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
-              <path d="M10.2 17.4 14 15.2v4.4z" fill="currentColor" />
-            </svg>
+            <LogoMark :size="34" />
           </span>
           <h1 class="home-title">问剧</h1>
         </div>
@@ -48,7 +40,7 @@
         <div class="works-grid">
           <!-- 新建作品卡片 -->
           <button class="work-card new-card" @click="store.showNewProject = true">
-            <span class="new-plus" aria-hidden="true">＋</span>
+            <span class="new-plus" aria-hidden="true"><AppIcon name="plus" /></span>
             <span class="new-text">新建作品</span>
             <span class="new-sub">导入小说原文</span>
           </button>
@@ -67,7 +59,7 @@
             <button
               class="work-del" title="删除作品" aria-label="删除作品"
               @click.stop="remove(p)"
-            >×</button>
+            ><AppIcon name="close" /></button>
           </article>
         </div>
 
@@ -89,6 +81,7 @@
 import { computed } from 'vue'
 import { store, selectProject, deleteProject } from '../stores/app.js'
 import LogoMark from './LogoMark.vue'
+import AppIcon from './AppIcon.vue'
 
 const works = computed(() =>
   [...(store.projects || [])].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')),
@@ -115,14 +108,12 @@ async function remove(p) {
 .home {
   position: relative; min-height: 100vh; overflow: hidden;
   display: flex; flex-direction: column;
-  background:
-    radial-gradient(120% 90% at 78% -10%, color-mix(in oklch, var(--gold) 7%, transparent), transparent 60%),
-    var(--bg, #0b0f14);
+  background: var(--bg, #0b0f14);
 }
 .home-watermark {
   position: absolute; right: -4vmin; top: -8vmin;
-  font-size: 58vmin; line-height: 1; font-weight: 800;
-  color: transparent; -webkit-text-stroke: 1.5px color-mix(in oklch, var(--ink) 13%, transparent);
+  font-size: 58vmin; line-height: 1; font-weight: 700;
+  color: transparent; -webkit-text-stroke: 1px color-mix(in oklch, var(--ink) 8%, transparent);
   user-select: none; pointer-events: none; z-index: 0;
 }
 
@@ -133,15 +124,10 @@ async function remove(p) {
 }
 .home-brand { display: flex; align-items: center; gap: 8px; }
 .brand-name {
-  font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: 15px; font-weight: 800; color: var(--ink);
-  background: linear-gradient(97deg, var(--ink) 25%, var(--gold-glow) 62%, var(--ink) 95%);
-  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  font-size: 15px; font-weight: 600; color: var(--ink);
 }
 .brand-mode {
-  color: var(--gold); font: 600 9px/1 var(--mono); letter-spacing: .12em;
-  padding: 4px 5px; border: 1px solid color-mix(in oklch, var(--gold) 35%, var(--line));
-  border-radius: 5px;
+  color: var(--dim); font: 500 9px/1 var(--mono); letter-spacing: .1em;
 }
 .home-top-actions { display: flex; gap: 8px; }
 
@@ -155,16 +141,14 @@ async function remove(p) {
 .mark-row { display: flex; align-items: center; gap: 14px; }
 .mark-badge {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 52px; height: 52px; border-radius: 14px;
-  border: 1px solid color-mix(in oklch, var(--gold) 40%, var(--line));
-  background: color-mix(in oklch, var(--gold) 8%, transparent);
-  color: var(--gold);
+  width: 52px; height: 52px; border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
 }
 .mark-badge svg { width: 30px; height: 30px; }
 .home-title {
-  margin: 0; font-size: 46px; font-weight: 800; letter-spacing: .02em;
-  background: linear-gradient(97deg, var(--ink) 30%, var(--gold-glow) 62%, var(--ink) 95%);
-  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  margin: 0; font-size: 40px; font-weight: 650; letter-spacing: .01em;
+  color: var(--ink);
 }
 .home-tagline { margin: 14px 0 6px; font-size: 16px; font-weight: 650; color: var(--ink); }
 .home-hint { margin: 0; font-size: 12.5px; color: var(--muted); max-width: 560px; line-height: 1.8; }
@@ -186,26 +170,21 @@ async function remove(p) {
 .work-card {
   position: relative; text-align: left;
   display: flex; flex-direction: column;
-  border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
-  background: color-mix(in oklch, var(--panel) 88%, transparent);
+  border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+  background: var(--panel);
   cursor: pointer; padding: 0;
-  transition: border-color 160ms var(--ease), transform 160ms var(--ease), box-shadow 160ms var(--ease);
+  transition: border-color 130ms var(--ease);
 }
 .work-card:hover {
-  border-color: color-mix(in oklch, var(--gold) 45%, var(--line));
-  transform: translateY(-2px);
-  box-shadow: 0 10px 30px color-mix(in oklch, #000 30%, transparent);
+  border-color: var(--line-strong);
 }
 .work-cover {
   display: flex; align-items: center; justify-content: center;
   aspect-ratio: 16 / 7;
-  background:
-    radial-gradient(90% 120% at 30% 0%, color-mix(in oklch, var(--gold) 12%, transparent), transparent 70%),
-    color-mix(in oklch, var(--ink) 6%, transparent);
+  background: var(--panel2);
 }
 .work-glyph {
-  font-size: 44px; font-weight: 800; color: color-mix(in oklch, var(--gold) 65%, var(--ink));
-  opacity: .85;
+  font-size: 40px; font-weight: 600; color: var(--dim);
 }
 .work-body { padding: 12px 14px 14px; }
 .work-title {
@@ -215,9 +194,10 @@ async function remove(p) {
 .work-meta { margin: 0; font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
 .work-del {
   position: absolute; right: 8px; top: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
   width: 24px; height: 24px; border-radius: 6px;
   border: 1px solid var(--line); background: color-mix(in oklch, var(--bg) 80%, transparent);
-  color: var(--muted); font-size: 13px; line-height: 1;
+  color: var(--muted); font-size: 12px; line-height: 1;
   opacity: 0; cursor: pointer; transition: opacity 140ms var(--ease);
 }
 .work-card:hover .work-del { opacity: 1; }
@@ -228,7 +208,11 @@ async function remove(p) {
   min-height: 150px;
   border-style: dashed; background: transparent;
 }
-.new-plus { font-size: 30px; color: var(--gold); line-height: 1; }
+.new-card:hover {
+  background: color-mix(in oklch, var(--gold) 4%, transparent);
+  border-color: color-mix(in oklch, var(--gold) 38%, var(--line));
+}
+.new-plus { display: inline-flex; font-size: 28px; color: var(--gold); line-height: 1; }
 .new-text { font-size: 13.5px; font-weight: 700; color: var(--ink); }
 .new-sub { font-size: 11px; color: var(--dim); }
 

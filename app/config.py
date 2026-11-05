@@ -30,10 +30,11 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # ---------- 业务数据库（Postgres，可回退 SQLite） ----------
-    # 开发/Docker 模式默认用 Postgres；本机免部署时在 .env 换 SQLite。
+    # ---------- 业务数据库（默认 SQLite：本地工具零部署；可切 Postgres） ----------
+    # 本地开发/单机工具默认用 SQLite 文件库（data/script_agent.db），
+    # 不再依赖 Docker Postgres；要切回 Postgres 在 .env 里设 DATABASE_URL 即可。
     database_url: str = Field(
-        default="postgresql+psycopg://script:script@localhost:5432/script_agent",
+        default=f"sqlite:///{(_PROJECT_ROOT / 'data' / 'script_agent.db').as_posix()}",
         alias="DATABASE_URL",
     )
 
