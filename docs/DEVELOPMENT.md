@@ -1195,6 +1195,54 @@ character_genders:     {"孔乙己": "male"}
 
 ---
 
+### 5.24 换成手写循环后，工具参数是「分片」到的（2026-11-05）
+
+> 背景：对话内核从 LangGraph 的 StateGraph/ToolNode 换成 `app/chat/loop.py` 的显式循环（D-29）。
+
+#### （1）流式下 tool_calls 的 args 是**字符串分片**拼出来的
+
+- **坑**：`ChatOpenAI.stream()` 吐的 `AIMessageChunk` 里，工具参数不是 dict，而是
+  逐片到达的 JSON 字符串（`{"x":` + `42}`）。用 `chunk.tool_calls` 直接读第一片会拿到
+  **半个参数的 JSON**，工具就会带着残缺参数执行。
+- **解法**：把分片**累加**成一个完整的 chunk（`acc = acc + chunk`），再用聚合块的
+  `tool_calls`。LangChain 的 `AIMessageChunk.__add__` 会负责把字符串片段拼好并解析。
+- **回归**：`tests/test_loop.py::test_streaming_aggregates_split_tool_call_arguments`
+  专门把参数从中间切成两片验证这条。
+
+#### （2）dict 消息不能直接喂给 `ChatOpenAI`
+
+- **坑**：把 OpenAI 原生的 `tool_calls: [{id, type:"function", function:{name, arguments}}]`
+  直接当 dict 传进 `ChatOpenAI.invoke()`，LangChain 会当成「已经是 ToolCall 结构」，
+  `args` 字段读不到——参数静默变空。
+- **解法**：协议层和框架层分开。内核用 OpenAI 原生 dict；调模型前由
+  `_to_lc_messages()` 转成 LangChain 消息，工具调用转成 `{name, args, id}` 三元组。
+- **为什么要较真**：这个适配层是将来换自写 HTTP provider 时的**唯一切换点**，
+  所以用测试把契约钉死（`test_tool_message_dict_survives_round_trip`）。
+
+#### （3）工具异常不能抛出去
+
+- **坑**：ToolNode 默认会把工具异常包成错误文本回给模型；手写循环如果直接 `raise`，
+  一次工具失败就会打断整轮对话。
+- **解法**：`_invoke_tool()` 捕获所有异常，返回 `工具执行失败：…` 文本，交给模型判断
+  怎么补救。未知工具名也返回可操作提示（列出可用工具）。
+
+#### （4）轮数上限要留「回答的那一轮」
+
+- **坑**：`for step in range(max_steps)` 里每轮都执行工具，跑满上限时**最后一条助手消息
+  还没生成**，用户会看到一句「工具调用太多」而不是答案。
+- **解法**：循环跑 `max_steps + 1` 次，最后一次不再执行工具，只收回答；
+  真跑满时明确告知「这轮工具调用有点多，先停在这里」。
+
+#### （5）迁移时的做法：先钉行为，再换实现
+
+换内核前先把 348 个单测跑绿当作行为基线；换完必须仍然 348 绿（只有 2 个直接断言
+LangChain 消息类型的测试需要改成断言 dict 协议）。然后再用**真实模型**冒烟：
+流式 token、工具调用参数、工具结果回灌、落库，四项都验。
+
+**相关**：D-29 · `app/chat/loop.py` · `tests/test_loop.py`
+
+---
+
 ## 六、排查手册（症状 → 先查什么）
 
 | 症状 | 先查 |
@@ -1214,6 +1262,8 @@ character_genders:     {"孔乙己": "male"}
 | 字幕/配音整体后移、末尾对不上 | 用了计划时长而非实测时长；是否走了逐镜校准（见 5.9(3)） |
 | 成片时长恒为 0 | 便携 ffmpeg 缺 ffprobe；是否走了 stderr 兜底（见 5.9(5)） |
 | 前端没有流式效果 | `build_chat_model()` 少了 `streaming=True`（见 5.10(1)） |
+| 工具收到的参数是空的 / 半个 JSON | 流式分片没聚合，直接读了 `chunk.tool_calls`（见 5.24(1)） |
+| 对话里模型说「我没有这个工具」 | 工具没绑上，或 dict 消息转 LangChain 时工具调用结构不对（见 5.24(2)） |
 | 流式 token 一个都不出来 | 用 `type == "ai"` 过滤 chunk，应改 `isinstance`（见 5.10(2)） |
 | 模型报「已生成 ver_xxx」但版本不存在 | 编造护栏没触发，或本轮确实调过工具；查 `_CLAIM_PATTERNS`（见 5.11(2)） |
 | 长篇选段只生成了开头一小段 | 选段超单次容量（约 1.2 万字），需切小（见 5.11(1)） |

@@ -1,11 +1,11 @@
 # =====================================================================
 # conductor.py —— 对话编排层（Codex / DSH 风格的工作形式）
 #
-# 职责只剩「编排」，不再装任何工具实现：
+# 职责只剩「编排」，不装任何工具实现：
 #   - 系统提示（触发器层）：决定该调哪个工具；执行细则外置成
 #     app/skills/*（audience: main），由 load_skill 工具按需拉取；
-#   - 对话图：LLM 绑定工具 + ToolNode 的 ReAct 循环（单轮重入）；
-#   - 轮次服务：历史压缩、事件提取、编造拦截、SSE 流式输出；
+#   - 对话内核：app/chat/loop.py 的显式工具循环（不再用 LangGraph 图）；
+#   - 轮次服务：历史压缩、事件归集、编造拦截、SSE 流式输出；
 #   - 审阅动作（接受 / 拒绝 / 重新生成）走确定性路径，不经过 LLM。
 #
 # 工具实现在 ./tools/ 包（screenplay / crew / video / memory_tools 四个域）。
@@ -18,14 +18,10 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
-from typing import Annotated, Any, TypedDict
-
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
-from langgraph.graph import END, START, StateGraph
-from langgraph.graph.message import add_messages
-from langgraph.prebuilt import ToolNode, tools_condition
+from typing import Any
 
 from .. import memory
 from ..agent.tasks import SubAgentRunner
@@ -33,6 +29,7 @@ from ..config import Settings
 from ..llm import LLM
 from ..skills import skill_index
 from ..store import Store
+from .loop import AgentLoop, assistant_message, system_message, user_message
 from .tools import build_chat_tools as _assemble_tools
 from .tools.context import ADAPT_TYPE_LABELS as _ADAPT_TYPE_LABELS
 from .tools.context import Collector
@@ -40,22 +37,17 @@ from .tools.context import short as _short
 
 log = logging.getLogger(__name__)
 
-# 对话 conductor 的 ReAct 工具循环上限。
-MAX_CHAT_TOOL_STEPS = 8
+# 对话 conductor 的工具循环上限（定义在内核里，这里只做再导出）。
+from .loop import MAX_TOOL_STEPS as MAX_CHAT_TOOL_STEPS  # noqa: E402
+
+# 重建历史上下文时携带的图片上限（按时间取最近的）。多模态图片以 base64
+# 进请求体，一张图就是几千 token——超出部分的旧图降级成文字占位，防止
+# 长图片对话把上下文撑爆。最近窗口内的图片始终保留，模型不会「忘图」。
+MAX_CONTEXT_IMAGES = 12
 
 # 对话线程：项目下每个对话（Conversation）一条独立线程；
 # 还没有项目的全局对话用固定值 GLOBAL_THREAD。
 GLOBAL_THREAD = "global"
-
-
-class ChatState(TypedDict, total=False):
-    """对话式 Agent 的状态：消息流 + 工具产生的结构化载荷。"""
-
-    project_id: str | None
-    messages: Annotated[list[AnyMessage], add_messages]
-    payloads: list[dict[str, Any]]
-    events: list[dict[str, Any]]
-
 
 # 兼容别名：工具闭包写入的收集器类型现在定义在 tools.context。
 _Collector = Collector
@@ -137,50 +129,24 @@ def build_chat_tools(
     return _assemble_tools(store, llm, collector, runner=runner)
 
 
-# ---------- 对话图 ----------
+# ---------- 对话内核 ----------
 
 
-def build_chat_graph(
+def build_agent_loop(
     store: Store,
     llm: LLM,
     collector: _Collector,
     runner: SubAgentRunner | None = None,
-) -> Any:
-    """构建（单轮）对话 conductor 图：LLM 绑定工具 + ToolNode ReAct 循环。"""
+    *,
+    has_images: bool = False,
+) -> AgentLoop:
+    """构建（单轮）对话内核：显式工具循环。
 
+    has_images：本轮用户消息带图——循环换用多模态模型解析
+    （llm.chat_multimodal()：不支持视觉的对话厂商自动换到同厂视觉型号）。
+    """
     tools = build_chat_tools(store, llm, collector, runner=runner)
-
-    def agent_node(state: ChatState) -> dict[str, Any]:
-        if not llm.available:
-            return {
-                "messages": [
-                    AIMessage(
-                        content=(
-                            "当前没有配置对话模型（在 .env 设置 OPENAI_API_KEY 或 DEEPSEEK_API_KEY 后重启）。"
-                            "不过审阅动作（接受 / 拒绝 / 重新生成）仍然可用；"
-                            "也可以先用 REST / CLI 方式新建项目并生成初稿。"
-                        )
-                    )
-                ]
-            }
-        # 工具循环上限：防止模型陷入无限工具调用。
-        tool_rounds = sum(1 for m in state.get("messages", []) if isinstance(m, ToolMessage))
-        if tool_rounds >= MAX_CHAT_TOOL_STEPS:
-            return {
-                "messages": [
-                    AIMessage(content="这轮工具调用有点多，先停在这里。你可以继续说一句，我接着处理。")
-                ]
-            }
-        resp = llm.chat().bind_tools(tools).invoke(state["messages"])
-        return {"messages": [resp]}
-
-    graph = StateGraph(ChatState)
-    graph.add_node("chat_agent", agent_node)
-    graph.add_node("tools", ToolNode(tools))
-    graph.add_edge(START, "chat_agent")
-    graph.add_conditional_edges("chat_agent", tools_condition, {"tools": "tools", END: END})
-    graph.add_edge("tools", "chat_agent")
-    return graph.compile()
+    return AgentLoop(llm, tools, has_images=has_images)
 
 
 # ---------- 历史 ----------
@@ -198,35 +164,92 @@ def load_history(store: Store, conversation_id: str | None) -> list[dict[str, An
             # 历史消息里的审阅卡片载荷从未被前端读到。
             "payloads": m.payload,
             "events": m.events,
+            "images": m.images,
             "created_at": m.created_at.isoformat(),
         }
         for m in store.list_chat_messages(thread)
     ]
 
 
-def _history_lc_messages(
+# ---------- 图片（多模态上下文） ----------
+
+
+def _resolve_image_refs(store: Store, image_ids: list[str] | None) -> list[dict[str, Any]]:
+    """把前端传来的图片 id 解析成落库快照 [{id,url,mime,name}]；无效 id 丢弃。"""
+    result: list[dict[str, Any]] = []
+    for image_id in image_ids or []:
+        img = store.get_chat_image(str(image_id))
+        if img is None:
+            continue
+        result.append({
+            "id": img.id,
+            "url": f"/api/chat/images/{img.id}",
+            "mime": img.mime,
+            "name": img.name,
+        })
+    return result
+
+
+def _image_data_url(store: Store, image_id: str) -> str | None:
+    """读取入库图片字节，转成 base64 data URL（多模态模型的标准喂法）。"""
+    img = store.get_chat_image(image_id)
+    if img is None:
+        return None
+    b64 = base64.b64encode(img.content).decode("ascii")
+    return f"data:{img.mime};base64,{b64}"
+
+
+def _history_messages(
     store: Store,
     conversation_id: str | None,
     messages: list[Any] | None = None,
-) -> list[AnyMessage]:
-    """把对话历史转成 LangChain 消息（user/assistant），供本轮 LLM 参考。
+) -> list[dict[str, Any]]:
+    """把对话历史转成 OpenAI 兼容的 dict 消息（user/assistant），供本轮模型参考。
 
     传 messages（memory.compress_history_if_needed 的最近窗口）用之；否则直接读库。
     assistant 消息会附上压缩的工具轨迹（来自落库 events）：模型对「我上一轮做了
     什么」的记忆不再只靠自己当时的总结，多轮协作不会丢事实。
+
+    图片常驻上下文：user 消息带的图片按落库快照重建为 image_url 内容块，
+    重新喂给多模态模型——图片不会「聊两句就忘」。仅最近 MAX_CONTEXT_IMAGES
+    张图保留原图，更早的降级为文字占位（防止请求体无限膨胀）。
     """
     if messages is None:
         messages = store.list_chat_messages(conversation_id or GLOBAL_THREAD, limit=60)
-    result: list[AnyMessage] = []
+
+    # 先盘点全部历史图片，决定哪些保留原图、哪些降级。
+    all_image_ids: list[str] = []
     for m in messages:
         if m.role == "user":
-            result.append(HumanMessage(content=m.content))
+            for ref in (m.images or []):
+                if ref.get("id"):
+                    all_image_ids.append(str(ref["id"]))
+    keep_ids = set(all_image_ids[-MAX_CONTEXT_IMAGES:])
+
+    result: list[dict[str, Any]] = []
+    for m in messages:
+        if m.role == "user":
+            image_refs = [ref for ref in (m.images or []) if ref.get("id")]
+            if image_refs:
+                blocks: list[dict[str, Any]] = []
+                if m.content:
+                    blocks.append({"type": "text", "text": m.content})
+                for ref in image_refs:
+                    image_id = str(ref["id"])
+                    url = _image_data_url(store, image_id) if image_id in keep_ids else None
+                    if url:
+                        blocks.append({"type": "image_url", "image_url": {"url": url}})
+                    else:
+                        blocks.append({"type": "text", "text": "[此前上传的图片（已省略原图）]"})
+                result.append(user_message(blocks))
+            else:
+                result.append(user_message(m.content))
         elif m.role == "assistant" and m.content:
             content = m.content
             traj = _trajectory_note(m.events or [])
             if traj:
                 content = f"{traj}\n\n{content}"
-            result.append(AIMessage(content=content))
+            result.append(assistant_message(content))
     return result
 
 
@@ -271,55 +294,48 @@ def _trajectory_note(events: list[dict[str, Any]]) -> str:
 def _prepare_turn(
     store: Store, llm: LLM, runner: SubAgentRunner | None, conversation_id: str | None,
     project_id: str | None, message: str, meta: dict[str, Any] | None,
-) -> tuple[_Collector, Any, dict[str, Any]]:
-    """准备一轮对话的 collector, graph, input_state。
+    images: list[dict[str, Any]] | None = None,
+) -> tuple[_Collector, AgentLoop, list[dict[str, Any]]]:
+    """准备一轮对话的 collector, 内核, messages。
 
     上下文组成：系统提示 + 项目概况 + 用户记忆 + [历史滚动摘要] + 最近消息 + 本轮输入。
     长对话由 memory.compress_history_if_needed 压缩旧消息，掐头不再丢事实。
+    本轮带图时用户消息构造为多模态内容块（text + image_url）。
+
+    消息是 OpenAI 兼容的 dict（见 chat/loop.py），不再用 LangChain 消息类型。
     """
     collector: _Collector = {"project_id": project_id, "payloads": []}
     thread = conversation_id or GLOBAL_THREAD
     collector["conversation_id"] = thread if conversation_id else None
-    graph = build_chat_graph(store, llm, collector, runner=runner)
+    loop = build_agent_loop(store, llm, collector, runner=runner, has_images=bool(images))
     note = _current_project_note(store, project_id)
     memory_note = memory.format_memory_note(store, project_id=project_id, conversation_id=thread)
     summary, recent = memory.compress_history_if_needed(store, llm, thread)
-    history = _history_lc_messages(store, thread, messages=recent)
+    history = _history_messages(store, thread, messages=recent)
     if summary:
-        history = [SystemMessage(content=f"[此前对话摘要]\n{summary}")] + history
-    input_state: dict[str, Any] = {
-        "project_id": project_id,
-        "messages": [
-            SystemMessage(content=system_prompt() + "\n" + note + memory_note),
-            *history,
-            HumanMessage(content=message),
-        ],
-    }
-    return collector, graph, input_state
+        history = [system_message(f"[此前对话摘要]\n{summary}")] + history
+    messages: list[dict[str, Any]] = [
+        system_message(system_prompt() + "\n" + note + memory_note),
+        *history,
+        user_message(_user_turn_content(message, images)),
+    ]
+    return collector, loop, messages
 
 
-def _extract_events(node: str, update: dict[str, Any]) -> list[dict[str, Any]]:
-    """从 graph stream chunk 中提取事件列表。"""
-    events: list[dict[str, Any]] = []
-    msgs = update.get("messages") or []
-    if node == "tools":
-        for m in msgs:
-            if isinstance(m, ToolMessage):
-                events.append({
-                    "type": "tool_result",
-                    "name": m.name or "",
-                    "summary": _short(_msg_text(m.content), 160),
-                })
-    elif node == "chat_agent":
-        for m in msgs:
-            if isinstance(m, AIMessage) and m.tool_calls:
-                for tc in m.tool_calls:
-                    events.append({
-                        "type": "tool_call",
-                        "name": tc.get("name", ""),
-                        "args": _short(json.dumps(tc.get("args", {}), ensure_ascii=False), 200),
-                    })
-    return events
+def _user_turn_content(message: str, images: list[dict[str, Any]] | None) -> Any:
+    """构造本轮用户消息：带图时为多模态内容块，否则纯文本。"""
+    if not images:
+        return message
+    blocks: list[dict[str, Any]] = []
+    if message:
+        blocks.append({"type": "text", "text": message})
+    for ref in images:
+        url = ref.get("data_url")
+        if url:
+            blocks.append({"type": "image_url", "image_url": {"url": url}})
+    if not blocks:
+        return message
+    return blocks
 
 
 def _finalize_turn(
@@ -327,17 +343,21 @@ def _finalize_turn(
     project_id: str | None, message: str, meta: dict[str, Any] | None,
     final_text: str, events: list[dict[str, Any]],
     save_user: bool = True,
+    images: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """保存消息并返回对话结果。
 
     save_user=False：流式路径已在流开始时保存过用户消息，这里只补 assistant，
     避免同一条用户消息重复入库。
+    images：本轮用户消息的图片快照（[{id,url,mime,name}]），随消息落库，
+    之后每轮重建上下文都会重新取回原图字节。
     """
     final_text = _guard_unverified_claims(final_text, events)
     thread = conversation_id or GLOBAL_THREAD
     new_project_id = collector.get("project_id") or project_id
     if save_user:
-        store.save_chat_message(thread_id=thread, role="user", content=message, payload=[meta or {}])
+        store.save_chat_message(thread_id=thread, role="user", content=message,
+                                payload=[meta or {}], images=images)
     store.save_chat_message(
         thread_id=thread, role="assistant", content=final_text,
         payload=collector.get("payloads") or [], events=events,
@@ -376,18 +396,10 @@ _CORRECTION_PROMPT = (
 )
 
 
-def _execute_graph_turn(graph: Any, input_state: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
-    """跑一轮 ReAct 图（非流式），返回 (最终回复文本, 工具事件)。"""
-    events: list[dict[str, Any]] = []
-    final_text = ""
-    for chunk in graph.stream(input_state, stream_mode="updates"):
-        for node, update in chunk.items():
-            events.extend(_extract_events(node, update))
-            if node == "chat_agent":
-                for m in (update.get("messages") or []):
-                    if isinstance(m, AIMessage) and not m.tool_calls and m.content:
-                        final_text = _msg_text(m.content)
-    return final_text, events
+def _execute_loop_turn(loop: AgentLoop, messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
+    """跑一轮对话内核（非流式），返回 (最终回复文本, 工具事件)。"""
+    result = loop.run(messages)
+    return result.text, result.events
 
 
 def _claims_unverified(final_text: str, events: list[dict[str, Any]] | None) -> bool:
@@ -529,6 +541,7 @@ def _run_turn(
     message: str,
     meta: dict[str, Any] | None,
     runner: SubAgentRunner | None = None,
+    images: list[str] | None = None,
 ) -> dict[str, Any]:
     """执行一轮对话（非流式），返回 {reply, payloads, events, project_id, thread_id}。"""
     # 审阅动作走确定性路径。
@@ -553,30 +566,33 @@ def _run_turn(
             "thread_id": thread,
         }
 
-    collector, graph, input_state = _prepare_turn(
+    image_refs = _resolve_image_refs(store, images)
+    turn_images = [
+        {**ref, "data_url": _image_data_url(store, ref["id"])}
+        for ref in image_refs
+    ]
+    collector, loop, messages = _prepare_turn(
         store, llm, runner,
-        conversation_id, project_id, message, meta,
+        conversation_id, project_id, message, meta, images=turn_images,
     )
     events: list[dict[str, Any]] = []
     final_text = ""
     try:
-        final_text, events = _execute_graph_turn(graph, input_state)
+        final_text, events = _execute_loop_turn(loop, messages)
         if _claims_unverified(final_text, events):
             # 编造拦截：模型没调工具就报告了「结果」。带着更正指令重跑一次，
             # 让请求真正落到工具上；重跑仍失败则如实把更正留给 finalize。
             log.warning("对话轮检测到未执行的动作报告，自动重跑一次")
-            retry_state = {
-                **input_state,
-                "messages": list(input_state.get("messages") or []) + [HumanMessage(content=_CORRECTION_PROMPT)],
-            }
-            retry_text, retry_events = _execute_graph_turn(graph, retry_state)
+            retry_messages = list(messages) + [user_message(_CORRECTION_PROMPT)]
+            retry_text, retry_events = _execute_loop_turn(loop, retry_messages)
             if retry_text:
                 final_text, events = retry_text, events + retry_events
     except Exception as e:  # noqa: BLE001
         log.warning("对话运行失败：%s", e)
         final_text = f"对话运行出错了：{e}"
 
-    return _finalize_turn(store, collector, conversation_id, project_id, message, meta, final_text, events)
+    return _finalize_turn(store, collector, conversation_id, project_id, message, meta, final_text, events,
+                          images=image_refs)
 
 
 def chat_once(
@@ -589,12 +605,13 @@ def chat_once(
     message: str,
     meta: dict[str, Any] | None = None,
     runner: SubAgentRunner | None = None,
+    images: list[str] | None = None,
 ) -> dict[str, Any]:
     """非流式对话：执行一轮并返回完整结果。"""
     return _run_turn(
         store, llm, settings,
         conversation_id=conversation_id, project_id=project_id, message=message, meta=meta,
-        runner=runner,
+        runner=runner, images=images,
     )
 
 
@@ -608,6 +625,7 @@ def chat_stream(
     message: str,
     meta: dict[str, Any] | None = None,
     runner: SubAgentRunner | None = None,
+    images: list[str] | None = None,
 ):
     """SSE 流式对话：逐条 yield {event, data} 事件。
 
@@ -637,71 +655,49 @@ def chat_stream(
         }}
         return
 
-    collector, graph, input_state = _prepare_turn(
+    image_refs = _resolve_image_refs(store, images)
+    turn_images = [
+        {**ref, "data_url": _image_data_url(store, ref["id"])}
+        for ref in image_refs
+    ]
+    collector, loop, messages = _prepare_turn(
         store, llm, runner,
-        conversation_id, project_id, message, meta,
+        conversation_id, project_id, message, meta, images=turn_images,
     )
     # 用户消息在流开始时就落库：生成中途断开（客户端切走/刷新）或出错时，
     # 至少保住用户说过的话——此前只在整轮结束时统一保存，一旦中断整段丢失。
+    # 图片快照一并落库（历史回放与后续轮次的上下文重建都靠它）。
     thread = conversation_id or GLOBAL_THREAD
-    store.save_chat_message(thread_id=thread, role="user", content=message, payload=[meta or {}])
+    store.save_chat_message(thread_id=thread, role="user", content=message, payload=[meta or {}], images=image_refs)
     events: list[dict[str, Any]] = []
     final_text = ""
-    last_update_text = ""
 
-    def _pump(state: dict[str, Any]):
-        """跑一遍图并实时 yield 事件；结果写回外层 holder。"""
-        nonlocal final_text, last_update_text
-        text = ""
-        for chunk in graph.stream(state, stream_mode=["updates", "messages"]):
-            if isinstance(chunk, tuple):
-                mode, data = chunk[0], chunk[1]
-            else:
-                mode, data = chunk.get("type"), chunk.get("data", {})
-            if mode == "updates":
-                for node, update in (data or {}).items():
-                    evts = _extract_events(node, update)
-                    for ev in evts:
-                        events.append(ev)
-                        yield {"event": ev["type"], "data": ev}
-                    if node == "chat_agent":
-                        for m in (update.get("messages") or []):
-                            if isinstance(m, AIMessage) and not m.tool_calls and m.content:
-                                last_update_text = _msg_text(m.content)
-                                text = _msg_text(m.content)
-            elif mode == "messages":
-                pairs = data if isinstance(data, list) else [data]
-                for pair in pairs:
-                    msg_chunk = pair[0] if isinstance(pair, (tuple, list)) else pair
-                    # 注意用 isinstance：AIMessageChunk.type 返回 'AIMessageChunk'
-                    # 而不是 'ai'，按 type 字符串过滤会把所有 token 块丢弃（实测踩坑）。
-                    if not isinstance(msg_chunk, AIMessage):
-                        continue
-                    # 推理模型的思考增量（DeepSeek/GLM 风格 reasoning_content）：
-                    # 只实时展示给用户看，不进入回复正文。
-                    reasoning = _reasoning_delta(msg_chunk)
-                    if reasoning:
-                        yield {"event": "thinking", "data": {"delta": reasoning}}
-                    delta = _msg_text(getattr(msg_chunk, "content", None))
-                    if delta:
-                        text += delta
-                        yield {"event": "token", "data": {"delta": delta}}
-        final_text = text or last_update_text
+    def _pump(msgs: list[dict[str, Any]]):
+        """跑一遍内核并实时 yield 事件；正文增量累积到 holder。"""
+        nonlocal final_text
+        text_parts: list[str] = []
+        last_complete = ""
+        for ev in loop.stream(msgs):
+            if ev.type == "_complete":
+                last_complete = str(ev.data.get("text") or "")
+                continue
+            if ev.type == "_truncated":
+                continue
+            if ev.type == "token":
+                text_parts.append(str(ev.data.get("delta") or ""))
+            elif ev.type in ("tool_call", "tool_result"):
+                events.append({"type": ev.type, **ev.data})
+            yield {"event": ev.type, "data": ev.data}
+        final_text = "".join(text_parts) or last_complete
 
     try:
-        for sse in _pump(input_state):
+        for sse in _pump(messages):
             yield sse
         if _claims_unverified(final_text, events):
             # 编造拦截：流式路径同样自动重跑一次（done 事件会用重跑结果覆盖正文）。
             log.warning("对话流式轮检测到未执行的动作报告，自动重跑一次")
-            retry_state = {
-                **input_state,
-                "messages": list(input_state.get("messages") or []) + [HumanMessage(content=_CORRECTION_PROMPT)],
-            }
-            for sse in _pump(retry_state):
+            for sse in _pump(list(messages) + [user_message(_CORRECTION_PROMPT)]):
                 yield sse
-        if not final_text:
-            final_text = last_update_text
     except GeneratorExit:
         # 客户端断开（切走会话/刷新页面）：把已生成的部分回复落库，避免全部丢失。
         if final_text:
@@ -720,28 +716,3 @@ def chat_stream(
         save_user=False,
     )
     yield {"event": "done", "data": result}
-
-
-def _reasoning_delta(msg_chunk: Any) -> str:
-    """从流式 AIMessageChunk 中提取思考增量（reasoning_content）。"""
-    kw = getattr(msg_chunk, "additional_kwargs", None) or {}
-    value = kw.get("reasoning_content") or getattr(msg_chunk, "reasoning_content", None)
-    return value if isinstance(value, str) else ""
-
-
-def _msg_text(content: Any) -> str:
-    """把 LangChain 消息 content（可能是 str / 内容块列表）规整为纯文本。"""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for block in content:
-            if isinstance(block, str):
-                parts.append(block)
-            elif isinstance(block, dict):
-                if block.get("type") == "text" and block.get("text"):
-                    parts.append(str(block["text"]))
-                elif block.get("text"):
-                    parts.append(str(block["text"]))
-        return "".join(parts)
-    return str(content) if content else ""

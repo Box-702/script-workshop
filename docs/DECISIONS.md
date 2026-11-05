@@ -35,6 +35,7 @@
 | [D-20](#d-20-产品只留一条链路小说到短剧其余全砍) | 产品 | 砍掉电影/剧集/舞台剧、多厂商适配、3D 预览 | 已定 |
 | [D-21](#d-21-查询只留一个入口技能里的工具名必须和代码对齐) | 编排/技能 | 5 个查询工具并成 get_status；技能工具名加校验 | 已定 |
 | [D-22](#d-22-资产一律按实体-id-索引名字只是别名) | 数据模型 | 五份资产改 id 键，模型仍写名字，边界处转换 | 已定 |
+| [D-29](#d-29-对话内核脱离-langgraph改成显式-while-循环) | 编排内核 | 去掉 StateGraph/ToolNode，消息改 OpenAI dict | 已定 |
 
 ---
 
@@ -909,6 +910,56 @@ config.model，`_resolve_video_provider` / 前端 submitVideoJob 既有链路直
 **什么时候该推翻**：需要按项目粒度（而非全局）选模型时，把偏好挂到 project 上。
 **相关**：`app/llm/registry.py`（resolve_image）、`app/llm/client.py`（describe_image）、
 `frontend/src/components/settings/SettingsModal.vue`
+
+---
+
+<a id="d-29-对话内核脱离-langgraph改成显式-while-循环"></a>
+## D-29 对话内核脱离 LangGraph，改成显式 while 循环 —— 已定（2026-11-05）
+
+**背景**：对话 conductor 用 LangGraph 的 `StateGraph` + `ToolNode` 跑 ReAct 循环。三个具体痛点：
+① 状态通道（reducer）行为不直观——踩过 `has_images` 这类键在节点之间丢失的坑；
+② 循环本来就是「LLM → 工具 → LLM」，画成图反而要多读一层才知道发生了什么；
+③ 调试是黑盒：出问题时看不到「第几轮、调了什么工具、回了什么」。
+
+**选项**：① 继续用 StateGraph；② 换成 LangChain 的 `AgentExecutor`；③ 自研显式循环。
+
+**决定**：选 ③。`app/chat/loop.py` 约 250 行：
+
+```
+for step in range(max_steps):        # 上限 8 轮
+    resp = model(messages, tools)
+    没有 tool_calls → 结束
+    for call: 执行工具 → messages.append(tool 结果)
+```
+
+**消息协议**：OpenAI 兼容的 dict（`role` / `content` / `tool_calls` / `tool_call_id`）。
+我们所有 provider（DeepSeek / 智谱 / OpenAI / Qwen / MiniMax）都是这个协议，
+所以**协议本身就是通用格式**，不绑任何框架类型。
+
+**LangChain 只保留一处适配**：`_to_lc_messages()` 在「真正调模型那一刻」把 dict 转成
+LangChain 消息。将来换成自写 HTTP provider，只需要替换这一个函数——内核、工具、事件、
+conductor 全都不用动。
+
+**为什么现在不一步到位写 HTTP provider**：`ChatOpenAI` 已经处理了流式解析、重试、
+`extra_body`（DeepSeek 关思考）、`base_url` 切换。这些重写一遍没有收益，反而引入新的
+失败面。先把「图」这个真正的痛点去掉，transport 留到真有需要时再换——因为边界已经画好了。
+
+**工具协议**：沿用 LangChain 的 `@tool` 对象（`.name` / `.description` / `.invoke(args)`），
+循环里用名字注册表分发。工具抛异常**不向上抛**，包成文本回给模型让它自己补救
+（与 ToolNode 默认行为一致）。
+
+**验证**（纯重构，行为必须等价）：
+- 365 个单测全绿（原有 348 个一条没改语义，新增 17 条是内核自己的测试）；
+- 真实模型冒烟：流式输出 token、`create_project` 工具调用参数正确、结果回灌、
+  项目真落库、非流式路径同样通过；
+- `grep langgraph app/chat/` 归零。
+
+**什么时候该推翻**：如果开始需要「并行工具调用」「子图嵌套」「跨轮的图状态持久化」这类
+图原生能力，手写循环会变得臃肿，那时可以评估换回框架或引入更合适的编排层。
+另外 `app/agent/`（改编工作流）仍用 LangGraph——那里是固定流程 + `interrupt` 人机协同，
+图模型确实更合适，没有一起换。
+
+**相关**：`app/chat/loop.py` · `app/chat/conductor.py` · `tests/test_loop.py`
 
 ---
 

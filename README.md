@@ -316,9 +316,22 @@ Wenju/
 | `DEEPSEEK_THINKING` | 推理模型是否开启思考链 | `false` |
 | `VISION_PROVIDER` / `VISION_MODEL` / `VISION_API_KEY` | 视觉质检单独配置（留空则自动复用支持视觉的厂商） | 自动 |
 | `IMAGE_PROVIDER` / `IMAGE_MODEL` / `IMAGE_API_KEY` | 文生图单独配置（`cogview` / `openai`） | `cogview` → `openai` |
-| `DATABASE_URL` | 数据库连接串（`postgresql+psycopg://…` 或 `sqlite:///./data/dev.db`） | 与 `.env.example` 一致（Postgres） |
+| `DATABASE_URL` | 数据库连接串（`sqlite:///./data/script_agent.db` 或 `postgresql+psycopg://…`） | 项目内 SQLite |
 | `DB_CONNECT_TIMEOUT` | 数据库连接超时（秒）。不给的话 libpq 会一直等，库没起来时请求永久挂住 | `5` |
 | `CHECKPOINTER` | checkpointer 类型（`memory` / `postgres`） | `memory` |
+| `TTS_PROVIDER` / `TTS_MODEL` / `TTS_API_KEY` | 配音单独配置；`TTS_API_KEY` 留空时回落 `MINIMAX_API_KEY` | `minimax` / `speech-02-hd` |
+| `VIDEO_QA_ENABLED` / `VIDEO_QA_FRAMES` / `VIDEO_QA_MAX_REROLL` | 成片抽帧质检与有界重 roll | `true` / `5` / `1` |
+| `VIDEO_SWEEPER_ENABLED` / `VIDEO_SWEEPER_INTERVAL_SEC` | 孤儿视频任务巡检（重启后把无人轮询的任务挂回去） | `true` / `60` |
+| `WORKSPACE_PERSIST` / `WORKSPACE_ROOT` | 是否把剧本/版本落成文件；`false` 时只留应用内 | `true` / `data/` |
+| `FFMPEG_PATH` | ffmpeg 可执行文件路径（抽帧/拼接），留空用 PATH 里的 | - |
+| `LANGSMITH_TRACING` / `LANGSMITH_API_KEY` / `LANGSMITH_PROJECT` | LangSmith 轨迹上报；启动时映射为 `LANGCHAIN_*` | `false` |
+
+> **两类配置的坑**：`MINIMAX_API_KEY_FALLBACKS`、`KEY_COOLDOWN_SEC`、`FFMPEG_PATH`、
+> `LANGSMITH_*` 由代码**直接读 `os.environ`**，不经过 `Settings`。所有入口都必须调用
+> `config.bootstrap_env()`（`main.py` / `cli.py` 已调用），否则这些配置会静默取默认值。
+>
+> **界面偏好优先于 `.env`**：在「设置 → 模型」里选过模型后，`.env` 的模型名不再生效；
+> 点「恢复 .env 默认」或调 `DELETE /api/models/preferences/chat` 清除即可。
 
 ## 运行测试
 

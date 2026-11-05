@@ -155,7 +155,7 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
 
 先给结论，因为这块最容易想歪：
 
-> **只有一个 LLM Agent（对话编排层），调度 19 个工具。剧组三个「角色」是函数，不是进程。**
+> **只有一个 LLM Agent（对话编排层），调度 20 个工具。剧组三个「角色」是函数，不是进程。**
 > **「按需加载」只发生在主 Agent 那一层；剧组三个角色的技能是每次全量拼进系统提示的。**
 
 为什么不做进程级多 Agent（每个角色独立上下文、独立工具集、互相通信）：它们各自只做
@@ -163,19 +163,33 @@ OpenAI 兼容服务都支持它——**MiniMax 实测报 `2013 unknown response_
 多出「状态怎么传、失败怎么回滚、上下文谁持有」三个问题。理由见 [`DECISIONS.md` D-04](DECISIONS.md)，
 以及 [D-20](DECISIONS.md)（产品收敛到单一链路）。
 
-### 3.1 对话编排（1 个）—— `app/chat/conductor.py`
+### 3.1 对话编排（1 个）—— `app/chat/conductor.py` + `app/chat/loop.py`
 
 | Agent | 角色 | 职责 |
 |---|---|---|
-| **ChatConductor** | 前厅 / 调度 | 绑定 19 个工具理解用户意图，把请求路由到确定性流水线或后台剧组任务 |
+| **ChatConductor** | 前厅 / 调度 | 绑定 20 个工具理解用户意图，把请求路由到确定性流水线或后台剧组任务 |
 
-它是一个 ReAct 小图（`chat_agent` ↔ `tools`），工具循环上限 8 轮。
+**内核是手写的显式循环**（`app/chat/loop.py`，2026-11-05 替换掉 LangGraph 的 StateGraph + ToolNode）：
+
+```
+for step in range(max_steps):        # 上限 8 轮，防止无限工具调用
+    resp = model(messages, tools)
+    没有 tool_calls → 结束
+    for call: 执行工具 → messages.append(tool 结果)
+```
+
+- **消息用 OpenAI 兼容的 dict**（role/content/tool_calls/tool_call_id）——所有 provider 都是这个协议，
+  协议本身不绑框架类型。LangChain 只在调模型那一刻被适配一次（`_to_lc_messages`），
+  将来换自写 HTTP provider 只需替换这个适配层。
+- 为什么不用 StateGraph：状态通道（reducer）行为不直观（踩过 `has_images` 这类键在节点间丢失），
+  循环本来就是 while、画成图要多读一层，且调试是黑盒。见 [`DECISIONS.md` D-29](DECISIONS.md)。
+
 关键设计：**审阅动作走确定性路径**（accept/reject 不经过 LLM），避免「对话式工具调用不可靠」导致误操作。
 
 系统提示分两层：**触发器留在提示词**（决定该调哪个工具，每轮都要用），**执行细则进技能**
 （`audience: main` 的四个 SKILL.md，由 `load_skill` 工具按需拉）。见 [`DECISIONS.md` D-14](DECISIONS.md)。
 
-19 个工具的实现按域拆在 `app/chat/tools/`（conductor 只留编排，`build_chat_tools` 是装配壳）：
+20 个工具的实现按域拆在 `app/chat/tools/`（conductor 只留编排，`build_chat_tools` 是装配壳）：
 `screenplay.py`（项目与改编）/ `crew.py`（剧组）/ `video.py`（出片与素材）/ `memory_tools.py`（记忆与技能），
 跨域小件（ToolContext、状态标签、文本截断）收在 `context.py`。分组（2026-11-01 由 23 个合到 19 个）：
 

@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from ..chat import conductor as chat_svc
@@ -18,6 +18,42 @@ from . import common, deps
 from .schemas import ChatRequest, ConversationCreate, ConversationRename
 
 router = APIRouter()
+
+# 对话图片上传限制：单张 ≤10MB，单条消息 ≤4 张（上下文与请求体都扛得住）。
+_CHAT_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+_CHAT_IMAGE_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}
+_CHAT_IMAGE_MAX_COUNT = 4
+
+
+@router.post("/chat/images")
+async def upload_chat_image(file: UploadFile = File(...)) -> dict[str, Any]:
+    """上传对话用图片（字节入库，不落盘），返回 id 与回放 url。
+
+    前端在发送消息前先传图拿 id，再把 id 列表放进 /chat/stream 的 images 字段。
+    """
+    mime = (file.content_type or "").split(";")[0].strip().lower()
+    if mime not in _CHAT_IMAGE_TYPES:
+        raise HTTPException(400, "仅支持 png / jpg / webp / gif 图片")
+    data = await file.read()
+    if len(data) > _CHAT_IMAGE_MAX_BYTES:
+        raise HTTPException(400, "图片不能超过 10MB")
+    if not data:
+        raise HTTPException(400, "空文件")
+    img = deps.store().save_chat_image(thread_id="", mime=mime, name=file.filename or "", content=data)
+    return {"id": img.id, "url": f"/api/chat/images/{img.id}", "mime": mime, "name": img.name}
+
+
+@router.get("/chat/images/{image_id}")
+def get_chat_image(image_id: str) -> Response:
+    """回放对话图片字节（前端 <img> 与历史消息都用它）。"""
+    img = deps.store().get_chat_image(image_id)
+    if img is None:
+        raise HTTPException(404, "图片不存在")
+    return Response(
+        content=img.content,
+        media_type=img.mime,
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
 
 
 def _conversation_dict(conv: Any) -> dict[str, Any]:
@@ -61,6 +97,7 @@ def chat(payload: ChatRequest) -> dict[str, Any]:
         project_id=payload.project_id,
         message=payload.message,
         meta=payload.meta,
+        images=payload.images,
         runner=deps.subagent_runner(),
     )
 
@@ -75,6 +112,7 @@ async def chat_stream(payload: ChatRequest) -> StreamingResponse:
         project_id=payload.project_id,
         message=payload.message,
         meta=payload.meta,
+        images=payload.images,
         runner=deps.subagent_runner(),
     )
 

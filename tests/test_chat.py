@@ -228,7 +228,7 @@ def test_trajectory_note_compacts_events():
 
 def test_reasoning_delta_reads_additional_kwargs():
     from types import SimpleNamespace
-    from app.chat.conductor import _reasoning_delta
+    from app.chat.loop import _reasoning_delta
 
     assert _reasoning_delta(SimpleNamespace(additional_kwargs={"reasoning_content": "想"})) == "想"
     assert _reasoning_delta(SimpleNamespace(additional_kwargs={})) == ""
@@ -362,7 +362,11 @@ def test_remember_and_recall_tools(store, llm, sample_text):
 
 
 def test_prepare_turn_injects_memory_and_summary(store, llm, settings, sample_text):
-    """一轮对话的上下文要包含记忆小节与项目注记（无 key 环境走 resume 路径验证不到 LLM，直接查 _prepare_turn）。"""
+    """一轮对话的上下文要包含记忆小节与项目注记（无 key 环境走 resume 路径验证不到 LLM，直接查 _prepare_turn）。
+
+    消息协议是 OpenAI 兼容 dict——内核（chat/loop.py）用这个协议跟模型对话，
+    LangChain 只在调模型那一刻被适配一次。
+    """
     from app.chat.conductor import _prepare_turn
 
     tools, collector = _make_tools(store, llm)
@@ -372,12 +376,14 @@ def test_prepare_turn_injects_memory_and_summary(store, llm, settings, sample_te
     store.add_memory(kind="decision", scope="project", project_id=pid, content="风格锁定：雨夜霓虹")
     store.save_chat_message(thread_id=conv.id, role="assistant", content="好的", payload=[], events=[])
 
-    _, _, input_state = _prepare_turn(store, llm, None, conv.id, pid, "继续", None)
-    system_text = input_state["messages"][0].content
+    _, loop, messages = _prepare_turn(store, llm, None, conv.id, pid, "继续", None)
+    # 消息是 OpenAI 兼容的 dict（见 app/chat/loop.py），不再是 LangChain 消息对象。
+    system_text = messages[0]["content"]
     assert "雨夜霓虹" in system_text
     assert "[此前对话摘要]" not in system_text  # 历史很短，不产生摘要
-    roles = [type(m).__name__ for m in input_state["messages"]]
-    assert roles[0] == "SystemMessage" and roles[-1] == "HumanMessage"
+    assert [m["role"] for m in messages][0] == "system"
+    assert messages[-1]["role"] == "user" and messages[-1]["content"] == "继续"
+    assert loop is not None
 
 
 # ---------- 长篇小说：诚实化 / 建图 / 选段生成 / 选弧 ----------
