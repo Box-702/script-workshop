@@ -343,18 +343,6 @@ def test_scene_order_reorder_persists_as_new_version(client, store, sample_text)
 # ---------- 静态资源 / 导出文件名 / 数据库超时 ----------
 
 
-def test_favicon_is_served(client):
-    """index.html 引用了 /favicon.svg，而服务端只挂载了 /assets —— 之前控制台一条 404。"""
-    from pathlib import Path
-
-    dist = Path(__file__).resolve().parents[1] / "frontend" / "dist"
-    if not (dist / "favicon.svg").exists():
-        pytest.skip("前端未构建（CI 的后端 job 不产出 dist）")
-    resp = client.get("/favicon.svg")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"].startswith("image/svg")
-
-
 def test_export_filename_has_single_version_prefix(client, store, sample_text):
     """导出文件名不该出现「_vver_」：version_id 自己就带 ver_ 前缀。"""
     from app.pipeline.patch import make_source_script

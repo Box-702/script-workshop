@@ -11,7 +11,6 @@ const emit = defineEmits(['open-assets', 'open-skills', 'open-output', 'open-tas
 
 import { computed } from 'vue'
 import { store, toggleRightPanel, exitWorkspace } from '../stores/app'
-import LogoMark from './LogoMark.vue'
 import AppIcon from './AppIcon.vue'
 
 // 批次状态徽标：批次在跑（running / awaiting_approval）时显示，点击直达视频工作台。
@@ -42,7 +41,6 @@ function openWorkbench() {
     </button>
 
     <h1 class="brand" title="回到首页" @click="exitWorkspace">
-      <span class="logo" aria-hidden="true"><LogoMark :size="22" /></span>
       <span class="brand-name">问剧</span>
     </h1>
 
@@ -106,7 +104,6 @@ h1 {
   font-weight: 700; letter-spacing: 0.02em; flex: none; color: var(--ink);
   cursor: pointer;
 }
-.logo { display: inline-flex; flex: none; }
 /* 品牌字标：plain 文字，不做渐变 */
 .brand-name {
   white-space: nowrap;

@@ -8,7 +8,6 @@
 // =====================================================================
 
 import { store, focusComposer } from '../stores/app'
-import LogoMark from './LogoMark.vue'
 
 // 三个示例模板：点击只把示例填进输入框（不自动发送），由用户确认后发出。
 const TEMPLATES = [
@@ -47,7 +46,6 @@ function useTemplate(t) {
 
     <div class="hero-main">
       <p class="hero-kicker">
-        <span class="hero-brandmark" aria-hidden="true"><LogoMark :size="18" /></span>
         <span class="hero-kicker-text">问剧 · 小说转短剧工作台</span>
       </p>
       <h2 class="hero-title">把一部小说，变成一部短剧</h2>
@@ -124,7 +122,6 @@ function useTemplate(t) {
   font-size: var(--fs-xs);
   letter-spacing: .04em;
 }
-.hero-brandmark { display: inline-flex; }
 
 .hero-title {
   margin: 0;

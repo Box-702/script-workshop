@@ -8,7 +8,6 @@
 // =====================================================================
 import { computed, ref } from 'vue'
 import { store, selectProject, deleteProject, notify } from '../stores/app.js'
-import LogoMark from './LogoMark.vue'
 import AppIcon from './AppIcon.vue'
 import HomeComposer from './HomeComposer.vue'
 
@@ -67,7 +66,6 @@ function formatDate(iso) {
     <!-- 顶栏：极简，只有品牌与设置 -->
     <header class="home-top">
       <div class="home-brand">
-        <LogoMark :size="20" />
         <span class="brand-name">问剧</span>
       </div>
       <!-- 只留设置：新建作品在下面的「我的作品」里有卡片入口，顶部再放一个是重复 -->
