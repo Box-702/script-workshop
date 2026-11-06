@@ -1,4 +1,6 @@
 <script setup>
+
+const emit = defineEmits(['open-assets', 'open-skills', 'open-output', 'open-tasks'])
 // =====================================================================
 // HeaderBar.vue —— 顶栏
 //
@@ -30,12 +32,11 @@ function openWorkbench() {
 
 <template>
   <header>
-    <!-- 左侧导航开关 -->
+    <!-- 任务历史（点开是一个页面，不再是常驻侧栏） -->
     <button
       class="ghost nav-toggle"
-      :class="{ on: store.leftOpen }"
-      title="切换导航（Ctrl+B）"
-      @click="toggleLeftPanel"
+      title="任务历史"
+      @click="emit('open-tasks')"
     >
       <AppIcon name="menu" />
     </button>
@@ -53,6 +54,30 @@ function openWorkbench() {
       @click="openWorkbench"
     >
       <span class="dot" aria-hidden="true"></span>{{ batchBadge.text }}
+    </button>
+
+    <button
+      class="ghost page-btn"
+      title="资产库（角色 / 场景 / 素材）"
+      @click="emit('open-assets')"
+    >
+      <AppIcon name="folder" /> <span>资产库</span>
+    </button>
+
+    <button
+      class="ghost page-btn"
+      title="技能"
+      @click="emit('open-skills')"
+    >
+      <AppIcon name="sparkle" /> <span>技能</span>
+    </button>
+
+    <button
+      class="ghost page-btn"
+      title="产出（剧本 / 场景 / 视频）"
+      @click="emit('open-output')"
+    >
+      <AppIcon name="film" /> <span>产出</span>
     </button>
 
     <button
@@ -103,6 +128,14 @@ header button::after { content: ''; position: absolute; inset: -4px -6px; }
 .nav-toggle { padding: 0 8px; width: 32px; }
 .nav-toggle .app-ic { width: 14px; height: 14px; }
 .nav-toggle.on { color: var(--ink); }
+
+.page-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: var(--control-h); padding: 0 10px;
+  color: var(--muted); font-size: 12.5px;
+}
+.page-btn:hover { color: var(--ink); background: rgba(255, 255, 255, .07); }
+.page-btn .app-ic { width: 13px; height: 13px; }
 
 .panel-toggle { margin-left: auto; }
 .panel-toggle .app-ic { width: 13px; height: 13px; }

@@ -355,6 +355,24 @@ class ApiProvider(Base):
         return _json_load(self.config_json, {})
 
 
+class UserSkill(Base):
+    """用户导入的技能（一份带 frontmatter 的 Markdown）。
+
+    内置技能在 app/skills/*/SKILL.md（代码的一部分，跟版本走）；
+    用户导入的存这里（用户数据，按 D-23 全存数据库）。
+    """
+
+    __tablename__ = "user_skills"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(index=True, unique=True)
+    description: Mapped[str] = mapped_column(default="")
+    when_to_use: Mapped[str] = mapped_column(default="")
+    audience: Mapped[str] = mapped_column(default="main")
+    content: Mapped[str] = mapped_column(default="")  # 原始 Markdown（含 frontmatter）
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+
+
 class ModelPreference(Base):
     """用户模型偏好：为每种任务类型指定默认 provider + model。"""
 
@@ -1205,6 +1223,56 @@ class Store:
             return True
 
     # ---- ModelPreference ----
+
+    # ---- UserSkill ----
+
+    def save_user_skill(
+        self,
+        *,
+        name: str,
+        description: str,
+        when_to_use: str,
+        audience: str,
+        content: str,
+    ) -> UserSkill:
+        """保存（或覆盖）一个用户导入的技能。"""
+        with self.session() as s:
+            row = s.query(UserSkill).filter_by(name=name).first()
+            if row is None:
+                row = UserSkill(id=gen_id("uskill"), name=name)
+                s.add(row)
+            row.description = description
+            row.when_to_use = when_to_use
+            row.audience = audience
+            row.content = content
+            s.commit()
+            s.refresh(row)
+            return row
+
+    def list_user_skills(self) -> list[dict[str, Any]]:
+        """列出用户导入的技能（按名字排序）。"""
+        with self.session() as s:
+            rows = s.query(UserSkill).order_by(UserSkill.name).all()
+            return [
+                {
+                    "name": r.name,
+                    "description": r.description,
+                    "when_to_use": r.when_to_use,
+                    "audience": r.audience,
+                    "content": r.content,
+                }
+                for r in rows
+            ]
+
+    def delete_user_skill(self, name: str) -> bool:
+        """删除一个用户导入的技能。"""
+        with self.session() as s:
+            row = s.query(UserSkill).filter_by(name=name).first()
+            if row is None:
+                return False
+            s.delete(row)
+            s.commit()
+            return True
 
     def get_model_preference(self, task_type: str) -> ModelPreference | None:
         with self.session() as s:

@@ -1,16 +1,18 @@
 <script setup>
 // =====================================================================
-// ComposerCard.vue —— 输入卡片（首页与工作区共用同一套）
+// ComposerCard.vue —— 输入卡片（首页与对话页共用同一套）
 //
-// 结构完全按首页设计：
-//   ┌──────────────────────────────────────────┐
-//   │ [+]  │  多行输入（可贴图、可上传）              │
-//   │      │                                      │
-//   │      ├──────────────────────────────────────┤
-//   │      │ [胶囊][胶囊][胶囊]      状态  [开拍] │
-//   └──────────────────────────────────────────┘
+// 形制（照参考图）：
+//   ┌──────────────────────────────────────────────┐
+//   │ [+]  描述你想生成的内容，支持 @ 引用图片和视频…   │
+//   │                                                │
+//   │ [Agent ▾][模型 ▾][Skill]          [⚙]  ( ➤ )   │
+//   └──────────────────────────────────────────────┘
 //
-// 两处只差「放哪些胶囊」和「CTA 文案」，卡片本身只有这一份实现。
+// 三个胶囊各司其职：
+//   Agent —— 选谁干活（目前只有「问剧」一个，预留扩展）
+//   模型  —— 选哪个模型对话（直接切换，不进设置页）
+//   Skill —— 打开技能页（选技能 / 导入新技能）
 // =====================================================================
 
 import { ref } from 'vue'
@@ -19,30 +21,27 @@ import AppIcon from './AppIcon.vue'
 const text = defineModel('text', { type: String, default: '' })
 
 const props = defineProps({
-  placeholder: { type: String, default: '描述画面，也可上传图片、视频、主体或音色，进行参考生成等。' },
-  /** 产出目标胶囊（首页用；工作区已有项目，不需要） */
-  goalLabel: { type: String, default: '' },
-  /** 对话模型胶囊 */
-  modelLabel: { type: String, default: '' },
-  /** 视频规格胶囊，如「768P · 9:16」 */
-  specLabel: { type: String, default: '' },
-  /** 「全能参考」胶囊 */
-  showReference: { type: Boolean, default: true },
-  /** 上下文提示（工作区） */
-  contextText: { type: String, default: '' },
-  /** 阶段状态（生成中） */
+  placeholder: {
+    type: String,
+    default: '描述你想生成的内容，支持 @ 引用图片和视频，也可以通过 / 使用技能。内容将由AI生成。',
+  },
+  /** Agent 名（胶囊） */
+  agentLabel: { type: String, default: 'Agent' },
+  /** 模型名（胶囊） */
+  modelLabel: { type: String, default: '模型' },
+  /** 阶段状态（生成中），显示在胶囊行左侧 */
   statusText: { type: String, default: '' },
-  ctaText: { type: String, default: '开拍' },
+  /** 上下文提示（只在有提示时显示） */
+  hintText: { type: String, default: '' },
   canSend: { type: Boolean, default: false },
   busy: { type: Boolean, default: false },
 })
 
 const emit = defineEmits([
-  'send', 'pick-menu', 'open-settings', 'cycle-spec', 'open-library', 'change-goal',
+  'send', 'pick-menu', 'open-settings', 'pick-agent', 'pick-model', 'open-skills',
 ])
 
 const menuOpen = ref(false)
-const inputEl = ref(null)
 
 function toggleMenu() {
   menuOpen.value = !menuOpen.value
@@ -66,12 +65,6 @@ function autoSize(e) {
   el.style.height = 'auto'
   el.style.height = Math.min(200, el.scrollHeight) + 'px'
 }
-
-function focus() {
-  inputEl.value?.focus()
-}
-
-defineExpose({ focus, closeMenu: () => (menuOpen = false) })
 </script>
 
 <template>
@@ -99,79 +92,54 @@ defineExpose({ focus, closeMenu: () => (menuOpen = false) })
 
         <div class="cc-input-wrap">
           <textarea
-            ref="inputEl"
             v-model="text"
             class="cc-text"
             rows="1"
             :placeholder="placeholder"
             @keydown="onKeydown"
             @input="autoSize"
-            @focus="emit('focus-input')"
           ></textarea>
           <slot name="attachments" />
         </div>
       </div>
 
-      <!-- 下：胶囊组 + 状态 + 主行动 -->
+      <!-- 下：胶囊行 + 齿轮 + 发送 -->
       <div class="cc-bottom">
         <div class="cc-pills">
-          <slot name="pills" />
-          <button
-            v-if="goalLabel"
-            class="chip"
-            type="button"
-            @click.stop="emit('change-goal')"
-          >
-            <AppIcon name="film" />
-            <span>{{ goalLabel }}</span>
+          <span v-if="statusText" class="cc-status">
+            <span class="cc-pulse" aria-hidden="true"></span>{{ statusText }}
+          </span>
+          <button class="chip" type="button" @click.stop="emit('pick-agent')">
+            <AppIcon name="refresh" />
+            <span>{{ agentLabel }}</span>
             <AppIcon name="chevron-down" class="cc-chev" />
           </button>
-          <button
-            v-if="modelLabel"
-            class="chip"
-            type="button"
-            title="当前对话模型 · 点击在设置中更换"
-            @click.stop="emit('open-settings')"
-          >
+          <button class="chip" type="button" @click.stop="emit('pick-model')">
             <AppIcon name="sparkle" />
             <span>{{ modelLabel }}</span>
             <AppIcon name="chevron-down" class="cc-chev" />
           </button>
-          <button
-            v-if="showReference"
-            class="chip"
-            type="button"
-            @click.stop="emit('open-library')"
-          >
+          <button class="chip" type="button" @click.stop="emit('open-skills')">
             <AppIcon name="folder" />
-            <span>全能参考</span>
-            <AppIcon name="chevron-down" class="cc-chev" />
+            <span>Skill</span>
           </button>
-          <button
-            v-if="specLabel"
-            class="chip"
-            type="button"
-            @click.stop="emit('cycle-spec')"
-          >
-            <AppIcon name="play" />
-            <span>{{ specLabel }}</span>
-            <AppIcon name="chevron-down" class="cc-chev" />
-          </button>
-          <span v-if="contextText" class="cc-context">{{ contextText }}</span>
+          <span v-if="hintText" class="cc-hint">{{ hintText }}</span>
         </div>
 
         <div class="cc-right">
-          <Transition name="ccfade">
-            <span v-if="statusText" class="cc-stage" role="status" aria-live="polite">
-              <span class="cc-pulse" aria-hidden="true"></span>{{ statusText }}
-            </span>
-          </Transition>
+          <button class="cc-gear" type="button" title="设置" aria-label="设置" @click.stop="emit('open-settings')">
+            <AppIcon name="gear" />
+          </button>
           <button
-            class="cta cc-cta"
+            class="cc-send"
             type="button"
             :disabled="!canSend"
+            :aria-label="canSend ? '发送' : '输入内容后发送'"
+            title="发送（Enter）"
             @click.stop="emit('send')"
-          >{{ ctaText }}</button>
+          >
+            <AppIcon name="send" />
+          </button>
         </div>
       </div>
     </div>
@@ -222,7 +190,7 @@ defineExpose({ focus, closeMenu: () => (menuOpen = false) })
   position: absolute;
   bottom: calc(100% + 10px);
   left: 0;
-  min-width: 190px;
+  min-width: 200px;
   padding: 6px;
   border-radius: 12px;
   background: rgba(22, 22, 28, 0.97);
@@ -267,10 +235,7 @@ defineExpose({ focus, closeMenu: () => (menuOpen = false) })
 
 .cc-chev { opacity: 0.5; }
 
-.cc-context {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
+.cc-hint {
   font-size: 12px;
   color: var(--dim);
   white-space: nowrap;
@@ -278,9 +243,7 @@ defineExpose({ focus, closeMenu: () => (menuOpen = false) })
   text-overflow: ellipsis;
 }
 
-.cc-right { display: flex; align-items: center; gap: 10px; flex: none; }
-
-.cc-stage {
+.cc-status {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -303,21 +266,47 @@ defineExpose({ focus, closeMenu: () => (menuOpen = false) })
   50% { opacity: 0.35; }
 }
 
-.cc-cta {
-  min-width: 88px;
-  height: 38px;
-  padding: 0 20px;
-  font-size: 14px;
+.cc-right { display: flex; align-items: center; gap: 8px; flex: none; }
+
+/* 齿轮：低调的图标钮 */
+.cc-gear {
+  width: 32px;
+  height: 32px;
+  padding: 0;
   border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--dim);
+  cursor: pointer;
+  transition: color 130ms var(--ease), background 130ms var(--ease);
 }
+.cc-gear:hover { color: var(--ink); background: rgba(255, 255, 255, .07); }
+.cc-gear .app-ic { width: 15px; height: 15px; }
+
+/* 发送：圆形箭头钮 */
+.cc-send {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, .1);
+  border: 1px solid var(--line);
+  color: rgba(255, 255, 255, .55);
+  cursor: pointer;
+  transition: background 130ms var(--ease), color 130ms var(--ease), border-color 130ms var(--ease);
+}
+.cc-send:hover:not(:disabled) {
+  background: rgba(255, 255, 255, .18); color: #fff; border-color: var(--line-strong);
+}
+.cc-send:disabled { opacity: .5; cursor: not-allowed; }
+.cc-send .app-ic { width: 15px; height: 15px; transform: translateY(-0.5px); }
 
 .ccpop-enter-active,
 .ccpop-leave-active { transition: opacity 0.14s ease, transform 0.14s ease; }
 .ccpop-enter-from,
 .ccpop-leave-to { opacity: 0; transform: translateY(6px); }
-
-.ccfade-enter-active,
-.ccfade-leave-active { transition: opacity 0.18s ease; }
-.ccfade-enter-from,
-.ccfade-leave-to { opacity: 0; }
 </style>

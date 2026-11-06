@@ -10,9 +10,11 @@
 // =====================================================================
 
 import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { store, sendMessage, clearHint, loadModelStatus, notify } from '../stores/app'
-import { uploadChatImage } from '../api'
+import { store, sendMessage, clearHint, loadModelStatus, loadProviders, notify } from '../stores/app'
+import { api, uploadChatImage } from '../api'
 import ComposerCard from './ComposerCard.vue'
+
+const emit = defineEmits(['open-skills'])
 
 const text = ref('')
 const card = ref(null)
@@ -25,25 +27,53 @@ const fileInput = ref(null)
 const hasImages = computed(() => attachedImages.value.some((i) => i.id))
 const canSend = computed(() => (!!text.value.trim() || hasImages.value) && !store.streaming && uploadingCount.value === 0)
 
-// 当前对话模型（胶囊；点击打开设置里的模型配置）
+const statusText = computed(() => (store.streaming ? store.streamingStage || '正在处理' : ''))
+
+// ---- 胶囊下拉 ----
+const openMenu = ref('')          // '' | 'agent' | 'model'
+const AGENTS = [
+  { id: 'wenju', label: '问剧', desc: '通用创作 Agent：小说改编、分镜、视频生成' },
+]
+
+const agentLabel = computed(() => 'Agent')
 const modelLabel = computed(() => {
   const m = store.modelInfo
-  if (!m?.available) return '未配置模型'
+  if (!m?.available) return '模型'
   return m.name || m.provider
 })
-const specLabel = computed(() => {
-  const res = store.videoResolution || '768P'
-  const aspect = store.videoAspect || '9:16'
-  return `${res} · ${aspect}`
-})
-const contextText = computed(() => {
-  if (store.hint) return store.hint
-  return store.pid ? '准备好继续创作' : '直接从一句话开始'
-})
-const statusText = computed(() => (store.streaming ? store.streamingStage || '正在处理' : ''))
+
+const modelOptions = computed(() =>
+  (store.providers || []).filter((p) => p.configured && p.enabled !== false),
+)
+
+function toggleMenu(name) {
+  openMenu.value = openMenu.value === name ? '' : name
+}
+
+async function chooseModel(p) {
+  openMenu.value = ''
+  try {
+    await api('/models/preferences', 'PUT', {
+      task_type: 'chat',
+      provider_id: p.id,
+      model_name: p.config?.model || '',
+      is_default: true,
+    })
+    await Promise.all([loadModelStatus(), loadProviders()])
+    notify(`对话模型已切到 ${p.label || p.name}`, 'ok')
+  } catch (e) {
+    notify(`切换失败：${e.message}`)
+  }
+}
+
+function chooseAgent(a) {
+  openMenu.value = ''
+  notify(`${a.label}：${a.desc}`, 'ok')
+}
 
 onMounted(() => {
   loadModelStatus()
+  loadProviders()
   document.addEventListener('paste', onPaste)
 })
 onUnmounted(() => document.removeEventListener('paste', onPaste))
@@ -142,18 +172,44 @@ watch(() => store.draftSeq, () => {
       ref="card"
       v-model:text="text"
       placeholder="描述你的故事想法"
-      :model-label="modelLabel"
-      :spec-label="specLabel"
-      :context-text="contextText"
-      :status-text="statusText"
       :can-send="canSend"
       :busy="store.streaming"
+      :agent-label="agentLabel"
+      :model-label="modelLabel"
+      :status-text="statusText"
+      :hint-text="store.hint"
       @send="send"
       @open-settings="store.showSettings = true"
-      @cycle-spec="cycleResolution"
-      @open-library="store.leftOpen = true"
+      @pick-agent="toggleMenu('agent')"
+      @pick-model="toggleMenu('model')"
+      @open-skills="emit('open-skills')"
       @focus-input="clearHint"
     >
+      <!-- Agent 下拉 -->
+      <template #pills>
+        <div v-if="openMenu === 'agent'" class="cc-pop">
+          <button
+            v-for="a in AGENTS" :key="a.id"
+            class="cc-pop-item" type="button"
+            @click.stop="chooseAgent(a)"
+          >
+            <span class="pop-label">{{ a.label }}</span>
+            <span class="pop-desc">{{ a.desc }}</span>
+          </button>
+        </div>
+        <!-- 模型下拉 -->
+        <div v-if="openMenu === 'model'" class="cc-pop">
+          <button
+            v-for="p in modelOptions" :key="p.id"
+            class="cc-pop-item" type="button"
+            @click.stop="chooseModel(p)"
+          >
+            <span class="pop-label">{{ p.label || p.name }}</span>
+            <span class="pop-desc">{{ p.config?.model || p.name }}</span>
+          </button>
+          <div v-if="!modelOptions.length" class="pop-empty">没有可用模型，去设置里配一个。</div>
+        </div>
+      </template>
       <template #menu="{ close }">
         <button class="cc-menu-item" type="button" role="menuitem" @click.stop="close(); pickImages()">
           本地上传
@@ -206,6 +262,34 @@ watch(() => store.draftSeq, () => {
   position: absolute; inset: 0; display: grid; place-items: center;
   background: rgba(0, 0, 0, .55); font-size: 11px; color: rgba(255, 255, 255, .85);
 }
+
+/* 胶囊下拉 */
+.cc-pop {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  min-width: 220px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: 12px;
+  background: rgba(22, 22, 28, .97);
+  border: 1px solid rgba(255, 255, 255, .1);
+  box-shadow: var(--shadow-3);
+  z-index: 30;
+}
+
+.cc-pop-item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  width: 100%; text-align: left;
+  padding: 7px 10px; border-radius: 8px;
+  background: transparent; border: 0;
+  color: var(--muted); font-family: inherit; cursor: pointer;
+}
+.cc-pop-item:hover { background: rgba(255, 255, 255, .09); color: #fff; }
+.pop-label { font-size: 12.5px; color: var(--ink); }
+.pop-desc { font-size: 11px; color: var(--dim); }
+.pop-empty { padding: 12px; font-size: 11.5px; color: var(--dim); }
 
 /* 菜单条目（挂在 ComposerCard 的插槽里） */
 .cc-menu-item {

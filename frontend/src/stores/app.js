@@ -53,6 +53,10 @@ export const store = reactive({
   showNewProject: false,        // 新建剧本弹窗开关
   showWorkspace: false,             // 工作目录设置弹窗开关
   showSettings: false,
+  overlay: null,   // 全屏页面：assets | skills | output | tasks（null=关闭）
+  sideView: 'assets',  // 侧边栏视图：outline（大纲）| shots（镜头）| assets（资产）
+  assets: [],          // 当前项目的资产（角色/场景/素材/成片）——最终归宿
+  providers: [],       // 可用模型列表（输入区「模型」胶囊下拉用）
   modelInfo: null,                  // {available, provider, name, source} —— 顶栏徽标用
   hint: '',                     // 输入区下方提示文字
   workspace: null,              // 当前工作目录信息 { root, configured, exists }
@@ -471,6 +475,30 @@ export function showView(name) {
 // 导出剧本（.txt / .md / .docx）+ 工作目录
 // ---------------------------------------------------------------------
 const EXPORT_EXT = { txt: 'txt', md: 'md', docx: 'docx' }
+
+/** 加载可用模型列表（输入区「模型」胶囊的下拉用）。 */
+export async function loadProviders() {
+  try {
+    const list = await api('/providers?kind=llm')
+    store.providers = list || []
+  } catch {
+    store.providers = []
+  }
+  return store.providers
+}
+
+/** 加载项目资产（侧边栏「资产」视图 / 资产库页共用）。 */
+export async function loadAssets(projectId) {
+  const pid = projectId || store.pid
+  if (!pid) { store.assets = []; return [] }
+  try {
+    const list = await api(`/projects/${pid}/assets`)
+    store.assets = list || []
+  } catch {
+    store.assets = []
+  }
+  return store.assets
+}
 
 /** 加载技能清单（侧边栏「技能」段渲染用）。 */
 export async function loadSkills() {

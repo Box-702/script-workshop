@@ -1,3 +1,19 @@
+
+// ---- 侧边栏自动弹出（通用上下文侧边栏的核心行为） ----
+// 出片时：用户此刻最想看的是刚生成的东西 —— 自动弹出并切到「镜头」。
+// 改编产出时：切到「大纲」，让用户看到刚才改了什么。
+function autoOpenSidebar(kind) {
+  store.rightOpen = true
+  if (kind) store.sideView = kind
+}
+
+// 监听：批次开始跑 / 跑完 → 弹到「镜头」
+watch(
+  () => store.videoBatch?.status,
+  (st) => {
+    if (st === 'running' || st === 'succeeded') autoOpenSidebar('shots')
+  },
+)
 <script setup>
 // =====================================================================
 // App.vue —— 根组件：创作工作台布局
@@ -13,7 +29,9 @@ import HomePage from './components/HomePage.vue'
 import AssetPanel from './components/AssetPanel.vue'
 import ChatThread from './components/ChatThread.vue'
 import ChatComposer from './components/ChatComposer.vue'
-import ViewerPanel from './components/ViewerPanel.vue'
+import ContextPanel from './components/ContextPanel.vue'
+import PageShell from './components/PageShell.vue'
+import SkillsPage from './components/SkillsPage.vue'
 import NewProjectModal from './components/NewProjectModal.vue'
 import WorkspaceModal from './components/WorkspaceModal.vue'
 import SettingsModal from './components/settings/SettingsModal.vue'
@@ -196,7 +214,7 @@ onUnmounted(() => {
       <span class="blob blob-red"></span>
       <span class="grain"></span>
     </div>
-    <HeaderBar />
+    <HeaderBar @open-assets="store.overlay = 'assets'" @open-skills="store.overlay = 'skills'" @open-output="store.overlay = 'output'" />
     <!-- 拖拽导入覆盖层 -->
     <Transition name="fade">
       <div v-if="dragging" class="drop-overlay" @dragleave="onDragLeave" @drop="onDrop">
@@ -207,39 +225,46 @@ onUnmounted(() => {
         </div>
       </div>
     </Transition>
-    <div
-      ref="layoutEl" class="layout"
-      @dragenter="onDragEnter" @dragover="onDragOver"
-    >
-      <!-- 左：作品入口 + 资产库（桌面=分栏；窄屏=抽屉） -->
-      <div class="panel-wrap panel-left-wrap" :class="{ closed: !store.leftOpen }" :style="{ '--pw': leftW + 'px' }">
-        <div class="pane pane-left" :style="{ width: leftW + 'px' }">
-          <div class="left-body">
-            <AssetPanel />
-          </div>
-        </div>
-        <div class="split" @pointerdown="startDrag('left', $event)"></div>
-      </div>
-      <!-- 中：创作区 -->
-      <main class="pane-mid">
+    <!-- 对话是主体，右侧是随上下文变化的通用侧边栏 -->
+    <div class="stage-wrap">
+      <main class="stage">
         <ChatThread />
-        <ChatComposer />
+        <ChatComposer @open-skills="store.overlay = 'skills'" />
       </main>
-      <!-- 右：Inspector 面板 -->
-      <div class="panel-wrap panel-right-wrap" :class="{ closed: !store.rightOpen }" :style="{ '--pw': rightW + 'px' }">
-        <div class="split" @pointerdown="startDrag('right', $event)"></div>
-        <ViewerPanel class="pane pane-right" :style="{ width: rightW + 'px' }" />
+      <div class="ctx-wrap" :class="{ closed: !store.rightOpen }">
+        <ContextPanel @open-assets="store.overlay = 'assets'" />
       </div>
-      <!-- 窄屏抽屉遮罩：任一面板打开时出现，点击关闭 -->
-      <Transition name="fade">
-        <div
-          v-if="isNarrow && (store.leftOpen || store.rightOpen)"
-          class="drawer-scrim"
-          aria-hidden="true"
-          @click="store.leftOpen = false; store.rightOpen = false"
-        ></div>
-      </Transition>
     </div>
+
+    <!-- 页面：作品 / 资产库 / 技能 / 产出，都是从对话点进去的 -->
+    <PageShell
+      v-if="store.overlay === 'assets'"
+      title="资产库"
+      :subtitle="store.pid ? '当前作品的人物与场景' : '先选一个任务'"
+      @close="store.overlay = null"
+    >
+      <AssetPanel section="assets" />
+    </PageShell>
+
+    <SkillsPage v-if="store.overlay === 'skills'" @close="store.overlay = null" />
+
+    <PageShell
+      v-if="store.overlay === 'output'"
+      title="产出"
+      subtitle="剧本 · 场景 · 视频"
+      @close="store.overlay = null"
+    >
+      <ViewerPanel class="page-viewer" />
+    </PageShell>
+
+    <PageShell
+      v-if="store.overlay === 'tasks'"
+      title="任务历史"
+      subtitle="每个任务一部作品"
+      @close="store.overlay = null"
+    >
+      <AssetPanel section="tasks" />
+    </PageShell>
   </template>
   <NewProjectModal />
   <WorkspaceModal />
@@ -252,6 +277,45 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* 舞台 + 右侧上下文栏 */
+.stage-wrap {
+  display: flex;
+  height: calc(100dvh - var(--header-h));
+  min-width: 0;
+  min-height: 0;
+}
+
+.ctx-wrap {
+  flex: none;
+  width: 340px;
+  min-height: 0;
+  transition: width 200ms var(--ease), opacity 200ms var(--ease);
+  overflow: hidden;
+}
+.ctx-wrap.closed {
+  width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 主舞台：对话流 + 输入区 */
+.stage {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - var(--header-h));
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+
+/* 产出页里的面板撑满 */
+.page-viewer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+}
+
 .layout {
   display: flex;
   height: calc(100dvh - var(--header-h));

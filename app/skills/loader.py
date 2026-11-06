@@ -154,12 +154,76 @@ def _all_skills() -> dict[str, Skill]:
     return found
 
 
+def parse_skill_text(raw: str, *, name_hint: str = "") -> Skill:
+    """解析一段技能文本（frontmatter + 正文）。
+
+    文件来源与「用户导入」共用这一份解析规则——两套规则迟早会跑偏。
+    """
+    m = _FRONTMATTER_RE.match(raw.strip())
+    if not m:
+        raise ValueError("缺少 frontmatter（应以 --- 开头，含 name / description）")
+    meta_raw = yaml.safe_load(m.group(1)) or {}
+    if not isinstance(meta_raw, dict):
+        raise ValueError("frontmatter 不是 mapping")
+    name = str(meta_raw.get("name") or name_hint or "").strip()
+    desc = str(meta_raw.get("description") or "").strip()
+    if not name:
+        raise ValueError("缺少 name")
+    if not desc:
+        raise ValueError("缺少 description（它决定模型会不会加载这个技能）")
+    audience = str(meta_raw.get("audience") or DEFAULT_AUDIENCE).strip().lower()
+    if audience not in AUDIENCES:
+        raise ValueError(f"audience={audience!r} 非法（只能是 {' / '.join(AUDIENCES)}）")
+    return Skill(
+        meta=SkillMeta(
+            name=name,
+            description=desc,
+            when_to_use=str(meta_raw.get("when_to_use") or "").strip(),
+            path=None,
+            audience=audience,
+        ),
+        body=m.group(2).strip(),
+        files=[],
+    )
+
+
+def _db_skills() -> dict[str, Skill]:
+    """用户导入的技能（存数据库）。数据库不可用时返回空，不影响内置技能。"""
+    try:
+        from ..config import get_settings
+        from ..store import Store
+
+        store = Store(get_settings().database_url)
+        rows = store.list_user_skills()
+    except Exception as e:  # noqa: BLE001
+        log.warning("读取用户技能失败（忽略）: %s", e)
+        return {}
+    out: dict[str, Skill] = {}
+    for row in rows:
+        try:
+            out[row["name"]] = parse_skill_text(row["content"], name_hint=row["name"])
+        except Exception as e:  # noqa: BLE001
+            log.error("用户技能 %s 解析失败：%s", row.get("name"), e)
+    return out
+
+
+def _all_skills_with_db() -> dict[str, Skill]:
+    """文件技能 + 用户导入技能（同名时用户导入的优先？——不，文件优先）。
+
+    文件里的内置技能是「官方维护」的，名字被用户抢走会让官方技能失效，
+    所以同名时**内置胜出**，用户导入的改名提示。
+    """
+    merged = dict(_db_skills())
+    merged.update(_all_skills())
+    return merged
+
+
 def list_skills(audience: str | None = None) -> list[SkillMeta]:
     """列出技能的**元数据**（渐进披露第一级，很便宜）。
 
     传 audience 只列该受众的技能；不传列全部（向后兼容）。
     """
-    metas = [s.meta for s in _all_skills().values()]
+    metas = [s.meta for s in _all_skills_with_db().values()]
     if audience is not None:
         metas = [m for m in metas if m.audience == audience]
     return metas
@@ -167,9 +231,10 @@ def list_skills(audience: str | None = None) -> list[SkillMeta]:
 
 def load_skill(name: str) -> Skill:
     """加载一个技能的完整内容（第二级）。"""
-    skill = _all_skills().get(name)
+    allskills = _all_skills_with_db()
+    skill = allskills.get(name)
     if skill is None:
-        raise SkillNotFound(f"未知技能：{name}（可用：{', '.join(_all_skills()) or '无'}）")
+        raise SkillNotFound(f"未知技能：{name}（可用：{', '.join(allskills) or '无'}）")
     return skill
 
 

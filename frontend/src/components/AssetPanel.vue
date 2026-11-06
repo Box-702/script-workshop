@@ -1,7 +1,7 @@
 <template>
   <div class="asset-panel">
     <!-- 新任务：开一部新作品 -->
-    <div class="panel-section">
+    <div v-if="section === 'all'" class="panel-section">
       <button class="new-task" @click="store.showNewProject = true">
         <AppIcon name="plus" />
         <span>新任务</span>
@@ -9,7 +9,7 @@
     </div>
 
     <!-- 技能：主 Agent 能加载的技能；点一下预填进输入框 -->
-    <div class="panel-section">
+    <div v-if="section === 'all'" class="panel-section">
       <div class="section-head">
         <span class="section-title">技能</span>
       </div>
@@ -28,7 +28,7 @@
     </div>
 
     <!-- 任务历史：作品列表（每个作品一个工作区） -->
-    <div class="panel-section">
+    <div v-if="section === 'all' || section === 'tasks'" class="panel-section">
       <div class="section-head">
         <span class="section-title">任务历史</span>
       </div>
@@ -45,10 +45,23 @@
     </div>
 
     <!-- 资产库：当前作品的角色白模与场景图（提示词里的映射编号来自这里的 id） -->
-    <div v-if="store.pid" class="panel-section library-section">
+    <div v-if="store.pid && (section === 'all' || section === 'assets')" class="panel-section library-section">
       <div class="section-head">
         <span class="section-title">资产库</span>
-        <button class="btn-tiny" @click="loadLibrary" title="刷新" aria-label="刷新">⟳</button>
+        <span class="head-tools">
+          <input
+            ref="importInput"
+            type="file"
+            accept="image/*,video/*"
+            multiple
+            hidden
+            @change="onImportChosen"
+          />
+          <button class="btn-tiny" :disabled="importing" @click="importInput?.click()" title="导入图片/视频">
+            <AppIcon name="upload" /> {{ importing ? '导入中…' : '导入' }}
+          </button>
+          <button class="btn-tiny" @click="loadLibrary" title="刷新" aria-label="刷新">⟳</button>
+        </span>
       </div>
 
       <div v-if="lib.loading" class="lib-empty">加载中…</div>
@@ -101,11 +114,38 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { store, selectProject, notify, loadShots } from '../stores/app.js'
 import { loadSkills, useSkill } from '../stores/app'
-import { api } from '../api.js'
+import { api, uploadAsset } from '../api.js'
 import AppIcon from './AppIcon.vue'
 
 const projects = computed(() => store.projects)
+const props = defineProps({
+  /** 显示哪一段：tasks = 任务历史（作品列表）；assets = 资产库 */
+  section: { type: String, default: 'all' },
+})
+
 const lib = reactive({ loading: false, characters: [], locations: [], warnings: [] })
+
+// ---- 导入素材 ----
+const importInput = ref(null)
+const importing = ref(false)
+
+async function onImportChosen(e) {
+  const files = [...(e.target.files || [])]
+  e.target.value = ''
+  if (!files.length || !store.pid) return
+  importing.value = true
+  try {
+    for (const file of files) {
+      await uploadAsset(store.pid, file)
+    }
+    notify(`已导入 ${files.length} 个素材`, 'ok')
+    await loadLibrary()
+  } catch (err) {
+    notify(`导入失败：${err.message}`)
+  } finally {
+    importing.value = false
+  }
+}
 const producing = ref(false)
 
 function enterWorkspace(pid) {
@@ -224,6 +264,10 @@ watch(() => store.pid, (pid) => { if (pid) loadLibrary() }, { immediate: true })
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+.head-tools { display: inline-flex; align-items: center; gap: 6px; }
+.head-tools .btn-tiny { display: inline-flex; align-items: center; gap: 4px; }
+.head-tools .app-ic { width: 12px; height: 12px; }
 
 .proj-item {
   position: relative;

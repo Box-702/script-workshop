@@ -90,6 +90,7 @@ function formatDate(iso) {
         :goal="goal"
         @goal="onGoal"
         @pick-library="onPickLibrary"
+        @open-skills="store.overlay = 'skills'"
       />
     </main>
 

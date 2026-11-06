@@ -15,7 +15,7 @@ const props = defineProps({
   /** 产出目标：决定发送时给 Agent 的意图前缀 */
   goal: { type: String, default: 'novel-to-drama' },
 })
-const emit = defineEmits(['pick-library'])
+const emit = defineEmits(['pick-library', 'open-skills'])
 
 const text = ref('')
 const fileInput = ref(null)
@@ -136,6 +136,7 @@ function cycleResolution() {
     @open-settings="store.showSettings = true"
     @cycle-spec="cycleResolution"
     @open-library="pick({ id: 'assets' })"
+    @open-skills="emit('open-skills')"
     @change-goal="emit('goal', goal)"
   >
     <template #menu="{ close }">

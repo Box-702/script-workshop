@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from ..chat import conductor as chat_svc
@@ -41,6 +42,60 @@ async def upload_chat_image(file: UploadFile = File(...)) -> dict[str, Any]:
         raise HTTPException(400, "空文件")
     img = deps.store().save_chat_image(thread_id="", mime=mime, name=file.filename or "", content=data)
     return {"id": img.id, "url": f"/api/chat/images/{img.id}", "mime": mime, "name": img.name}
+
+
+class SkillImport(BaseModel):
+    """导入一个技能：.md 全文（frontmatter + 正文）。"""
+
+    content: str = Field(default="", min_length=1)
+    filename: str = Field(default="")
+
+
+@router.post("/skills")
+def import_skill(payload: SkillImport) -> dict[str, Any]:
+    """导入一个技能。
+
+    解析规则与内置技能完全一致（同一份 frontmatter 规范）：名字冲突时
+    内置技能优先——内置技能是随代码走的官方能力，被用户同名抢走会让它失效。
+    """
+    from ..skills import parse_skill_text
+    from ..skills.loader import SKILLS_DIR
+
+    try:
+        skill = parse_skill_text(payload.content, name_hint=payload.filename)
+    except ValueError as e:
+        raise HTTPException(400, f"技能解析失败：{e}") from None
+
+    # 内置技能同名 → 拒绝（提示换个名字），不要覆盖官方能力
+    builtin = (SKILLS_DIR / skill.meta.name / "SKILL.md").is_file()
+    if builtin:
+        raise HTTPException(409, f"「{skill.meta.name}」是内置技能，换个名字再导入")
+
+    store = deps.store()
+    store.save_user_skill(
+        name=skill.meta.name,
+        description=skill.meta.description,
+        when_to_use=skill.meta.when_to_use,
+        audience=skill.meta.audience,
+        content=payload.content,
+    )
+    return {
+        "ok": True,
+        "name": skill.meta.name,
+        "description": skill.meta.description,
+        "when_to_use": skill.meta.when_to_use,
+        "audience": skill.meta.audience,
+    }
+
+
+@router.delete("/skills/{name}")
+def delete_skill(name: str) -> dict[str, Any]:
+    """删除一个用户导入的技能（内置技能不受影响）。"""
+    store = deps.store()
+    removed = store.delete_user_skill(name)
+    if not removed:
+        raise HTTPException(404, f"没有这个用户技能：{name}")
+    return {"ok": True, "name": name, "removed": True}
 
 
 @router.get("/skills")
