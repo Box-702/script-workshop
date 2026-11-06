@@ -285,7 +285,9 @@ function autoSize(e) {
 .cc-gear:hover { color: var(--ink); background: rgba(255, 255, 255, .07); }
 .cc-gear .app-ic { width: 15px; height: 15px; }
 
-/* 发送：圆形箭头钮 */
+/* 发送：圆形箭头钮。
+   可用状态用绿色渐变（全站主行动同色）—— 与禁用态的灰暗圆钮拉开距离，
+   用户输入完能一眼看出「现在可以点了」。 */
 .cc-send {
   width: 34px;
   height: 34px;
@@ -293,16 +295,22 @@ function autoSize(e) {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: rgba(255, 255, 255, .1);
+  background: rgba(255, 255, 255, .07);
   border: 1px solid var(--line);
-  color: rgba(255, 255, 255, .55);
+  color: rgba(255, 255, 255, .34);
+  cursor: not-allowed;
+  transition: background 150ms var(--ease), color 150ms var(--ease),
+              border-color 150ms var(--ease), box-shadow 150ms var(--ease), filter 150ms var(--ease);
+}
+.cc-send:not(:disabled) {
+  background: var(--accent-grad);
+  border-color: transparent;
+  color: var(--on-accent);
   cursor: pointer;
-  transition: background 130ms var(--ease), color 130ms var(--ease), border-color 130ms var(--ease);
+  box-shadow: 0 6px 18px rgba(34, 197, 94, .32);
 }
-.cc-send:hover:not(:disabled) {
-  background: rgba(255, 255, 255, .18); color: #fff; border-color: var(--line-strong);
-}
-.cc-send:disabled { opacity: .5; cursor: not-allowed; }
+.cc-send:not(:disabled):hover { filter: brightness(1.08); }
+.cc-send:not(:disabled):active { filter: brightness(.96); }
 .cc-send .app-ic { width: 15px; height: 15px; transform: translateY(-0.5px); }
 
 .ccpop-enter-active,

@@ -15,12 +15,22 @@ watch(
   },
 )
 
-// 监听：有剧本版本了 → 弹到「大纲」
+// 监听：**版本号变了** → 弹到「大纲」
 // 这是「用户让你帮忙改编」的那一刻——他要看的正是改成了什么样。
+//
+// 注意不能挂在 viewerScript 上：进入任何一个已有剧本的项目都会重载它，
+// 那样侧边栏就是「默认打开」。这里只在版本号**变化**时弹，
+// 首次加载项目不弹（侧边栏默认是关的）。
+let _seenVersionId = null
 watch(
-  () => store.viewerScript,
-  (v) => {
-    if (v && (v.scenes || []).length) autoOpenSidebar('outline')
+  () => (store.versions[0]?.id) || '',
+  (id) => {
+    if (!id) { _seenVersionId = null; return }
+    if (_seenVersionId === null) { _seenVersionId = id; return }  // 首次加载：不弹
+    if (id !== _seenVersionId) {
+      _seenVersionId = id
+      autoOpenSidebar('outline')
+    }
   },
 )
 <script setup>
