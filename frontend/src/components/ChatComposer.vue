@@ -216,7 +216,8 @@ watch(() => store.draftSeq, () => {
 
 /* 圆角容器：文本域 + 工具行（焦点光环走 --focus-ring 语义） */
 .input-box {
-  background: var(--panel);
+  background: rgba(255, 255, 255, .05);
+  backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass);
   border: 1px solid var(--line); border-radius: var(--radius-lg);
   padding: var(--space-2) var(--space-3) 7px; cursor: text;
   max-width: 900px; margin: 0 auto;

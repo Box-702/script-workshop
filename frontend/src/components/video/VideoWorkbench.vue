@@ -374,7 +374,9 @@ function formatVersionTime(value) {
   border-radius: 8px; padding: 5px 8px; font-size: 12px;
 }
 .start-btn {
-  margin-left: auto; background: var(--ok); color: var(--on-accent); border: none;
+  background: var(--accent-grad); color: var(--on-accent); border-color: transparent;
+  box-shadow: 0 8px 24px rgba(34, 197, 94, .26);
+  margin-left: auto; border: none;
   border-radius: 9px; padding: 8px 16px; font-size: 12.5px; font-weight: 650; cursor: pointer;
 }
 .start-btn:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -445,7 +447,9 @@ function formatVersionTime(value) {
   border: 1px solid var(--line); background: var(--panel2); color: var(--ink);
   border-radius: 9px; padding: 6px 14px; font-size: 12.5px; cursor: pointer;
 }
-.rv.ok { background: var(--ok); color: var(--on-accent); border-color: transparent; font-weight: 600; }
+.rv.ok {
+  background: var(--accent-grad); color: var(--on-accent); border-color: transparent;
+  box-shadow: 0 8px 24px rgba(34, 197, 94, .26); font-weight: 600; }
 .rv.danger { color: var(--danger, #e5484d); }
 
 @media (max-width: 620px) {

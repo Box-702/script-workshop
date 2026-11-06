@@ -155,7 +155,9 @@ async function browse() {
   animation: fade-in 180ms var(--ease);
 }
 .modal {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+  background: var(--panel-solid); border: 1px solid var(--line); border-radius: 20px;
+  backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass);
+  box-shadow: var(--shadow-3);
   width: 580px; max-width: 94vw; max-height: 88vh; overflow-y: auto;
   padding: 20px 22px; box-shadow: 0 24px 64px oklch(0 0 0 / 0.52);
   animation: pop-in 180ms var(--ease);

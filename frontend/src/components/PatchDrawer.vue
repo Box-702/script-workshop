@@ -194,7 +194,8 @@ function regenerateWith(txt) { resumeReview(runId.value, 'regenerate', { feedbac
 }
 .drawer {
   width: min(520px, 94vw); height: 100%;
-  background: var(--panel); border-left: 1px solid var(--line);
+  background: var(--panel-solid); border-left: 1px solid var(--line);
+  backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass);
   display: flex; flex-direction: column; min-height: 0;
   box-shadow: -16px 0 48px oklch(0 0 0 / 0.4);
   animation: slide-in 200ms var(--ease);
@@ -267,7 +268,7 @@ function regenerateWith(txt) { resumeReview(runId.value, 'regenerate', { feedbac
 }
 .inline-edit:focus { outline: none; border-color: color-mix(in oklch, var(--accent) 45%, var(--line)); }
 
-.d-foot { border-top: 1px solid var(--line); padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; background: var(--panel); }
+.d-foot { border-top: 1px solid var(--line); padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; background: rgba(0, 0, 0, .3); }
 .fb input { font-size: 12.5px; }
 .chips { align-items: center; }
 .chip-lbl { font-size: 11px; color: var(--dim); }

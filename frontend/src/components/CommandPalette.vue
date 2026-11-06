@@ -203,7 +203,9 @@ defineExpose({ openPalette, closePalette })
 }
 .cp {
   width: min(560px, 90vw); max-height: 420px;
-  background: var(--panel); border: 1px solid var(--line-strong);
+  background: var(--panel-solid); border: 1px solid var(--line-strong);
+  backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass);
+  box-shadow: var(--shadow-3);
   border-radius: 14px; box-shadow: 0 24px 80px oklch(0 0 0 / 0.5);
   display: flex; flex-direction: column; overflow: hidden;
 }

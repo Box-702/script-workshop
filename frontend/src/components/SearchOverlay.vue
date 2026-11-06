@@ -112,7 +112,9 @@ defineExpose({ openSearch, closeSearch })
   position: fixed; top: 52px; right: 16px; z-index: 8000;
   display: flex; align-items: center; gap: 6px;
   padding: 6px 10px; border-radius: 10px;
-  background: var(--panel); border: 1px solid var(--line-strong);
+  background: var(--panel-solid); border: 1px solid var(--line-strong);
+  backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass);
+  box-shadow: var(--shadow-3);
   box-shadow: 0 8px 32px oklch(0 0 0 / 0.4);
   animation: search-slide 200ms var(--ease) both;
 }

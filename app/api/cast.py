@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from . import common, deps
-from ..media.library import apply_library_patch, build_library, voice_options
+from ..media.library import normalize_visual_style, apply_library_patch, build_library, voice_options
 from ..media.casting import VOICE_LABELS
 
 router = APIRouter()
@@ -53,22 +53,43 @@ class VoicePreview(BaseModel):
     gender: str | None = None
 
 
-def _script_of(store: Any, project: Any, version_id: str | None = None) -> Any:
+def _script_of(
+    store: Any, project: Any, version_id: str | None = None, *, required: bool = True
+) -> Any:
+    """取项目的剧本版本。
+
+    ``required=False`` 时，没有剧本版本返回 None 而不是抛错——**刚建的项目本来就没有
+    剧本**，那是正常空态，不该让前端弹红色错误条（前端已有「还没有资产」的空态渲染）。
+    需要真正报错的场景（改一个不存在的库）用 ``required=True``。
+    """
     vid = version_id or project.current_version_id
     sv = store.get_version(vid) if vid else None
     script = getattr(sv, "script", None) if sv else None
     if script is None:
-        raise HTTPException(404, "该项目还没有可用的剧本版本，无法建立资产库")
+        if required:
+            raise HTTPException(404, "该项目还没有可用的剧本版本，无法建立资产库")
+        return None
     return script
 
 
 @router.get("/projects/{project_id}/library")
 def get_library(project_id: str, version_id: str | None = None) -> dict[str, Any]:
-    """资产库总览：每个角色的形象锚、定妆图、性别与音色（含判定依据）。"""
+    """资产库总览：每个角色的形象锚、定妆图、性别与音色（含判定依据）。
+
+    还没有剧本版本时返回**空资产库**而不是 404：新建的项目本来就还没剧本，
+    那是正常空态，前端也有对应的空态渲染。
+    """
     store = deps.store()
     project = common.get_project(project_id)
-    script = _script_of(store, project, version_id)
     style = store.get_video_style(project_id) or {}
+    script = _script_of(store, project, version_id, required=False)
+    if script is None:
+        return {
+            "characters": [],
+            "locations": [],
+            "warnings": [],
+            "visual_style": normalize_visual_style(style.get("visual_style")),
+        }
     return build_library(script, style, visual_style=style.get("visual_style"))
 
 

@@ -136,7 +136,9 @@ async function submit() {
   display: flex; align-items: center; justify-content: center; z-index: 50;
 }
 .modal {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel-solid); border: 1px solid var(--line); border-radius: 16px;
+  backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass);
+  box-shadow: var(--shadow-3);
   width: 520px; max-width: 94vw; max-height: 88vh; overflow-y: auto;
   padding: 18px 20px; box-shadow: 0 20px 60px oklch(0 0 0 / 0.5);
 }

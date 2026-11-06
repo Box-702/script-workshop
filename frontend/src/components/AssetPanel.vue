@@ -215,10 +215,11 @@ watch(() => store.pid, (pid) => { if (pid) loadLibrary() }, { immediate: true })
 }
 .lib-empty { padding: 8px 14px; font-size: 11.5px; color: var(--dim); line-height: 1.7; }
 .produce-btn {
+  background: var(--accent-grad); color: var(--on-accent); border-color: transparent;
+  box-shadow: 0 8px 24px rgba(34, 197, 94, .26);
   display: block; width: calc(100% - 24px); margin: 10px 12px 4px;
   min-height: 38px; border-radius: 9px;
-  border: 1px solid color-mix(in oklch, var(--gold) 40%, var(--line));
-  background: var(--gold-soft); color: var(--gold);
+  border: 1px solid transparent;
   cursor: pointer; font-size: 12px; font-weight: 650;
   transition: filter 150ms var(--ease), transform 100ms var(--ease);
 }

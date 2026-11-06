@@ -189,6 +189,13 @@ onUnmounted(() => {
 
   <!-- 工作区模式：三栏创作布局 -->
   <template v-else>
+    <!-- 极光背景（弱化版）：内容区仍以对话为主，光斑只做底 -->
+    <div class="aurora soft" aria-hidden="true">
+      <span class="blob blob-blue"></span>
+      <span class="blob blob-violet"></span>
+      <span class="blob blob-red"></span>
+      <span class="grain"></span>
+    </div>
     <HeaderBar />
     <!-- 拖拽导入覆盖层 -->
     <Transition name="fade">
@@ -254,7 +261,9 @@ onUnmounted(() => {
 .pane { min-width: 0; flex: none; }
 .pane-left {
   display: flex; flex-direction: column; overflow: hidden;
-  background: var(--panel);
+  background: rgba(255, 255, 255, 0.035);
+  backdrop-filter: var(--glass);
+  -webkit-backdrop-filter: var(--glass);
   border-right: 1px solid var(--line);
 }
 .left-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }

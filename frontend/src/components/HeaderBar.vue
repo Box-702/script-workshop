@@ -68,8 +68,12 @@ function openWorkbench() {
 
 <style scoped>
 header {
-  display: flex; align-items: center; gap: 10px; padding: 6px 14px;
-  border-bottom: 1px solid var(--line); background: var(--panel);
+  position: relative; z-index: 3;
+  display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: var(--glass);
+  -webkit-backdrop-filter: var(--glass);
   min-height: var(--header-h);
 }
 h1 {
@@ -96,7 +100,7 @@ header button {
 header button::after { content: ''; position: absolute; inset: -4px -6px; }
 
 /* 导航开关 */
-.nav-toggle { padding: 0 6px; width: 28px; }
+.nav-toggle { padding: 0 8px; width: 32px; }
 .nav-toggle .app-ic { width: 14px; height: 14px; }
 .nav-toggle.on { color: var(--ink); }
 
@@ -111,10 +115,10 @@ header button::after { content: ''; position: absolute; inset: -4px -6px; }
   cursor: pointer; white-space: nowrap;
   border: 1px solid var(--line);
   color: var(--cyan);
-  background: transparent;
-  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  background: rgba(255, 255, 255, .05);
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
-.batch-chip:hover { border-color: var(--line-strong); }
+.batch-chip:hover { border-color: var(--line-strong); background: rgba(255, 255, 255, .1); }
 .batch-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .batch-chip.running .dot { animation: batch-pulse 1.2s ease-in-out infinite; }
 .batch-chip.awaiting {

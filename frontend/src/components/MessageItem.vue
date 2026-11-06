@@ -170,12 +170,14 @@ onUnmounted(() => clearTimeout(copiedTimer))
 /* 用户指令条 */
 .cmd-bar {
   display: inline-flex; align-items: baseline; gap: 8px;
-  max-width: min(82%, 620px); padding: 9px 14px;
-  background: var(--user); border: 1px solid var(--user-line);
-  border-radius: 11px; border-bottom-right-radius: 4px;
-  box-shadow: 0 8px 24px oklch(.04 .03 278 / .16);
+  max-width: min(82%, 620px); padding: 10px 15px;
+  background: rgba(255, 255, 255, .08);
+  border: 1px solid var(--line);
+  border-radius: 14px; border-bottom-right-radius: 5px;
+  backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass);
+  box-shadow: var(--shadow-2);
 }
-.cmd-prompt { color: var(--gold); font-weight: 700; font-size: 14px; flex: none; }
+.cmd-prompt { color: var(--accent); font-weight: 700; font-size: 14px; flex: none; }
 .cmd-text { font-size: 13.5px; color: var(--ink); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 
 /* 用户消息附带的图片 */
@@ -185,14 +187,15 @@ onUnmounted(() => clearTimeout(copiedTimer))
 
 /* 工作步骤面板 */
 .steps-panel {
-  background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
-  margin-bottom: 8px; overflow: hidden;
+  background: rgba(255, 255, 255, .04); border: 1px solid var(--line); border-radius: 14px;
+  margin-bottom: 10px; overflow: hidden;
+  backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass);
 }
 .steps-header {
   display: flex; align-items: center; gap: 8px; padding: 7px 12px;
   cursor: pointer; user-select: none; font-size: 12px;
 }
-.steps-header:hover { background: color-mix(in oklch, var(--ink) 3%, transparent); }
+.steps-header:hover { background: rgba(255, 255, 255, .05); }
 .steps-icon { flex: none; }
 .steps-title { flex: 1; color: var(--muted); font-weight: 500; }
 .steps-toggle { flex: none; color: var(--dim); font-size: 11px; }

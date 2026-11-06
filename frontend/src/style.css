@@ -1,33 +1,36 @@
 /* =====================================================================
-   style.css —— 问剧设计系统 v4
+   style.css —— 问剧设计系统 v5
 
-   「安静工作台」：这是一个工具，不是 AI 演示页。
-   - 中性暗色表面，几乎无色相；色彩只留给状态
-   - 主操作 = 稿纸米白（唯一亮色按钮），品牌色只做焦点与选中
-   - 小圆角、少阴影、无渐变、无光晕、无装饰动画
-   - 全局系统无衬线字体（楷书已移除）
+   「你喊cut」：暗场 + 彩色光斑 + 玻璃卡片。
+   - 表面是**半透明玻璃层**，压在极光背景上（不是实心色块）
+   - 主操作 = 绿色渐变按钮，全站唯一的大面积亮色
+   - 圆角放大（卡片 20px / 控件 9px），描边用半透明白
+   - 全局系统无衬线字体
    ===================================================================== */
 
 /* ---------- 设计变量 ---------- */
 :root {
-  /* 表面：中性暖黑，色相几乎不可感 */
-  --bg: oklch(0.155 0.006 80);
-  --panel: oklch(0.19 0.007 80);
-  --panel2: oklch(0.23 0.008 80);
-  --line: oklch(0.30 0.008 80);
-  --line-strong: oklch(0.40 0.010 80);
-  --code-bg: oklch(0.13 0.006 80);
+  /* 表面：半透明玻璃层（压在极光背景上）。需要不透明的地方用 --panel-solid */
+  --bg: #08080c;
+  --panel: rgba(255, 255, 255, 0.052);
+  --panel2: rgba(255, 255, 255, 0.085);
+  --panel-solid: #16161d;
+  --line: rgba(255, 255, 255, 0.11);
+  --line-strong: rgba(255, 255, 255, 0.2);
+  --code-bg: rgba(0, 0, 0, 0.32);
+  --glass: blur(18px);
 
   /* 文字 */
-  --ink: oklch(0.93 0.005 90);
-  --muted: oklch(0.72 0.008 80);
-  --dim: oklch(0.58 0.010 80);
+  --ink: rgba(255, 255, 255, 0.94);
+  --muted: rgba(255, 255, 255, 0.7);
+  --dim: rgba(255, 255, 255, 0.46);
 
-  /* 主操作：稿纸米白。全站唯一的大面积亮色 */
-  --accent: oklch(0.91 0.012 90);
-  --accent-hover: oklch(0.95 0.010 90);
-  --on-accent: oklch(0.18 0.010 80);
-  --accent-soft: color-mix(in oklch, var(--accent) 10%, transparent);
+  /* 主操作：绿色渐变。全站唯一的大面积亮色 */
+  --accent: #4ade80;
+  --accent-hover: #22c55e;
+  --on-accent: #06210f;
+  --accent-grad: linear-gradient(135deg, #86ef7d 0%, #4ade80 45%, #22c55e 100%);
+  --accent-soft: rgba(74, 222, 128, 0.13);
 
   /* 品牌色：克制的黄铜，只用于焦点 / 选中 / 等待态，不做发光 */
   --gold: oklch(0.74 0.07 85);
@@ -42,8 +45,8 @@
   --rose: oklch(0.66 0.09 8);
   --rose-soft: color-mix(in oklch, var(--rose) 10%, transparent);
 
-  /* 选中态 */
-  --select: oklch(0.27 0.008 80);
+  /* 选中态：半透明白（不再是实心灰块） */
+  --select: rgba(255, 255, 255, .1);
 
   /* 语义色（低饱和，深底可读） */
   --ok: oklch(0.66 0.09 165);
@@ -51,17 +54,17 @@
   --bad: oklch(0.64 0.12 25);
 
   /* diff */
-  --diff-add-bg: oklch(0.29 0.05 166);
-  --diff-del-bg: oklch(0.30 0.06 28);
+  --diff-add-bg: rgba(74, 222, 128, .16);
+  --diff-del-bg: rgba(248, 113, 113, .16);
 
   /* 节拍语义 */
   --act: oklch(0.80 0.02 92);
   --dlg: var(--ok);
   --cue: oklch(0.76 0.02 92);
 
-  /* 用户消息 */
-  --user: oklch(0.25 0.008 80);
-  --user-line: oklch(0.36 0.010 80);
+  /* 用户消息条 */
+  --user: rgba(255, 255, 255, .08);
+  --user-line: var(--line);
 
   /* 兼容旧组件 */
   --border: var(--line);
@@ -80,18 +83,19 @@
   /* ---------- 结构化设计变量 ---------- */
   --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
   --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px;
-  /* 圆角：工具感 = 小圆角 */
-  --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-full: 999px;
-  --shadow-1: 0 1px 4px oklch(0 0 0 / .25);
-  --shadow-2: 0 4px 14px oklch(0 0 0 / .3);
-  --shadow-3: 0 12px 36px oklch(0 0 0 / .45);
+  /* 圆角：卡片语言 = 柔和大圆角 */
+  --radius-sm: 6px; --radius-md: 9px; --radius-lg: 14px; --radius-card: 20px;
+  --radius-full: 999px;
+  --shadow-1: 0 1px 4px rgba(0, 0, 0, .3);
+  --shadow-2: 0 10px 30px rgba(0, 0, 0, .34);
+  --shadow-3: 0 18px 60px rgba(0, 0, 0, .42);
   --fs-xs: 11.5px; --fs-sm: 12.5px; --fs-md: 13.5px; --fs-lg: 15px;
   --fs-xl: 18px;   --fs-title: 22px; --fs-display: 34px;
   --lh-body: 1.7; --lh-tight: 1.35;
   --control-h: 34px;
   --tap: 40px;
   --header-h: 46px;
-  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px color-mix(in oklch, var(--gold) 55%, transparent);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px rgba(74, 222, 128, .55);
 
   /* 字体：全部系统无衬线 */
   --mono: Consolas, "JetBrains Mono", "Courier New", monospace;
@@ -134,24 +138,33 @@ body.layout-resizing { cursor: col-resize; user-select: none; }
 }
 
 /* ---------- 按钮系统 ---------- */
+/* 基础按钮 = 中性胶囊（不是主行动）。主行动要显式加 .primary / .cta */
 button {
-  background: var(--accent); color: var(--on-accent); border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.05); color: var(--ink);
+  border: 1px solid var(--line);
   padding: 6px 12px; border-radius: var(--radius-md); font-size: 12.5px;
   font-weight: 500; cursor: pointer; font-family: inherit;
   transition: background-color 130ms var(--ease), border-color 130ms var(--ease), color 130ms var(--ease), opacity 130ms var(--ease);
 }
+/* 主行动：绿色渐变（全站唯一的大面积亮色） */
+button.primary {
+  background: var(--accent-grad); color: var(--on-accent); border-color: transparent;
+  box-shadow: 0 8px 24px rgba(34, 197, 94, .26);
+}
+button.primary:hover:not(:disabled) { filter: brightness(1.06); }
+button.primary:active:not(:disabled) { filter: brightness(.97); }
 /* 基础层 hover/active 用 :where() 压到零特异性：
    只对「没有自己背景样式的裸按钮」生效——任何组件只要自定义了背景，
    就自动免疫米白悬停填充（否则卡片类按钮悬停会被染成米白、文字反色不可读） */
-button:where(:hover):not(:disabled) { background: var(--accent-hover); }
-button:where(:active):not(:disabled) { background: color-mix(in oklch, var(--accent) 88%, black); }
-button.ok { background: var(--ok); color: oklch(0.96 0.01 170); }
-button.ok:hover:not(:disabled) { background: color-mix(in oklch, var(--ok) 88%, black); }
+button:where(:hover):not(:disabled) { background: rgba(255, 255, 255, 0.1); border-color: var(--line-strong); }
+button:where(:active):not(:disabled) { background: rgba(255, 255, 255, 0.14); }
+button.ok { background: rgba(74, 222, 128, .16); color: #86ef7d; border-color: rgba(74, 222, 128, .3); }
+button.ok:hover:not(:disabled) { background: rgba(74, 222, 128, .24); }
 button.danger { background: transparent; color: var(--bad); border-color: color-mix(in oklch, var(--bad) 45%, var(--line)); }
 button.danger:hover:not(:disabled) { background: color-mix(in oklch, var(--bad) 12%, transparent); }
-button.ghost { background: transparent; border-color: var(--line); color: var(--ink); font-weight: 400; }
-button.ghost:hover:not(:disabled) { background: color-mix(in oklch, var(--ink) 5%, transparent); border-color: var(--line-strong); }
-button.ghost:active:not(:disabled) { background: color-mix(in oklch, var(--ink) 8%, transparent); }
+button.ghost { background: transparent; border-color: var(--line); color: var(--muted); font-weight: 400; }
+button.ghost:hover:not(:disabled) { background: rgba(255, 255, 255, .07); border-color: var(--line-strong); color: var(--ink); }
+button.ghost:active:not(:disabled) { background: rgba(255, 255, 255, .11); }
 button.small { padding: 3px 8px; font-size: 11.5px; }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 
@@ -159,15 +172,15 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ---------- 输入控件 ---------- */
 input, textarea, select {
-  background: var(--code-bg); border: 1px solid var(--line); color: var(--ink);
+  background: rgba(0, 0, 0, .3); border: 1px solid var(--line); color: var(--ink);
   border-radius: var(--radius-md); padding: 6px 10px; font-size: 13px; font-family: inherit;
   transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
 input:hover:not(:disabled):not(:focus), textarea:hover:not(:disabled):not(:focus) { border-color: var(--line-strong); }
 input:focus, textarea:focus, select:focus {
   outline: none;
-  border-color: color-mix(in oklch, var(--gold) 45%, var(--line));
-  box-shadow: 0 0 0 2px color-mix(in oklch, var(--gold) 14%, transparent);
+  border-color: rgba(74, 222, 128, .45);
+  box-shadow: 0 0 0 2px rgba(74, 222, 128, .14);
 }
 textarea { resize: vertical; }
 input[type="checkbox"] { accent-color: var(--gold); }
@@ -180,7 +193,7 @@ select {
   background-position: right 9px center;
   cursor: pointer;
 }
-select option, select optgroup { background: var(--panel2); color: var(--ink); }
+select option, select optgroup { background: var(--panel-solid); color: var(--ink); }
 
 /* ---------- 工具类 ---------- */
 .muted { color: var(--muted); font-size: 12px; }
@@ -219,8 +232,10 @@ select option, select optgroup { background: var(--panel2); color: var(--ink); }
 /* ---------- 卡片 ---------- */
 .card {
   background: var(--panel); border: 1px solid var(--line);
-  border-radius: var(--radius-lg); padding: 12px 14px; margin-top: 8px;
-  transition: border-color 130ms var(--ease);
+  border-radius: var(--radius-card); padding: 14px 16px; margin-top: 8px;
+  backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass);
+  box-shadow: var(--shadow-2);
+  transition: border-color 130ms var(--ease), background 130ms var(--ease);
 }
 .card:hover { border-color: var(--line-strong); }
 .card h3 { font-size: 13px; margin: 0 0 8px; color: var(--ink); font-weight: 600; }
@@ -290,10 +305,10 @@ select option, select optgroup { background: var(--panel2); color: var(--ink); }
 .seg-tabs {
   position: relative;
   display: flex; align-items: stretch; gap: 0;
-  padding: 2px;
-  background: var(--code-bg);
+  padding: 3px;
+  background: rgba(0, 0, 0, .28);
   border: 1px solid var(--line);
-  border-radius: var(--radius-md);
+  border-radius: 11px;
 }
 .seg-tab {
   position: relative;
@@ -307,12 +322,12 @@ select option, select optgroup { background: var(--panel2); color: var(--ink); }
 .seg-tab:active:not(:disabled) { background: transparent; }
 .seg-tab.active {
   color: var(--ink); font-weight: 500;
-  background: var(--panel2);
+  background: rgba(255, 255, 255, .1);
   box-shadow: none;
 }
 .seg-tab.active:hover:not(:disabled),
 .seg-tab.active:active:not(:disabled) {
-  background: var(--panel2);
+  background: rgba(255, 255, 255, .13);
 }
 
 /* ---------- 字体：全局无衬线（楷书已移除） ---------- */
@@ -320,3 +335,83 @@ select option, select optgroup { background: var(--panel2); color: var(--ink); }
   font-family: inherit;
 }
 .pane-left { font-size: 13px; }
+
+/* =====================================================================
+   v5 共享工具类：极光背景 / 玻璃卡片 / 参数胶囊 / 主行动
+   （首页与工作区共用同一套语言，新组件直接套这些类）
+   ===================================================================== */
+
+/* ---------- 极光背景 ---------- */
+.aurora {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+.aurora .blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(110px);
+  opacity: .92;
+}
+.aurora .blob-blue {
+  width: 900px; height: 700px; top: -320px; left: -220px;
+  background: radial-gradient(circle at 50% 50%, rgba(37, 99, 235, .95), rgba(23, 44, 122, 0) 68%);
+}
+.aurora .blob-violet {
+  width: 820px; height: 620px; top: -300px; right: -60px;
+  background: radial-gradient(circle at 50% 50%, rgba(168, 85, 247, .9), rgba(76, 29, 149, 0) 68%);
+}
+.aurora .blob-red {
+  width: 900px; height: 640px; right: -220px; bottom: -360px;
+  background: radial-gradient(circle at 50% 50%, rgba(239, 68, 68, .85), rgba(127, 29, 29, 0) 68%);
+}
+.aurora .blob-teal {
+  width: 700px; height: 540px; left: 2%; bottom: -360px;
+  background: radial-gradient(circle at 50% 50%, rgba(13, 148, 136, .6), rgba(12, 74, 110, 0) 68%);
+}
+.aurora .grain {
+  position: absolute; inset: 0; opacity: .07;
+  background-image: radial-gradient(rgba(255, 255, 255, .2) 1px, transparent 1px);
+  background-size: 3px 3px;
+  mix-blend-mode: overlay;
+}
+/* 工作区用的弱化版：光斑更淡、更靠边，不抢内容 */
+.aurora.soft .blob { opacity: .55; filter: blur(130px); }
+.aurora.soft .grain { opacity: .05; }
+
+/* ---------- 玻璃面板 ---------- */
+.glass {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  backdrop-filter: var(--glass);
+  -webkit-backdrop-filter: var(--glass);
+  border-radius: var(--radius-card);
+}
+
+/* ---------- 参数胶囊（首页与工作区共用） ---------- */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 32px; padding: 0 11px; border-radius: 9px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, .05);
+  color: var(--muted); font-size: 12.5px; font-family: inherit;
+  cursor: pointer;
+  transition: background 130ms var(--ease), color 130ms var(--ease), border-color 130ms var(--ease);
+}
+.chip:hover { background: rgba(255, 255, 255, .1); color: var(--ink); border-color: var(--line-strong); }
+.chip .app-ic { opacity: .72; }
+
+/* ---------- 主行动 ---------- */
+.cta {
+  background: var(--accent-grad); color: var(--on-accent);
+  border: 1px solid transparent; border-radius: 9px;
+  font-weight: 600; letter-spacing: .03em;
+  box-shadow: 0 8px 24px rgba(34, 197, 94, .28);
+  transition: filter 130ms var(--ease), transform 130ms var(--ease), opacity 130ms var(--ease);
+}
+.cta:hover:not(:disabled) { filter: brightness(1.06); }
+.cta:active:not(:disabled) { transform: translateY(1px); filter: brightness(.97); }
+.cta:disabled { opacity: .42; cursor: not-allowed; box-shadow: none; }
