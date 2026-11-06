@@ -30,12 +30,7 @@ const canSend = computed(() => (!!text.value.trim() || hasImages.value) && !stor
 const statusText = computed(() => (store.streaming ? store.streamingStage || '正在处理' : ''))
 
 // ---- 胶囊下拉 ----
-const openMenu = ref('')          // '' | 'agent' | 'model'
-const AGENTS = [
-  { id: 'wenju', label: '问剧', desc: '通用创作 Agent：小说改编、分镜、视频生成' },
-]
-
-const agentLabel = computed(() => 'Agent')
+const openMenu = ref('')          // '' | 'model'
 const modelLabel = computed(() => {
   const m = store.modelInfo
   if (!m?.available) return '模型'
@@ -66,10 +61,6 @@ async function chooseModel(p) {
   }
 }
 
-function chooseAgent(a) {
-  openMenu.value = ''
-  notify(`${a.label}：${a.desc}`, 'ok')
-}
 
 onMounted(() => {
   loadModelStatus()
@@ -174,30 +165,17 @@ watch(() => store.draftSeq, () => {
       placeholder="描述你的故事想法"
       :can-send="canSend"
       :busy="store.streaming"
-      :agent-label="agentLabel"
       :model-label="modelLabel"
       :status-text="statusText"
       :hint-text="store.hint"
       @send="send"
       @open-settings="store.showSettings = true"
-      @pick-agent="toggleMenu('agent')"
       @pick-model="toggleMenu('model')"
       @open-skills="emit('open-skills')"
       @focus-input="clearHint"
     >
-      <!-- Agent 下拉 -->
+      <!-- 模型下拉 -->
       <template #pills>
-        <div v-if="openMenu === 'agent'" class="cc-pop">
-          <button
-            v-for="a in AGENTS" :key="a.id"
-            class="cc-pop-item" type="button"
-            @click.stop="chooseAgent(a)"
-          >
-            <span class="pop-label">{{ a.label }}</span>
-            <span class="pop-desc">{{ a.desc }}</span>
-          </button>
-        </div>
-        <!-- 模型下拉 -->
         <div v-if="openMenu === 'model'" class="cc-pop">
           <button
             v-for="p in modelOptions" :key="p.id"

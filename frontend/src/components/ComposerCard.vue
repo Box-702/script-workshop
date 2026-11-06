@@ -6,11 +6,10 @@
 //   ┌──────────────────────────────────────────────┐
 //   │ [+]  描述你想生成的内容，支持 @ 引用图片和视频…   │
 //   │                                                │
-//   │ [Agent ▾][模型 ▾][Skill]          [⚙]  ( ➤ )   │
+//   │ [模型 ▾][Skill]                      [⚙]  ( ➤ )   │
 //   └──────────────────────────────────────────────┘
 //
 // 三个胶囊各司其职：
-//   Agent —— 选谁干活（目前只有「问剧」一个，预留扩展）
 //   模型  —— 选哪个模型对话（直接切换，不进设置页）
 //   Skill —— 打开技能页（选技能 / 导入新技能）
 // =====================================================================
@@ -25,8 +24,6 @@ const props = defineProps({
     type: String,
     default: '描述你想生成的内容，支持 @ 引用图片和视频，也可以通过 / 使用技能。内容将由AI生成。',
   },
-  /** Agent 名（胶囊） */
-  agentLabel: { type: String, default: 'Agent' },
   /** 模型名（胶囊） */
   modelLabel: { type: String, default: '模型' },
   /** 阶段状态（生成中），显示在胶囊行左侧 */
@@ -38,7 +35,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits([
-  'send', 'pick-menu', 'open-settings', 'pick-agent', 'pick-model', 'open-skills',
+  'send', 'pick-menu', 'open-settings', 'pick-model', 'open-skills',
 ])
 
 const menuOpen = ref(false)
@@ -109,11 +106,6 @@ function autoSize(e) {
           <span v-if="statusText" class="cc-status">
             <span class="cc-pulse" aria-hidden="true"></span>{{ statusText }}
           </span>
-          <button class="chip" type="button" @click.stop="emit('pick-agent')">
-            <AppIcon name="refresh" />
-            <span>{{ agentLabel }}</span>
-            <AppIcon name="chevron-down" class="cc-chev" />
-          </button>
           <button class="chip" type="button" @click.stop="emit('pick-model')">
             <AppIcon name="sparkle" />
             <span>{{ modelLabel }}</span>
