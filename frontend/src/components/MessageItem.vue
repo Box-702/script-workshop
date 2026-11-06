@@ -150,7 +150,6 @@ onUnmounted(() => clearTimeout(copiedTimer))
         </a>
       </div>
       <div v-if="message.content" class="cmd-bar">
-        <span class="cmd-prompt">›</span>
         <span class="cmd-text" v-html="bodyHtml"></span>
       </div>
     </template>
@@ -235,7 +234,6 @@ onUnmounted(() => clearTimeout(copiedTimer))
   backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass);
   box-shadow: var(--shadow-2);
 }
-.cmd-prompt { color: var(--accent); font-weight: 700; font-size: 14px; flex: none; }
 .cmd-text { font-size: 13.5px; color: var(--ink); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 
 /* 用户消息附带的图片 */
