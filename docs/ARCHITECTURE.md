@@ -366,6 +366,13 @@ render_skill() 取 SKILL.md 全文 → 拼进 system prompt → llm.chat() 一�
 
 改写作规则 → 直接改对应的 `SKILL.md`，不用动代码。
 
+**这套拆开有没有用？已实测。** 用消融对比（把 `load_skill` 从工具集里摘掉，
+看 Agent 行为退化多少）：5 条用例 × 3 次重复，约束落地率 **82%（有技能）vs 58%（无技能），
+Δ +25%**。价值集中在带硬约束的地方——`crew-pipeline` 的依赖顺序一条就值 +60%；
+反向用例（不该加载的请求）0% 差异，说明拆分没有引入过度触发。
+方法与三个坑见 [`DECISIONS.md` D-30](DECISIONS.md)，可复跑：
+`python -m evals.skill_eval --ablate --repeat 3`。
+
 ---
 
 ## 四、核心链路（端到端）

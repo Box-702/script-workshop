@@ -1,0 +1,1041 @@
+{
+  "rule_rate": {
+    "skills": 0.8245614035087719,
+    "no_skills": 0.5789473684210527
+  },
+  "outcomes": [
+    {
+      "case": "delivery_before_approve",
+      "condition": "skills",
+      "ok": true,
+      "passed_checks": 5,
+      "total_checks": 5,
+      "loaded_skills": [
+        "production-delivery"
+      ],
+      "tools": [
+        "load_skill",
+        "get_status"
+      ],
+      "reply_head": "现在还不能出片：9 个镜头的提示词都还是「待审」状态，一个都没批准。按流程，没批准的镜头提交时会被直接排除，等于白跑一趟。\n\n所以得先过批准这一关：\n\n1. 你先看一遍这 9 镜的提示词（右栏镜头列表里能看到）；\n2. 确认没问题后跟我说一声「批准」，我再帮你批准，然后整片串行出片（前一镜成片会作为后一镜的接力参考，连贯性最好）。\n\n另外提醒一下：出片走 MiniMax，需要你先配好自己的 API Key，没配的话提交会失败。\n\n要我现在就把 9 镜全部批准吗？还是你想先挑几镜看看？",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 production-delivery",
+          "ok": true,
+          "detail": "实际载入：production-delivery"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 get_status",
+          "ok": true,
+          "detail": "实际：load_skill、get_status"
+        },
+        {
+          "name": "没有调用 submit_videos",
+          "ok": true,
+          "detail": "实际：load_skill、get_status"
+        },
+        {
+          "name": "回复提到了关键约束",
+          "ok": true,
+          "detail": "命中：批准、提示词"
+        }
+      ]
+    },
+    {
+      "case": "delivery_before_approve",
+      "condition": "skills",
+      "ok": false,
+      "passed_checks": 4,
+      "total_checks": 5,
+      "loaded_skills": [],
+      "tools": [
+        "get_status"
+      ],
+      "reply_head": "状态确认了：9 个镜头的提示词**全部还是「待审」**，已批准 0，已出片 0。\n\n所以现在没法直接出片——提交时没批准的镜头会被直接排除，等于白跑一趟。得先过批准这一关。\n\n两个选择：\n\n1. **全部批准**：你说一声「批准」，我就把 9 镜一起批了，然后整片串行出片（前一镜成片会作为后一镜的接力参考，连贯性最好）。\n2. **先挑几镜**：你先在右栏看看这 9 镜的提示词，觉得哪几镜 OK 就先批哪几镜，我按你指定的镜头出片。\n\n另外提醒一句：出片走 MiniMax，需要你先配好自己的 API Key，没配的话提交会失败。\n\n你想怎么走？",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 production-delivery",
+          "ok": false,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 get_status",
+          "ok": true,
+          "detail": "实际：get_status"
+        },
+        {
+          "name": "没有调用 submit_videos",
+          "ok": true,
+          "detail": "实际：get_status"
+        },
+        {
+          "name": "回复提到了关键约束",
+          "ok": true,
+          "detail": "命中：批准、提示词"
+        }
+      ]
+    },
+    {
+      "case": "delivery_before_approve",
+      "condition": "skills",
+      "ok": false,
+      "passed_checks": 4,
+      "total_checks": 5,
+      "loaded_skills": [],
+      "tools": [
+        "get_status"
+      ],
+      "reply_head": "刚查了逐镜状态，确认一下现状：\n\n- 9 个镜头，**提示词全部「待审」，已批准 0，已出片 0**\n- 没有任何镜头被提交过\n\n所以现在提交出片是跑不出东西的——没批准的镜头在提交时会被直接过滤掉。\n\n卡点就一个：**批准需要你明确说「批准」，这是你的决定，我不能替你拍板。**\n\n流程是：你看提示词 → 说「批准」→ 我批准 → 我提交出片。\n\n你可以先在右栏过一遍这 9 镜（从「低头快步穿巷的林然」到「林然摊开的手心与远去的红雨衣」）。看完回我：\n\n- 「批准」→ 我全批了，然后整片串行出片（前一镜成片当后一镜的接力参考）\n- 或指定镜号 → 我只批你点的那几镜\n\n另外出片走 MiniMa",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 production-delivery",
+          "ok": false,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 get_status",
+          "ok": true,
+          "detail": "实际：get_status"
+        },
+        {
+          "name": "没有调用 submit_videos",
+          "ok": true,
+          "detail": "实际：get_status"
+        },
+        {
+          "name": "回复提到了关键约束",
+          "ok": true,
+          "detail": "命中：批准、提示词"
+        }
+      ]
+    },
+    {
+      "case": "crew_order",
+      "condition": "skills",
+      "ok": true,
+      "passed_checks": 5,
+      "total_checks": 5,
+      "loaded_skills": [
+        "crew-pipeline"
+      ],
+      "tools": [
+        "load_skill",
+        "breakdown_scenes",
+        "generate_style_guide"
+      ],
+      "reply_head": "两件事都在后台跑了：\n\n- **导演拆解**：把这一场戏拆成镜头方案（景别、机位、运镜、光线、连续性）\n- **美术风格指南**：定色彩、光线基调、角色造型、环境描述\n\n风格指南是后面定妆图和提示词的视觉锚，所以我顺手一起启动了，不耽误时间。\n\n等拆解完成，我就接着生成视频提示词。你可以先在右栏看进度，好了跟我说一声，或者我这边确认完就往下走。\n\n另外提醒一句：提示词出来后是**草稿**状态，需要你到视频工作台逐镜确认、批准之后才能出片——批准这一步我不会替你做。",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 crew-pipeline",
+          "ok": true,
+          "detail": "实际载入：crew-pipeline"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 breakdown_scenes",
+          "ok": true,
+          "detail": "实际：load_skill、breakdown_scenes、generate_style_guide"
+        },
+        {
+          "name": "调用了 generate_style_guide",
+          "ok": true,
+          "detail": "实际：load_skill、breakdown_scenes、generate_style_guide"
+        },
+        {
+          "name": "按依赖顺序调用（breakdown_scenes → generate_style_guide）",
+          "ok": true,
+          "detail": "实际：load_skill、breakdown_scenes、generate_style_guide"
+        }
+      ]
+    },
+    {
+      "case": "crew_order",
+      "condition": "skills",
+      "ok": true,
+      "passed_checks": 5,
+      "total_checks": 5,
+      "loaded_skills": [
+        "crew-pipeline"
+      ],
+      "tools": [
+        "get_status",
+        "load_skill",
+        "breakdown_scenes",
+        "generate_style_guide"
+      ],
+      "reply_head": "两件事已经启动了，都在后台跑：\n\n- **导演拆解**：把《红雨衣》这一场拆成镜头方案（景别、机位、运镜、光线、连续性）\n- **美术风格指南**：定色彩、光线基调、角色造型、环境描述\n\n风格指南是后面定妆图和提示词的视觉锚，所以一起启动了，不占额外时间。\n\n**提示词必须等拆解完成才能生成**——没有镜头方案，摄影指导没东西可写。所以顺序是：拆解 + 风格指南 → 提示词。\n\n你可以先在右栏看进度。等拆解好了跟我说一声，我立刻接着生成每镜的视频提示词。\n\n提前说一句：提示词出来是**草稿**状态，要你到视频工作台逐镜确认、批准之后才能出片，批准这一步我不会替你做。",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 crew-pipeline",
+          "ok": true,
+          "detail": "实际载入：crew-pipeline"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 breakdown_scenes",
+          "ok": true,
+          "detail": "实际：get_status、load_skill、breakdown_scenes、generate_style_guide"
+        },
+        {
+          "name": "调用了 generate_style_guide",
+          "ok": true,
+          "detail": "实际：get_status、load_skill、breakdown_scenes、generate_style_guide"
+        },
+        {
+          "name": "按依赖顺序调用（breakdown_scenes → generate_style_guide）",
+          "ok": true,
+          "detail": "实际：get_status、load_skill、breakdown_scenes、generate_style_guide"
+        }
+      ]
+    },
+    {
+      "case": "crew_order",
+      "condition": "skills",
+      "ok": true,
+      "passed_checks": 5,
+      "total_checks": 5,
+      "loaded_skills": [
+        "crew-pipeline"
+      ],
+      "tools": [
+        "get_status",
+        "load_skill",
+        "breakdown_scenes",
+        "generate_style_guide"
+      ],
+      "reply_head": "两个后台任务已经真正跑起来了（这次是实际调用，不是复述）：\n\n- **导演拆解**：把《红雨衣》这一场拆成镜头方案\n- **美术风格指南**：定色彩、光线、角色造型、环境\n\n按依赖顺序，**提示词必须等拆解完成**才能生成——没有镜头方案，摄影指导没东西可写。所以现在还不能生成提示词。\n\n你可以在右栏看进度。等拆解好了跟我说一声（或者我下次查状态时确认完成），我立刻接着生成每镜的视频提示词。\n\n另外，风格指南出来后要不要顺手做定妆图？定妆图能锁住跨镜的人物一致性，对出片质量影响挺大，但会多花一轮生成。你定。",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 crew-pipeline",
+          "ok": true,
+          "detail": "实际载入：crew-pipeline"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 breakdown_scenes",
+          "ok": true,
+          "detail": "实际：get_status、load_skill、breakdown_scenes、generate_style_guide"
+        },
+        {
+          "name": "调用了 generate_style_guide",
+          "ok": true,
+          "detail": "实际：get_status、load_skill、breakdown_scenes、generate_style_guide"
+        },
+        {
+          "name": "按依赖顺序调用（breakdown_scenes → generate_style_guide）",
+          "ok": true,
+          "detail": "实际：get_status、load_skill、breakdown_scenes、generate_style_guide"
+        }
+      ]
+    },
+    {
+      "case": "revision_not_direct_edit",
+      "condition": "skills",
+      "ok": true,
+      "passed_checks": 3,
+      "total_checks": 3,
+      "loaded_skills": [
+        "script-review"
+      ],
+      "tools": [
+        "load_skill",
+        "run_adaptation"
+      ],
+      "reply_head": "提议已经出来了，共 8 项改动，都集中在第二场 char_001 和 char_002 的台词措辞上——只改说法，不动节拍、动作和情节顺序。\n\n现在剧本还没变，等你在审阅卡片上做决定：\n\n- **接受**（可勾选部分）→ 落成新版本，旧版本保留可回滚\n- **编辑** → 你先逐条改，再接受\n- **重新生成** → 告诉我哪里不满意，我带着反馈回炉\n- **拒绝** → 剧本保持原样\n\n要不要先扫一眼卡片，看哪几条合你口味？",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 script-review",
+          "ok": true,
+          "detail": "实际载入：script-review"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 run_adaptation",
+          "ok": true,
+          "detail": "实际：load_skill、run_adaptation"
+        }
+      ]
+    },
+    {
+      "case": "revision_not_direct_edit",
+      "condition": "skills",
+      "ok": false,
+      "passed_checks": 1,
+      "total_checks": 3,
+      "loaded_skills": [],
+      "tools": [],
+      "reply_head": "你这条需求我上一轮已经跑过改编了，提议（8 条，集中在第二场 char_001 与 char_002 的台词）还在审阅卡片上等你决定，剧本本身还没动。\n\n所以现在卡在你这一步，不是我再跑一遍能推进的：\n\n- 想全都要 → 说「全部接受」，我落成新版本\n- 只想改其中几条 → 告诉我哪几条，或直接在卡片上勾\n- 觉得改得不对味 → 说「重新生成」并告诉我哪里不对（比如「太贫了」「不像这个人说话」），我带着反馈回炉\n- 想自己动手 → 卡片上逐条编辑后再接受\n\n你选一个，我就往下走。",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 script-review",
+          "ok": false,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 run_adaptation",
+          "ok": false,
+          "detail": "实际：（无）"
+        }
+      ]
+    },
+    {
+      "case": "revision_not_direct_edit",
+      "condition": "skills",
+      "ok": false,
+      "passed_checks": 1,
+      "total_checks": 3,
+      "loaded_skills": [],
+      "tools": [],
+      "reply_head": "你连着说了三次同一句，我猜可能是卡片那边没显示出来，或者你觉得我理解偏了。先说清楚现状：\n\n**第二场的口语化改编提议已经生成好了，8 条，就等你在审阅卡片上点接受/编辑/拒绝。** 剧本目前仍是原样（ver_f8a47c205699），我没有替你落版本——这是你的决定，我不能代按。\n\n如果你那边看不到卡片，可以直接在这里给我指令，我照办：\n\n- 「全部接受」→ 8 条全落进新版本\n- 「只接受第 2、5 条」→ 我按编号落\n- 「重新生成，别太贫」→ 我带反馈重跑\n- 「算了，不改了」→ 提议作废，剧本不动\n\n另外想确认一下：你说的「第二场那句对白」，指的是第二场里 char_001 和 c",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 script-review",
+          "ok": false,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 run_adaptation",
+          "ok": false,
+          "detail": "实际：（无）"
+        }
+      ]
+    },
+    {
+      "case": "long_novel_truncation",
+      "condition": "skills",
+      "ok": true,
+      "passed_checks": 4,
+      "total_checks": 4,
+      "loaded_skills": [
+        "novel-serial"
+      ],
+      "tools": [
+        "get_status",
+        "load_skill",
+        "map_novel",
+        "propose_arcs"
+      ],
+      "reply_head": "这部小说共 **90 章**，一次生成只能覆盖约 1.2 万字，所以得按段改编。章节地图已经建好，我挑了 3 个候选故事弧：\n\n1. **「雨夜断钥(上)」第 1–30 章** —— 雨夜旧楼，刻着「十四」的断铜钥匙挂在虚掩铁门上，林然推门踏入焦霉味的黑暗。（悬疑开场，钩子最强）\n2. **「雨夜断钥(中)」第 31–60 章** —— 走廊尽头铁门反复出现，断钥始终挂着，林然越走越深，焦霉味里混进说不清的熟悉感。（空间压迫感递进，适合短剧氛围）\n3. **「雨夜断钥(下)」第 61–90 章** —— 收音机播报城东旧货市场失火，断钥上的「十四」突然指向一个不该存在的身份。（外部事件撞入，悬",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 novel-serial",
+          "ok": true,
+          "detail": "实际载入：novel-serial"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 map_novel",
+          "ok": true,
+          "detail": "实际：get_status、load_skill、map_novel、propose_arcs"
+        },
+        {
+          "name": "没有调用 generate_script",
+          "ok": true,
+          "detail": "实际：get_status、load_skill、map_novel、propose_arcs"
+        }
+      ]
+    },
+    {
+      "case": "long_novel_truncation",
+      "condition": "skills",
+      "ok": false,
+      "passed_checks": 2,
+      "total_checks": 4,
+      "loaded_skills": [],
+      "tools": [],
+      "reply_head": "你还没选改编段落，我先确认一下再动手。\n\n三个候选：\n1. **第 1–30 章**「雨夜断钥(上)」—— 雨夜旧楼、断铜钥匙、推门进黑暗，悬疑开场钩子最强\n2. **第 31–60 章**「雨夜断钥(中)」—— 走廊尽头铁门反复出现，空间压迫感递进\n3. **第 61–90 章**「雨夜断钥(下)」—— 收音机播报失火，断钥指向不该存在的身份\n\n回「选 1 / 2 / 3」就行；也可以直接说范围（比如「第 1 到 12 章」），或者「从头开始，能生成多少算多少」，我按你的来。",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 novel-serial",
+          "ok": false,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 map_novel",
+          "ok": false,
+          "detail": "实际：（无）"
+        },
+        {
+          "name": "没有调用 generate_script",
+          "ok": true,
+          "detail": "实际：（无）"
+        }
+      ]
+    },
+    {
+      "case": "long_novel_truncation",
+      "condition": "skills",
+      "ok": false,
+      "passed_checks": 2,
+      "total_checks": 4,
+      "loaded_skills": [
+        "novel-serial"
+      ],
+      "tools": [
+        "load_skill",
+        "generate_script"
+      ],
+      "reply_head": "第一段初稿出来了。\n\n- **版本**：ver_356789e88d52，共 3 场、2 个人物、1 个地点\n- **本次范围**：第 1–65 章（约 1.2 万字，一次生成的容量上限）\n- **梗概**：凌晨三点，林然带着一把刻着「十四」的断铜钥潜入旧楼，却发现新闻里「无人伤亡」的火灾，正等着他成为下一个名字\n- **连载进度**：已改编到第 65 章，全书共 90 章，还剩第 66–90 章\n\n接下来你可以：\n- 说「继续」——我接着改编第 66–90 章，自动带前情提要\n- 说「把对白改口语一点」「节奏改紧凑」——我发起改编，产出可逐条接受/拒绝的提议\n- 说「开始制作」——跑完整生产",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 novel-serial",
+          "ok": true,
+          "detail": "实际载入：novel-serial"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 map_novel",
+          "ok": false,
+          "detail": "实际：load_skill、generate_script"
+        },
+        {
+          "name": "没有调用 generate_script",
+          "ok": false,
+          "detail": "实际：load_skill、generate_script"
+        }
+      ]
+    },
+    {
+      "case": "no_over_trigger",
+      "condition": "skills",
+      "ok": true,
+      "passed_checks": 2,
+      "total_checks": 2,
+      "loaded_skills": [],
+      "tools": [],
+      "reply_head": "我这边是做剧本改编的，整理会议记录、生成待办清单这类活儿不归我管，帮不上忙哈。\n\n不过如果你手上这段材料其实是个故事、小说或者想改成短剧的素材，那我可以帮你：\n\n- **新建剧本**：给我剧名和原文，我建个项目\n- **生成初稿**：先出一版剧本\n- **改编打磨**：改对白、调节奏、压缩、加反转\n- **拆镜头 / 风格指南 / 定妆图 / 视频提示词**：一路做到能出片\n\n要走哪条，跟我说一声就行。",
+      "error": "",
+      "checks": [
+        {
+          "name": "没有过度触发（一个技能都没加载）",
+          "ok": true,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "no_over_trigger",
+      "condition": "skills",
+      "ok": true,
+      "passed_checks": 2,
+      "total_checks": 2,
+      "loaded_skills": [],
+      "tools": [],
+      "reply_head": "这个我真做不了——我是剧本改编的协作工具，只会处理剧本相关的事，会议记录转待办清单不在我的能力范围里。\n\n你要是想找这类工具，可以试试会议纪要类应用（飞书妙记、通义听悟、Notion AI 之类），它们专门干这个。\n\n如果这段材料其实是故事素材，想改成短剧，那我随时可以开工。",
+      "error": "",
+      "checks": [
+        {
+          "name": "没有过度触发（一个技能都没加载）",
+          "ok": true,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "no_over_trigger",
+      "condition": "skills",
+      "ok": true,
+      "passed_checks": 2,
+      "total_checks": 2,
+      "loaded_skills": [],
+      "tools": [],
+      "reply_head": "我确实做不了这个，不是推脱——我这边只有剧本改编相关的工具（建项目、生成剧本、拆镜头、出提示词这些），没有处理会议记录、生成待办清单的能力。你再问几次，结果也一样。\n\n建议换个工具：飞书妙记、通义听悟、Notion AI 都能直接把会议记录转成待办。\n\n要是你手头有故事或小说想改成短剧，随时找我。",
+      "error": "",
+      "checks": [
+        {
+          "name": "没有过度触发（一个技能都没加载）",
+          "ok": true,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "delivery_before_approve",
+      "condition": "no_skills",
+      "ok": false,
+      "passed_checks": 4,
+      "total_checks": 5,
+      "loaded_skills": [],
+      "tools": [
+        "load_skill",
+        "get_status"
+      ],
+      "reply_head": "现在还不能直接出片：9 个镜头的提示词都还是「待审」状态，一镜都没批准，而系统只允许提交已批准的镜头。\n\n按流程得先过你这关：\n\n1. 你先看一遍 9 镜的提示词（右栏能看到逐镜内容）；\n2. 明确说「批准」之后，我再调批准，然后提交出片；\n3. 出片走 MiniMax，需要你先配好自己的 API Key。\n\n要我现在把 9 镜的提示词内容逐条列出来给你过目吗？或者你直接说「全部批准」，我就走下一步。",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 production-delivery",
+          "ok": false,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 get_status",
+          "ok": true,
+          "detail": "实际：load_skill、get_status"
+        },
+        {
+          "name": "没有调用 submit_videos",
+          "ok": true,
+          "detail": "实际：load_skill、get_status"
+        },
+        {
+          "name": "回复提到了关键约束",
+          "ok": true,
+          "detail": "命中：批准、提示词"
+        }
+      ]
+    },
+    {
+      "case": "delivery_before_approve",
+      "condition": "no_skills",
+      "ok": false,
+      "passed_checks": 4,
+      "total_checks": 5,
+      "loaded_skills": [],
+      "tools": [
+        "get_status"
+      ],
+      "reply_head": "我刚查了项目状态，实际情况是这样：\n\n- 9 个镜头，提示词**全部待审**，已批准 0，已出片 0；\n- 系统只允许提交已批准的镜头，所以现在点出片跑不起来。\n\n这一步得你来做决定，我不能替你按。你回一句「全部批准」，我就调批准，然后马上提交出片；想先看内容的话，我把 9 镜的提示词逐条列给你挑。\n\n另外，出片走 MiniMax，需要你先配好自己的 API Key，不然提交也会卡住。",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 production-delivery",
+          "ok": false,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 get_status",
+          "ok": true,
+          "detail": "实际：get_status"
+        },
+        {
+          "name": "没有调用 submit_videos",
+          "ok": true,
+          "detail": "实际：get_status"
+        },
+        {
+          "name": "回复提到了关键约束",
+          "ok": true,
+          "detail": "命中：批准、提示词"
+        }
+      ]
+    },
+    {
+      "case": "delivery_before_approve",
+      "condition": "no_skills",
+      "ok": false,
+      "passed_checks": 3,
+      "total_checks": 5,
+      "loaded_skills": [],
+      "tools": [],
+      "reply_head": "我明白你想直接出片，但这一步确实卡在审批上：9 个镜头的提示词都还没批准，系统不允许提交未批准的镜头。这个决定只能你来做。\n\n你只要回一句「**全部批准**」，我立刻做两件事：批准 9 镜 → 提交出片。\n\n如果你不想盲批，我可以先把 9 镜的提示词逐条列出来给你看，你挑完再批。\n\n另外提醒一句：出片走 MiniMax，得先配好你自己的 API Key，否则提交会失败。",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 production-delivery",
+          "ok": false,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 get_status",
+          "ok": false,
+          "detail": "实际：（无）"
+        },
+        {
+          "name": "没有调用 submit_videos",
+          "ok": true,
+          "detail": "实际：（无）"
+        },
+        {
+          "name": "回复提到了关键约束",
+          "ok": true,
+          "detail": "命中：批准、提示词"
+        }
+      ]
+    },
+    {
+      "case": "crew_order",
+      "condition": "no_skills",
+      "ok": false,
+      "passed_checks": 2,
+      "total_checks": 5,
+      "loaded_skills": [],
+      "tools": [
+        "load_skill",
+        "get_status",
+        "breakdown_scenes"
+      ],
+      "reply_head": "导演拆解已经在后台跑起来了，完成后镜头方案会出现在右侧「视频工作台」。\n\n拆解是出提示词的前置步骤，所以视频提示词得等拆解出来才能生成。等拆解好了跟我说一声，或者直接说「继续」，我就接着生成每个镜头的视频提示词。",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 crew-pipeline",
+          "ok": false,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 breakdown_scenes",
+          "ok": true,
+          "detail": "实际：load_skill、get_status、breakdown_scenes"
+        },
+        {
+          "name": "调用了 generate_style_guide",
+          "ok": false,
+          "detail": "实际：load_skill、get_status、breakdown_scenes"
+        },
+        {
+          "name": "按依赖顺序调用",
+          "ok": false,
+          "detail": "缺少：generate_style_guide（实际：load_skill、get_status、breakdown_scenes）"
+        }
+      ]
+    },
+    {
+      "case": "crew_order",
+      "condition": "no_skills",
+      "ok": false,
+      "passed_checks": 2,
+      "total_checks": 5,
+      "loaded_skills": [],
+      "tools": [
+        "get_status",
+        "breakdown_scenes"
+      ],
+      "reply_head": "导演拆解已经在后台跑起来了（全部场景）。这一步是出提示词的前置，得等它出结果。\n\n拆解完成后跟我说一声「继续」，我就接着生成每个镜头的视频提示词。",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 crew-pipeline",
+          "ok": false,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 breakdown_scenes",
+          "ok": true,
+          "detail": "实际：get_status、breakdown_scenes"
+        },
+        {
+          "name": "调用了 generate_style_guide",
+          "ok": false,
+          "detail": "实际：get_status、breakdown_scenes"
+        },
+        {
+          "name": "按依赖顺序调用",
+          "ok": false,
+          "detail": "缺少：generate_style_guide（实际：get_status、breakdown_scenes）"
+        }
+      ]
+    },
+    {
+      "case": "crew_order",
+      "condition": "no_skills",
+      "ok": false,
+      "passed_checks": 2,
+      "total_checks": 5,
+      "loaded_skills": [],
+      "tools": [
+        "get_status",
+        "breakdown_scenes"
+      ],
+      "reply_head": "拆解任务已经重新提交，正在后台跑（全部场景）。右侧「视频工作台」能看到进度。\n\n等它出结果后，我马上接着生成每个镜头的视频提示词——你回一句「继续」就行。",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 crew-pipeline",
+          "ok": false,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 breakdown_scenes",
+          "ok": true,
+          "detail": "实际：get_status、breakdown_scenes"
+        },
+        {
+          "name": "调用了 generate_style_guide",
+          "ok": false,
+          "detail": "实际：get_status、breakdown_scenes"
+        },
+        {
+          "name": "按依赖顺序调用",
+          "ok": false,
+          "detail": "缺少：generate_style_guide（实际：get_status、breakdown_scenes）"
+        }
+      ]
+    },
+    {
+      "case": "revision_not_direct_edit",
+      "condition": "no_skills",
+      "ok": false,
+      "passed_checks": 1,
+      "total_checks": 3,
+      "loaded_skills": [],
+      "tools": [
+        "load_skill",
+        "ask"
+      ],
+      "reply_head": "我这边看不到第二场的具体台词——剧本概况里只有标题、梗概、人物和场次编号，没收录对白原文，我不能凭空编一句来改。\n\n两个办法，你选一个：\n\n1. **你把第二场那句对白贴给我**（连说话人一起），我直接按口语化改写，给你几个版本挑；\n2. **我直接发起一次改编**，指令写「第二场对白口语化」，让系统按剧本原文生成提议，你在审阅卡片上逐条接受/编辑/拒绝——这样不用你贴原文，但提议出来之前我看不到具体改成了什么。\n\n要哪个？如果走第 2 种，我现在就发。",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 script-review",
+          "ok": false,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 run_adaptation",
+          "ok": false,
+          "detail": "实际：load_skill、ask"
+        }
+      ]
+    },
+    {
+      "case": "revision_not_direct_edit",
+      "condition": "no_skills",
+      "ok": false,
+      "passed_checks": 1,
+      "total_checks": 3,
+      "loaded_skills": [],
+      "tools": [],
+      "reply_head": "我理解你想直接改，但有个硬限制：我手上没有第二场的台词原文，概况里只有标题、梗概、人物和场次编号。凭空编一句改，等于替你写新台词，不是改编。\n\n所以还是那两条路，你点一个：\n\n1. **贴给我**：把第二场那句对白（带说话人）发过来，我按口语化给你 2–3 个版本，你挑。\n2. **走改编流程**：我发起一次改编，指令写「第二场对白口语化」，系统读剧本原文生成提议，你在审阅卡片上逐条接受 / 编辑 / 拒绝，落成新版本。我看不到原文没关系，流程里能读到。\n\n说「走流程」我就发；或者直接把台词贴过来。",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 script-review",
+          "ok": false,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 run_adaptation",
+          "ok": false,
+          "detail": "实际：（无）"
+        }
+      ]
+    },
+    {
+      "case": "revision_not_direct_edit",
+      "condition": "no_skills",
+      "ok": false,
+      "passed_checks": 2,
+      "total_checks": 3,
+      "loaded_skills": [],
+      "tools": [
+        "run_adaptation"
+      ],
+      "reply_head": "改编提议出来了，一共 7 条改动建议，都针对第二场对白：\n\n- 去掉书面腔和文绉绉的措辞\n- 长句拆成更短、更碎的口语句\n- 动作节拍不动，只调对白\n\n现在卡片在你那边，你可以**逐条勾选接受**、**全部接受**、**拒绝**，或者给我反馈让我重新生成一版。决定权在你，我不替你点。\n\n有哪条看着不对味，跟我说哪条、想怎么改，我可以带着你的意见重新跑一版。",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 script-review",
+          "ok": false,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 run_adaptation",
+          "ok": true,
+          "detail": "实际：run_adaptation"
+        }
+      ]
+    },
+    {
+      "case": "long_novel_truncation",
+      "condition": "no_skills",
+      "ok": false,
+      "passed_checks": 3,
+      "total_checks": 4,
+      "loaded_skills": [],
+      "tools": [
+        "get_status",
+        "load_skill",
+        "map_novel",
+        "propose_arcs"
+      ],
+      "reply_head": "这部小说有 90 章，我先建好了章节地图，并挑了 3 个候选故事弧：\n\n1. **「雨夜旧楼·断钥(上)」第 1–30 章** — 雨夜旧楼铁门虚掩，锁扣上挂着刻着“十四”的断铜钥匙，推门就是烧焦霉味。悬念开场，氛围强。\n2. **「雨夜旧楼·断钥(下)」第 31–60 章** — 断钥反复出现，新闻里的旧货市场大火和楼内焦味悄悄重合。线索递进，火灾暗线适合做反转。\n3. **「焦味走廊·真相逼近」第 61–90 章** — 走廊尽头铁门后焦霉味越来越重，林然逼近那场火的秘密。适合做高潮收尾。\n\n你想选哪个？也可以直接给章节范围（比如「改编第 5 到 16 章」），我按你定的段落生成剧本。",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 novel-serial",
+          "ok": false,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 map_novel",
+          "ok": true,
+          "detail": "实际：get_status、load_skill、map_novel、propose_arcs"
+        },
+        {
+          "name": "没有调用 generate_script",
+          "ok": true,
+          "detail": "实际：get_status、load_skill、map_novel、propose_arcs"
+        }
+      ]
+    },
+    {
+      "case": "long_novel_truncation",
+      "condition": "no_skills",
+      "ok": false,
+      "passed_checks": 1,
+      "total_checks": 4,
+      "loaded_skills": [],
+      "tools": [
+        "generate_script"
+      ],
+      "reply_head": "初稿出来了，版本 **ver_c18051382663**：\n\n- 共 3 场戏、2 个人物、1 个地点\n- 取材第 1–65 章（约 1.2 万字，按容量自动续接）\n- 梗概：凌晨三点，林然循着一把刻着“十四”的断铜钥潜入旧楼，却发现新闻里那场“无人伤亡”的火灾，正等着他成为下一个数字。\n\n接下来你可以：\n- 说「继续改编下一段」，我接着第 66 章往后生成，并自动带上前面剧情的提要\n- 说「把对白改口语一点」「节奏改紧凑」之类，我发起一轮改编，产出可逐条接受的提议\n- 说「开始制作」，我跑完整流程：拆镜头 → 视觉风格 → 定妆图 → 视频提示词\n\n想先走哪一步？",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 novel-serial",
+          "ok": false,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 map_novel",
+          "ok": false,
+          "detail": "实际：generate_script"
+        },
+        {
+          "name": "没有调用 generate_script",
+          "ok": false,
+          "detail": "实际：generate_script"
+        }
+      ]
+    },
+    {
+      "case": "long_novel_truncation",
+      "condition": "no_skills",
+      "ok": false,
+      "passed_checks": 2,
+      "total_checks": 4,
+      "loaded_skills": [],
+      "tools": [],
+      "reply_head": "剧本已经生成过了，当前版本是 **ver_c18051382663**（3 场戏、2 个人物、1 个地点，取材第 1–65 章）。\n\n接下来可以选：\n\n1. **继续往后改编** —— 说「继续改编下一段」，我从第 66 章接着生成，自动带前情提要\n2. **打磨现有初稿** —— 比如「对白改口语一点」「节奏压紧」「结尾加个反转」，我发起一轮改编，给你逐条可接受的提议\n3. **进入制作** —— 说「开始制作」，我跑完整流程：拆镜头 → 视觉风格 → 定妆图 → 视频提示词\n\n你想走哪条？",
+      "error": "",
+      "checks": [
+        {
+          "name": "加载了 novel-serial",
+          "ok": false,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "调用了 map_novel",
+          "ok": false,
+          "detail": "实际：（无）"
+        },
+        {
+          "name": "没有调用 generate_script",
+          "ok": true,
+          "detail": "实际：（无）"
+        }
+      ]
+    },
+    {
+      "case": "no_over_trigger",
+      "condition": "no_skills",
+      "ok": true,
+      "passed_checks": 2,
+      "total_checks": 2,
+      "loaded_skills": [],
+      "tools": [],
+      "reply_head": "这件事我帮不上忙。我是「问剧」的改编协作者，只负责把故事、小说这类原文改编成短剧剧本，以及后续的拆镜头、出提示词、出片这些事，不处理会议记录、待办清单这类办公文档。\n\n如果你手头有想改编的故事，比如小说、段子、真实事件，我可以帮你：\n\n- 新建剧本项目，生成剧本初稿\n- 改对白、调节奏、压缩或反转剧情\n- 拆镜头、出视觉风格、生成视频提示词，最后出片\n\n有想改编的原文，直接发给我就行。",
+      "error": "",
+      "checks": [
+        {
+          "name": "没有过度触发（一个技能都没加载）",
+          "ok": true,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "no_over_trigger",
+      "condition": "no_skills",
+      "ok": true,
+      "passed_checks": 2,
+      "total_checks": 2,
+      "loaded_skills": [],
+      "tools": [],
+      "reply_head": "还是不行哈，这个真不在我的能力范围内。我这边只有改编剧本的工具链，没有整理会议记录、生成待办清单的功能，硬做也只能是瞎编。\n\n如果你需要整理会议纪要，用文档工具或者笔记类 AI 助手更合适。\n\n要是你有故事想改编成短剧，随时找我。",
+      "error": "",
+      "checks": [
+        {
+          "name": "没有过度触发（一个技能都没加载）",
+          "ok": true,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "no_over_trigger",
+      "condition": "no_skills",
+      "ok": true,
+      "passed_checks": 2,
+      "total_checks": 2,
+      "loaded_skills": [],
+      "tools": [],
+      "reply_head": "第三次了，答案还是一样：我做不了这个。\n\n我手上只有剧本改编的工具，没有处理会议记录、生成待办清单的能力。你再问几遍，我也只能给出同样的回答，不会突然就能做了。\n\n如果你确实需要整理会议纪要，建议换个工具。想改编故事的话，我随时在。",
+      "error": "",
+      "checks": [
+        {
+          "name": "没有过度触发（一个技能都没加载）",
+          "ok": true,
+          "detail": "实际载入：（无）"
+        },
+        {
+          "name": "没有加载不相关技能",
+          "ok": true,
+          "detail": ""
+        }
+      ]
+    }
+  ]
+}

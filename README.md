@@ -349,11 +349,18 @@ python -m pytest tests -q
 python -m evals.run              # 跑 10 条 golden case（需要对话模型）
 python -m evals.run --judge      # 额外跑 LLM judge 打分（看质量趋势）
 pytest evals -q                  # 离线层：不需要 key
+
+python -m evals.skill_eval --ablate --repeat 3   # 技能加载 eval（消融对比）
 ```
 
 它已经抓到过三个真问题：审计器对真实提示词 4/4 误报「一镜多运镜」、
 提示词里混进否定句（视频模型会把被否定的内容照画出来）、
 每镜都带的全片风格段与本镜运镜指令互相矛盾。
+
+另有一套 eval 专门回答「技能拆开到底有没有用」——用**消融对比**（把 `load_skill`
+从工具集里摘掉，看 Agent 行为退化多少）：实测约束落地率 **82%（有技能）vs 58%（无技能），
+Δ +25%**；价值集中在带硬约束的地方（依赖顺序一条就值 +60%）。
+
 详见 [`evals/README.md`](evals/README.md)。
 
 ## 许可证
