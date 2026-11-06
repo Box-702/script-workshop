@@ -246,12 +246,20 @@ function formatDate(iso) {
   position: relative;
   z-index: 2;
   flex: 1;
+  /* 主输入卡片限宽居中：通栏的卡片会把视线拉散，也不像「一个对话框」 */
+  --home-card-w: min(1040px, 92vw);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
   padding: clamp(48px, 9vh, 108px) 24px 8px;
   text-align: center;
+}
+
+/* HomeComposer 的根元素就是 ComposerCard 的 .cc */
+.home-stage > :deep(.cc) {
+  max-width: var(--home-card-w);
+  margin: 0 auto;
 }
 
 .hero-title {
