@@ -10,7 +10,7 @@ const emit = defineEmits(['open-assets', 'open-skills', 'open-output', 'open-tas
 // =====================================================================
 
 import { computed } from 'vue'
-import { store, toggleRightPanel, toggleLeftPanel, exitWorkspace } from '../stores/app'
+import { store, toggleRightPanel, exitWorkspace } from '../stores/app'
 import LogoMark from './LogoMark.vue'
 import AppIcon from './AppIcon.vue'
 
@@ -44,7 +44,6 @@ function openWorkbench() {
     <h1 class="brand" title="回到首页" @click="exitWorkspace">
       <span class="logo" aria-hidden="true"><LogoMark :size="22" /></span>
       <span class="brand-name">问剧</span>
-      <span class="brand-mode">WENJU</span>
     </h1>
 
     <button
@@ -89,15 +88,6 @@ function openWorkbench() {
     >
       <AppIcon name="panel" />
     </button>
-
-    <button
-      class="ghost panel-toggle"
-      :class="{ on: store.rightOpen }"
-      title="切换 Inspector（Ctrl+I）"
-      @click="toggleRightPanel"
-    >
-      <AppIcon :name="store.rightOpen ? 'panel-on' : 'panel'" />
-    </button>
   </header>
 </template>
 
@@ -120,11 +110,8 @@ h1 {
 /* 品牌字标：plain 文字，不做渐变 */
 .brand-name {
   white-space: nowrap;
-  font-size: 14px; font-weight: 600; letter-spacing: 0.01em;
+  font-size: 15px; font-weight: 600; letter-spacing: 0.06em;
   color: var(--ink);
-}
-.brand-mode {
-  color: var(--dim); font: 500 9px/1 var(--mono); letter-spacing: 0.1em;
 }
 header button {
   position: relative;
@@ -174,6 +161,5 @@ header button::after { content: ''; position: absolute; inset: -4px -6px; }
 
 @media (max-width: 760px) {
   header { min-height: var(--header-h); padding: 6px 10px; gap: 7px; }
-  .brand-mode { display: none; }
 }
 </style>

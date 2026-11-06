@@ -69,12 +69,9 @@ function formatDate(iso) {
       <div class="home-brand">
         <LogoMark :size="20" />
         <span class="brand-name">问剧</span>
-        <span class="brand-mode">WENJU</span>
       </div>
+      <!-- 只留设置：新建作品在下面的「我的作品」里有卡片入口，顶部再放一个是重复 -->
       <div class="home-top-actions">
-        <button class="ghost small" @click="store.showNewProject = true">
-          <AppIcon name="plus" /> 新建作品
-        </button>
         <button class="ghost small" title="设置" @click="store.showSettings = true">
           <AppIcon name="gear" />
         </button>
@@ -84,7 +81,7 @@ function formatDate(iso) {
     <!-- 主体：标语 + 主输入卡片 -->
     <main class="home-stage">
       <h1 class="hero-title"><em>You call the drama</em></h1>
-      <p class="hero-sub">全能班底 · 你和小说</p>
+      <p class="hero-sub">小说进，短剧出</p>
 
       <HomeComposer
         :goal="goal"
@@ -225,11 +222,6 @@ function formatDate(iso) {
   color: rgba(255, 255, 255, 0.92);
 }
 
-.brand-mode {
-  font-size: 10px;
-  letter-spacing: 0.26em;
-  color: rgba(255, 255, 255, 0.36);
-}
 
 .home-top-actions {
   display: flex;

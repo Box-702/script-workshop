@@ -46,7 +46,7 @@ import WorkspaceModal from './components/WorkspaceModal.vue'
 import SettingsModal from './components/settings/SettingsModal.vue'
 import PatchDrawer from './components/PatchDrawer.vue'
 import Toast from './components/Toast.vue'
-import { loadTree, loadWorkspace, loadWorkspaceTree, restorePanelPrefs, toggleRightPanel, toggleLeftPanel, notify, store, pollVideoBatch, ensureBatchPolling, loadModelStatus } from './stores/app'
+import { loadTree, loadWorkspace, loadWorkspaceTree, restorePanelPrefs, toggleRightPanel, notify, store, pollVideoBatch, ensureBatchPolling, loadModelStatus } from './stores/app'
 import { importProject } from './api'
 
 // ---- 拖拽导入 ----
@@ -149,12 +149,8 @@ function endDrag() {
   window.removeEventListener('pointerup', endDrag)
 }
 
-// Ctrl+B 切换左侧导航，Ctrl+I 切换右侧 Inspector
+// Ctrl+I 切换上下文侧栏（大纲 / 镜头 / 资产）
 function globalKey(e) {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
-    e.preventDefault()
-    toggleLeftPanel()
-  }
   if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
     e.preventDefault()
     toggleRightPanel()
