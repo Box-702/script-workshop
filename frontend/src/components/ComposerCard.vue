@@ -214,6 +214,14 @@ function autoSize(e) {
   line-height: 1.65;
   font-family: inherit;
 }
+/* 聚焦不给任何特效：全局 :focus-visible 的绿色光环套在输入框里会变成「框里还有框」。
+   卡片本身的 focus-within（底色微亮）已经够说明「正在输入」。 */
+.cc-text:focus,
+.cc-text:focus-visible {
+  outline: none;
+  box-shadow: none;
+  border: 0;
+}
 
 .cc-text::placeholder { color: rgba(255, 255, 255, 0.34); }
 

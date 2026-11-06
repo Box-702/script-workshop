@@ -97,8 +97,8 @@ watch(() => store.messages.length, () => { nearBottom.value = true; toBottom() }
 <style scoped>
 .thread-wrap { flex: 1; min-height: 0; position: relative; display: flex; }
 .thread { flex: 1; overflow-y: auto; padding: 28px clamp(var(--space-4), 4vw, 42px) 14px; }
-.thread-inner { max-width: 900px; margin: 0 auto; }
-.thread-inner { max-width: 900px; margin: 0 auto; }
+.thread-inner { max-width: var(--thread-w); margin: 0 auto; }
+.thread-inner { max-width: var(--thread-w); margin: 0 auto; }
 
 /* 编辑态空对话：轻量、有上下文、有下一步 */
 .editing-empty {

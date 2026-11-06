@@ -93,6 +93,7 @@
   --fs-xl: 18px;   --fs-title: 22px; --fs-display: 34px;
   --lh-body: 1.7; --lh-tight: 1.35;
   --control-h: 34px;
+  --thread-w: 900px;   /* 对话内容列宽：输入卡片与对话流同宽、同时居中 */
   --tap: 40px;
   --header-h: 46px;
   --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px rgba(74, 222, 128, .55);

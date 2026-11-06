@@ -241,9 +241,14 @@ watch(() => store.draftSeq, () => {
 </template>
 
 <style scoped>
+/* 输入区：横向内边距与对话流一致，内容列同宽（--thread-w），左右对齐 */
 .composer {
-  padding: var(--space-3) clamp(var(--space-4), 3vw, var(--space-6)) var(--space-4);
+  padding: var(--space-3) clamp(var(--space-4), 4vw, 42px) var(--space-4);
   background: transparent;
+}
+.composer > :deep(.cc) {
+  max-width: var(--thread-w);
+  margin: 0 auto;
 }
 
 /* 待发送图片 */

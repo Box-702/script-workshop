@@ -299,8 +299,10 @@ onUnmounted(() => {
 }
 
 /* 主舞台：对话流 + 输入区 */
+/* flex:1 必给——.stage-wrap 是 flex 行，不给的话它按内容宽排，整块会挤到左边 */
 .stage {
   display: flex;
+  flex: 1;
   flex-direction: column;
   height: calc(100dvh - var(--header-h));
   min-width: 0;
