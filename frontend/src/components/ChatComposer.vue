@@ -189,17 +189,12 @@ watch(() => store.draftSeq, () => {
         </div>
       </template>
       <template #menu="{ close }">
+        <!-- 只有真实存在的入口；旧模型的「主体库（支持音色）」「音色库」已删 -->
         <button class="cc-menu-item" type="button" role="menuitem" @click.stop="close(); pickImages()">
-          本地上传
+          上传图片
         </button>
         <button class="cc-menu-item" type="button" role="menuitem" @click.stop="close(); store.leftOpen = true">
           资产库
-        </button>
-        <button class="cc-menu-item" type="button" role="menuitem" @click.stop="close(); store.leftOpen = true">
-          主体库（支持音色）
-        </button>
-        <button class="cc-menu-item" type="button" role="menuitem" @click.stop="close(); store.leftOpen = true">
-          音色库
         </button>
       </template>
 

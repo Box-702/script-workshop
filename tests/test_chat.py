@@ -23,9 +23,9 @@ def _make_tools(store, llm):
 def test_chat_tool_flow_closed_loop(store, llm, settings, sample_text):
     tools, collector = _make_tools(store, llm)
 
-    # 1) 对话式「新建剧本」
+    # 1) 对话式「新建作品」
     r = tools["create_project"].invoke({"title": "雨夜", "adaptation_type": "短剧", "raw_text": sample_text})
-    assert "已创建剧本项目《雨夜》" in r
+    assert "已创建作品《雨夜》" in r
     pid = collector["project_id"]
     assert pid and store.get_project(pid)
 
@@ -96,7 +96,7 @@ def test_chat_once_persists_history(store, llm, settings, sample_text):
     assert hist[0]["role"] == "user" and hist[0]["content"] == "你好"
     assert hist[1]["role"] == "assistant"
 
-    # 全局线程（新建剧本会话）与项目对话隔离。
+    # 全局线程（未选作品时的会话）与作品对话隔离。
     assert load_history(store, None) == []
 
 

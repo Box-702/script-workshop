@@ -74,7 +74,7 @@ class ResumeRequest(BaseModel):
 class ChatRequest(BaseModel):
     """对话式 Agent 的一轮输入。"""
 
-    project_id: str | None = None   # 剧本项目；缺省为「新建剧本」的全局会话
+    project_id: str | None = None   # 作品；缺省为「新建作品」的全局会话
     conversation_id: str | None = None  # 项目下的具体对话（线程）；缺省用项目默认对话
     message: str = Field(default="")  # 审阅动作（meta.intent=resume）时可为空
     meta: dict[str, Any] | None = None  # 结构化意图（如 {"intent": "resume", ...}）

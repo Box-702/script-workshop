@@ -28,11 +28,13 @@ const GOALS = [
   { id: 'production', label: '成片交付' },
 ]
 
+// 「+」菜单：只留当前模型里真实存在的东西。
+// 旧模型那套「主体库（支持音色）」「音色库」已删——它们跟「资产库」是同一个面板，
+// 点了也只是打开左栏，属于名不副实的重复入口。
 const MENU = [
-  { id: 'upload', label: '本地上传' },
+  { id: 'new', label: '新建作品' },
+  { id: 'upload', label: '上传图片' },
   { id: 'assets', label: '资产库' },
-  { id: 'cast', label: '主体库（支持音色）' },
-  { id: 'voice', label: '音色库' },
 ]
 
 const SPEC_RESOLUTIONS = ['768P', '1080P']
@@ -56,11 +58,15 @@ onMounted(() => {
 })
 
 function pick(item) {
+  if (item.id === 'new') {
+    store.showNewProject = true
+    return
+  }
   if (item.id === 'upload') {
     fileInput.value?.click()
     return
   }
-  // 资产 / 主体 / 音色都要落到具体作品上，没有作品就先去建一个
+  // 资产要落到具体作品上，没有作品就先去建一个
   if (!store.pid) {
     store.showNewProject = true
     setHint('先新建作品，再挂载素材')
@@ -135,7 +141,6 @@ function cycleResolution() {
     @send="send"
     @open-settings="store.showSettings = true"
     @cycle-spec="cycleResolution"
-    @open-library="pick({ id: 'assets' })"
     @open-skills="emit('open-skills')"
     @change-goal="emit('goal', goal)"
   >

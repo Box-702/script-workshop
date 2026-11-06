@@ -24,7 +24,7 @@ export async function api(path, method = 'GET', body) {
   return res.json()
 }
 
-/** 导入项目（新建剧本）：FormData 内含 title / adaptation_type / file 或 raw_text。 */
+/** 导入项目（新建作品）：FormData 内含 title / adaptation_type / file 或 raw_text。 */
 export async function importProject(formData) {
   const res = await fetch(BASE + '/projects/import', { method: 'POST', body: formData })
   if (!res.ok) {

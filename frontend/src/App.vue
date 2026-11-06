@@ -38,7 +38,7 @@ watch(
 // App.vue —— 根组件：创作工作台布局
 //
 //   ┌─────────── 顶栏（品牌 + 批次状态 + 面板开关）──────────────┐
-//   │ 项目/场景导航 │ 创作区（对话 + 编辑） │ Inspector 面板 │
+//   │ 作品导航      │ 创作区（对话）      │ 上下文侧栏      │
 //   └──────────────────────────────────────────────────────┘
 // =====================================================================
 
@@ -56,6 +56,7 @@ import WorkspaceModal from './components/WorkspaceModal.vue'
 import SettingsModal from './components/settings/SettingsModal.vue'
 import PatchDrawer from './components/PatchDrawer.vue'
 import Toast from './components/Toast.vue'
+import CommandPalette from './components/CommandPalette.vue'
 import { loadTree, loadWorkspace, loadWorkspaceTree, restorePanelPrefs, toggleRightPanel, notify, store, pollVideoBatch, ensureBatchPolling, loadModelStatus } from './stores/app'
 import { importProject } from './api'
 
@@ -274,8 +275,8 @@ onUnmounted(() => {
 
     <PageShell
       v-if="store.overlay === 'tasks'"
-      title="任务历史"
-      subtitle="每个任务一部作品"
+      title="我的作品"
+      subtitle="每部作品一个对话"
       @close="store.overlay = null"
     >
       <AssetPanel section="tasks" />
@@ -289,6 +290,8 @@ onUnmounted(() => {
   />
   <PatchDrawer />
   <Toast />
+  <!-- 命令面板：Ctrl+K 跳转到任意作品 / 打开资产库、技能、产出 -->
+  <CommandPalette />
 </template>
 
 <style scoped>

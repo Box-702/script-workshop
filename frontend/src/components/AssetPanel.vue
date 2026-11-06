@@ -1,10 +1,10 @@
 <template>
   <div class="asset-panel">
-    <!-- 新任务：开一部新作品 -->
+    <!-- 新建作品 -->
     <div v-if="section === 'all'" class="panel-section">
       <button class="new-task" @click="store.showNewProject = true">
         <AppIcon name="plus" />
-        <span>新任务</span>
+        <span>新建作品</span>
       </button>
     </div>
 
@@ -27,10 +27,10 @@
       </div>
     </div>
 
-    <!-- 任务历史：作品列表（每个作品一个工作区） -->
+    <!-- 作品列表（每个作品一个工作区） -->
     <div v-if="section === 'all' || section === 'tasks'" class="panel-section">
       <div class="section-head">
-        <span class="section-title">任务历史</span>
+        <span class="section-title">我的作品</span>
       </div>
       <div
         v-for="p in projects" :key="p.id"
@@ -119,7 +119,7 @@ import AppIcon from './AppIcon.vue'
 
 const projects = computed(() => store.projects)
 const props = defineProps({
-  /** 显示哪一段：tasks = 任务历史（作品列表）；assets = 资产库 */
+  /** 显示哪一段：tasks = 我的作品（作品列表）；assets = 资产库 */
   section: { type: String, default: 'all' },
 })
 

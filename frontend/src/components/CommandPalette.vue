@@ -2,12 +2,12 @@
 // =====================================================================
 // CommandPalette.vue —— 命令面板（Ctrl+K / Cmd+K）
 //
-// 借鉴 Linear/Raycast 的命令面板：模糊搜索项目、对话、命令，
+// 借鉴 Linear/Raycast 的命令面板：模糊搜索作品、命令，
 // 键盘优先导航，替代传统的菜单/按钮操作。
 // =====================================================================
 
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { store, selectProject, selectConversation, showView, toggleRightPanel } from '../stores/app'
+import { store, selectProject, selectConversation, toggleRightPanel } from '../stores/app'
 
 const open = ref(false)
 const query = ref('')
@@ -15,13 +15,15 @@ const selectedIdx = ref(0)
 const inputRef = ref(null)
 
 // ---- 快捷命令定义 ----
+// 命令面板 = 当前模型的四个页面 + 两个动作。
+// 旧模型那批（新建剧本 / 生成初稿 / 改编剧本 / 剧本编辑器 / 视频工作台）已删：
+// 改编与生成现在直接在对话里说，页面也只剩作品 / 资产库 / 技能 / 产出。
 const COMMANDS = [
-  { id: 'new', label: '新建剧本', hint: '创建新的剧本项目', icon: '01', category: '操作' },
-  { id: 'generate', label: '生成初稿', hint: '为当前项目生成剧本初稿', icon: '02', category: '操作', needsProject: true },
-  { id: 'adapt', label: '改编剧本', hint: '对当前项目发起改编', icon: '03', category: '操作', needsProject: true },
-  { id: 'editor', label: '剧本编辑器', hint: '切换到剧本编辑面板', icon: '04', category: '面板' },
-  { id: 'video', label: '视频工作台', hint: '查看镜头提示词与成片', icon: '05', category: '面板' },
-  { id: 'toggle-panel', label: '切换右侧面板', hint: '打开/关闭右侧 Inspector', icon: '◧', category: '面板' },
+  { id: 'new', label: '新建作品', hint: '导入原文开一部新作品', icon: '01', category: '操作' },
+  { id: 'assets', label: '资产库', hint: '人物与场景', icon: '02', category: '页面' },
+  { id: 'skills', label: '技能', hint: '查看与导入技能', icon: '03', category: '页面' },
+  { id: 'output', label: '产出', hint: '剧本 · 场景 · 视频', icon: '04', category: '页面' },
+  { id: 'toggle-panel', label: '切换上下文侧栏', hint: '打开/关闭右侧栏', icon: '◧', category: '面板' },
 ]
 
 // ---- 构建搜索条目 ----
@@ -29,7 +31,7 @@ const items = computed(() => {
   const result = []
   const q = query.value.toLowerCase().trim()
 
-  // 项目
+  // 作品
   for (const p of store.projects) {
     if (q && !p.title.toLowerCase().includes(q)) continue
     result.push({
@@ -37,12 +39,12 @@ const items = computed(() => {
       label: p.title,
       hint: `${p.version_count} 个版本`,
       icon: 'P',
-      category: '项目',
+      category: '作品',
       action: () => selectProject(p.id),
     })
   }
 
-  // 当前项目的对话
+  // 当前作品的对话
   if (store.pid) {
     const convs = store.convMap[store.pid] || []
     for (const c of convs) {
@@ -78,25 +80,14 @@ function runCommand(id) {
     case 'new':
       store.showNewProject = true
       break
-    case 'generate':
-      if (store.pid && store.convId) {
-        store.draft = '生成初稿'
-        store.draftSeq++
-      }
+    case 'assets':
+      store.overlay = 'assets'
       break
-    case 'adapt':
-      if (store.pid && store.convId) {
-        store.draft = '请对当前剧本进行改编：'
-        store.draftSeq++
-      }
+    case 'skills':
+      store.overlay = 'skills'
       break
-    case 'editor':
-      if (!store.rightOpen) toggleRightPanel()
-      showView('editor')
-      break
-    case 'video':
-      if (!store.rightOpen) toggleRightPanel()
-      showView('video')
+    case 'output':
+      store.overlay = 'output'
       break
     case 'toggle-panel':
       toggleRightPanel()
@@ -166,7 +157,7 @@ defineExpose({ openPalette, closePalette })
               ref="inputRef"
               v-model="query"
               class="cp-input"
-              placeholder="搜索项目、对话、命令…"
+              placeholder="搜索作品、命令…"
               aria-label="搜索命令"
               spellcheck="false"
               autocomplete="off"

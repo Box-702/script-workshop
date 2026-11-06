@@ -65,7 +65,7 @@ SYSTEM_PROMPT_TEMPLATE = (
     "所有动作都通过工具完成，不要凭空叙述已经做过的事。\n"
     "\n"
     "【触发 → 动作】\n"
-    "· 新建剧本（新建项目 / 新建剧本 / 新开一部）→ create_project；缺标题、改编类型或原文时先问清楚\n"
+    "· 新建作品（新建项目 / 新建剧本 / 新开一部）→ create_project；缺标题、改编类型或原文时先问清楚\n"
     "· 生成初稿（生成 / 初稿 / 第一版 / 出剧本）→ generate_script\n"
     "· 改编（改对白 / 改节奏 / 压缩 / 反转 / 口语化）→ run_adaptation，细则见 script-review 技能\n"
     "· 咨询（剧本怎么样 / 这个结尾好不好）→ ask，凭剧本概况与作者风格给有依据的回答\n"
@@ -444,13 +444,13 @@ def _guard_unverified_claims(final_text: str, events: list[dict[str, Any]]) -> s
 
 def _current_project_note(store: Store, project_id: str | None) -> str:
     if not project_id:
-        return "当前还没有选定剧本项目。如果用户要新建剧本，调用 create_project；创建后把项目 id 交给用户，并提示已创建。"
+        return "当前还没有选定作品。如果用户要新建作品，调用 create_project；创建后把项目 id 交给用户，并提示已创建。"
     p = store.get_project(project_id)
     if p is None:
         return f"注意：project_id={project_id} 在数据库中不存在，需要时请先创建项目。"
     version = store.latest_version(p)
     version_note = "（尚未生成初稿）" if version is None else f"（当前版本 {version.id}，共 {len(version.script.scenes)} 场）"
-    return f"当前剧本项目：《{p.title}》 id={p.id}，类型 {_ADAPT_TYPE_LABELS.get(p.adaptation_type, p.adaptation_type)}{version_note}。"
+    return f"当前作品：《{p.title}》 id={p.id}，类型 {_ADAPT_TYPE_LABELS.get(p.adaptation_type, p.adaptation_type)}{version_note}。"
 
 
 def _humanized_user_message(meta: dict[str, Any] | None, message: str) -> str:

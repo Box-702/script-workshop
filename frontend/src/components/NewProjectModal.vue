@@ -1,6 +1,6 @@
 <script setup>
 // =====================================================================
-// NewProjectModal.vue —— 新建剧本弹窗
+// NewProjectModal.vue —— 新建作品弹窗
 //
 // 表单：剧名 + 改编类型 + 原著来源（上传 .txt/.md/.docx 或粘贴原文）。
 // 支持点击选择与拖拽文件；提交走 /api/projects/import（FormData）。
@@ -90,8 +90,8 @@ async function submit() {
        在后台标签页会被冻结导致关不掉；这里用纯 CSS 入场动画（仅视觉，
        不影响 DOM 移除时机），v-if 关闭即瞬时移除，任何环境都可靠。 -->
   <div v-if="store.showNewProject" class="modal-backdrop" @click.self="!submitting && (store.showNewProject = false)">
-    <div class="modal" role="dialog" aria-label="新建剧本">
-      <h3>新建剧本</h3>
+    <div class="modal" role="dialog" aria-label="新建作品">
+      <h3>新建作品</h3>
 
       <label>剧名</label>
       <input ref="titleInput" v-model="title" placeholder="例如：雨夜" style="width: 100%" @keydown.enter="submit" />
@@ -124,7 +124,7 @@ async function submit() {
 
       <div class="foot">
         <button class="ghost" :disabled="submitting" @click="store.showNewProject = false">取消</button>
-        <button :disabled="submitting" @click="submit">{{ submitting ? '创建中…' : '创建剧本' }}</button>
+        <button :disabled="submitting" @click="submit">{{ submitting ? '创建中…' : '创建作品' }}</button>
       </div>
     </div>
   </div>

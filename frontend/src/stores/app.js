@@ -50,7 +50,7 @@ export const store = reactive({
   streamingStage: '',          // 当前生成阶段（来自工具事件的用户可读文案，如「拆解镜头方案」）
   focusSeq: 0,                 // 「聚焦输入框」信号：开始页主按钮等递增它，输入区 watch 后 focus
   checked: reactive(new Map()), // runId -> Set(已勾选 patch 下标)
-  showNewProject: false,        // 新建剧本弹窗开关
+  showNewProject: false,        // 新建作品弹窗开关
   showWorkspace: false,             // 工作目录设置弹窗开关
   showSettings: false,
   overlay: null,   // 全屏页面：assets | skills | output | tasks（null=关闭）
@@ -275,7 +275,7 @@ export async function selectProject(pid) {
   const convs = store.convMap[pid] || []
   if (convs.length) await selectConversation(pid, convs[0].id, token)
   else {
-    setHint('已选择剧本项目，可直接提改编需求')
+    setHint('已选择作品，可以直接提改编需求')
     await loadViewer(token)
   }
 }
@@ -760,9 +760,9 @@ export async function resumeReview(runId, action, opts = {}) {
 }
 
 // ---------------------------------------------------------------------
-// 新建剧本（导入项目）
+// 新建作品（导入项目）
 // ---------------------------------------------------------------------
-/** 提交新建剧本表单；成功后选中新项目（及其首个对话）。 */
+/** 提交新建作品表单；成功后选中新作品（及其首个对话）。 */
 export async function submitNewProject({ title, adapt, visual, file, raw }) {
   const fd = new FormData()
   fd.append('title', title)

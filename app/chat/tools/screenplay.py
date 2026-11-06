@@ -27,7 +27,7 @@ def build(ctx: ToolContext) -> list:
 
     @tool
     def create_project(title: str, raw_text: str, adaptation_type: str = "short_drama") -> str:
-        """新建一部剧本项目。产品只做短剧。参数：title=剧名，raw_text=原著或故事原文。adaptation_type 可省略（默认短剧）。"""
+        """新建一部作品。产品只做短剧。参数：title=剧名，raw_text=原著或故事原文。adaptation_type 可省略（默认短剧）。"""
         from ...domain import normalize_adaptation_type
 
         name = normalize_adaptation_type(adaptation_type)
@@ -51,7 +51,7 @@ def build(ctx: ToolContext) -> list:
 
         genres = detect_genres(raw_text, top=2)
         reply = (
-            f"已创建剧本项目《{p.title}》（id={p.id}，类型：{label}，题材：{'、'.join(genres)}）。"
+            f"已创建作品《{p.title}》（id={p.id}，类型：{label}，题材：{'、'.join(genres)}）。"
         )
         # 诚实化：超长原文一次生成只覆盖开头一小段，必须说清楚并给出路。
         from ...pipeline.chunking import chapter_spans

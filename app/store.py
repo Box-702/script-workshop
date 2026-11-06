@@ -2,7 +2,7 @@
 # store.py —— 业务数据持久化（SQLAlchemy + Postgres，可回退 SQLite）
 #
 # 保存三类对象：
-#   Project       剧本项目（标题、类型、语言、原始文本、指向当前版本）
+#   Project       作品（标题、类型、语言、原始文本、指向当前版本）
 #   ScriptVersion 剧本快照（内容为 JSON，支持父子版本链）
 #   AgentRun      Agent 运行记录（计划、patch、状态、审阅决定）
 #
@@ -101,7 +101,7 @@ class Base(DeclarativeBase):
 
 
 class Project(Base):
-    """剧本项目。"""
+    """作品。"""
 
     __tablename__ = "projects"
 

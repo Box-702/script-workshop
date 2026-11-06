@@ -211,7 +211,7 @@ function onSceneDragEnd() {
       <pre v-else-if="store.viewerText">{{ store.viewerText }}</pre>
       <div v-else class="v-empty">
         <template v-if="store.pid">还没有剧本版本。在左侧对话里说「生成初稿」，生成的内容会出现在这里。</template>
-        <template v-else>选择剧本项目后，这里会以「剧本排版」显示当前剧本文本。</template>
+        <template v-else>选择一部作品后，这里会显示它的剧本正文。</template>
       </div>
 
       <div v-if="store.pid && (store.viewerScript || store.viewerText)" class="v-foot">

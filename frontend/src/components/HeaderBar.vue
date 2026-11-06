@@ -31,10 +31,10 @@ function openWorkbench() {
 
 <template>
   <header>
-    <!-- 任务历史（点开是一个页面，不再是常驻侧栏） -->
+    <!-- 我的作品（点开是一个页面，不再是常驻侧栏） -->
     <button
       class="ghost nav-toggle"
-      title="任务历史"
+      title="我的作品"
       @click="emit('open-tasks')"
     >
       <AppIcon name="menu" />
