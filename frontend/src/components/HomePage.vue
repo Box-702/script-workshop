@@ -1,95 +1,49 @@
-<template>
-  <div class="home">
-    <!-- 背景水印：巨大的「问」——品牌设计就是在这个问字上做的文章 -->
-    <div class="home-watermark" aria-hidden="true">问</div>
-
-    <!-- 顶栏：品牌 + 设置 -->
-    <div class="home-top">
-      <div class="home-brand">
-        <LogoMark :size="22" />
-        <span class="brand-name">问剧</span>
-        <span class="brand-mode">WENJU</span>
-      </div>
-      <div class="home-top-actions">
-        <button class="ghost small" @click="store.showNewProject = true"><AppIcon name="plus" /> 新建作品</button>
-        <button class="ghost small" title="设置" @click="store.showSettings = true">
-          <AppIcon name="gear" />
-        </button>
-      </div>
-    </div>
-
-    <!-- 主体：品牌命题 + 作品 -->
-    <div class="home-main">
-      <section class="home-hero" aria-label="问剧">
-        <div class="mark-row">
-          <span class="mark-badge" aria-hidden="true">
-            <LogoMark :size="34" />
-          </span>
-          <h1 class="home-title">问剧</h1>
-        </div>
-        <p class="home-tagline">把一部小说，变成一部短剧。</p>
-        <p class="home-hint">新建作品导入小说原文，AI 从剧本、人物白模、场景图一路做到提示词；什么时候出视频，由你决定。</p>
-      </section>
-
-      <section class="home-works" aria-label="我的作品">
-        <div class="works-head">
-          <span class="works-title">我的作品</span>
-          <span class="works-count">{{ works.length ? `${works.length} 部` : '' }}</span>
-        </div>
-
-        <div class="works-grid">
-          <!-- 新建作品卡片 -->
-          <button class="work-card new-card" @click="store.showNewProject = true">
-            <span class="new-plus" aria-hidden="true"><AppIcon name="plus" /></span>
-            <span class="new-text">新建作品</span>
-            <span class="new-sub">导入小说原文</span>
-          </button>
-
-          <!-- 历史作品卡片 -->
-          <article v-for="p in works" :key="p.id" class="work-card" @click="enter(p.id)">
-            <div class="work-cover" aria-hidden="true">
-              <span class="work-glyph">{{ (p.title || '问')[0] }}</span>
-            </div>
-            <div class="work-body">
-              <h3 class="work-title">{{ p.title }}</h3>
-              <p class="work-meta">
-                {{ formatDate(p.created_at) }} · 剧本 {{ p.version_count || 0 }} 版 · 改编 {{ p.run_count || 0 }} 次
-              </p>
-            </div>
-            <button
-              class="work-del" title="删除作品" aria-label="删除作品"
-              @click.stop="remove(p)"
-            ><AppIcon name="close" /></button>
-          </article>
-        </div>
-
-        <p v-if="!works.length" class="works-empty">
-          还没有作品。新建一部，导入小说原文，一分钟内看到第一版剧本。
-        </p>
-      </section>
-    </div>
-  </div>
-</template>
-
 <script setup>
 // =====================================================================
-// HomePage.vue —— 品牌首页（退出工作区后的落点）
+// HomePage.vue —— 首页
 //
-// 只放三样东西：品牌（问剧，设计长在「问」上）、我的作品（历史作品卡片）、
-// 新建作品入口。点作品卡 = 进入工作区（store.mode 切换，三栏布局接管）。
+// 结构：极光背景（多层模糊色斑）+ 居中 hero（标语 + 主输入卡片）+ 我的作品。
+// 主输入卡片见 HomeComposer.vue。
+// 点作品卡 = 进入工作区（store.mode 切到 workspace，三栏布局接管渲染）。
 // =====================================================================
-import { computed } from 'vue'
-import { store, selectProject, deleteProject } from '../stores/app.js'
+import { computed, ref } from 'vue'
+import { store, selectProject, deleteProject, notify } from '../stores/app.js'
 import LogoMark from './LogoMark.vue'
 import AppIcon from './AppIcon.vue'
+import HomeComposer from './HomeComposer.vue'
 
 const works = computed(() =>
   [...(store.projects || [])].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')),
 )
 
+/** 产出目标：小说改编 / 分镜设计 / 成片交付 */
+const goal = ref('novel-to-drama')
+
 function enter(pid) {
-  // selectProject 会把 mode 切到 workspace（三栏布局接管渲染）。
   selectProject(pid)
+}
+
+function onGoal(next) {
+  goal.value = next
+}
+
+function onPickLibrary(kind) {
+  if (!store.pid) {
+    store.showNewProject = true
+    notify('先新建作品，再挂载素材', 'ok')
+    return
+  }
+  // 有作品：进工作区后在左栏资产面板里挑
+  selectProject(store.pid)
+}
+
+async function remove(p) {
+  if (!window.confirm(`删除作品《${p.title}》？该操作不可撤销。`)) return
+  try {
+    await deleteProject(p.id)
+  } catch (e) {
+    notify(`删除失败：${e.message}`)
+  }
 }
 
 function formatDate(iso) {
@@ -97,124 +51,394 @@ function formatDate(iso) {
   const d = new Date(iso)
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
 }
-
-async function remove(p) {
-  if (!confirm(`确定删除《${p.title}》？其剧本、资产与对话会一并删除。`)) return
-  await deleteProject(p.id)
-}
 </script>
+
+<template>
+  <div class="home">
+    <!-- 极光背景：四团大面积模糊色斑，溢出到视口外 -->
+    <div class="aurora" aria-hidden="true">
+      <span class="blob blob-blue"></span>
+      <span class="blob blob-violet"></span>
+      <span class="blob blob-red"></span>
+      <span class="blob blob-teal"></span>
+      <span class="grain"></span>
+    </div>
+
+    <!-- 顶栏：极简，只有品牌与设置 -->
+    <header class="home-top">
+      <div class="home-brand">
+        <LogoMark :size="20" />
+        <span class="brand-name">问剧</span>
+        <span class="brand-mode">WENJU</span>
+      </div>
+      <div class="home-top-actions">
+        <button class="ghost small" @click="store.showNewProject = true">
+          <AppIcon name="plus" /> 新建作品
+        </button>
+        <button class="ghost small" title="设置" @click="store.showSettings = true">
+          <AppIcon name="gear" />
+        </button>
+      </div>
+    </header>
+
+    <!-- 主体：标语 + 主输入卡片 -->
+    <main class="home-stage">
+      <h1 class="hero-title"><em>You call the drama</em></h1>
+      <p class="hero-sub">全能班底 · 你和小说</p>
+
+      <HomeComposer
+        :goal="goal"
+        @goal="onGoal"
+        @pick-library="onPickLibrary"
+      />
+    </main>
+
+    <!-- 我的作品：折线以下 -->
+    <section class="home-works" aria-label="我的作品">
+      <div class="works-head">
+        <span class="works-title">我的作品</span>
+        <span class="works-count">{{ works.length ? `${works.length} 部` : '' }}</span>
+      </div>
+
+      <div class="works-grid">
+        <button class="work-card new-card" @click="store.showNewProject = true">
+          <span class="new-plus" aria-hidden="true"><AppIcon name="plus" /></span>
+          <span class="new-text">新建作品</span>
+          <span class="new-sub">导入小说原文</span>
+        </button>
+
+        <article v-for="p in works" :key="p.id" class="work-card" @click="enter(p.id)">
+          <div class="work-cover" aria-hidden="true">
+            <span class="work-glyph">{{ (p.title || '问')[0] }}</span>
+          </div>
+          <div class="work-body">
+            <h3 class="work-title">{{ p.title }}</h3>
+            <p class="work-meta">
+              {{ formatDate(p.created_at) }} · 剧本 {{ p.version_count || 0 }} 版 · 改编 {{ p.run_count || 0 }} 次
+            </p>
+          </div>
+          <button
+            class="work-del" title="删除作品" aria-label="删除作品"
+            @click.stop="remove(p)"
+          ><AppIcon name="close" /></button>
+        </article>
+      </div>
+
+      <p v-if="!works.length" class="works-empty">
+        还没有作品。新建一部，导入小说原文，一分钟内看到第一版剧本。
+      </p>
+    </section>
+  </div>
+</template>
 
 <style scoped>
 .home {
-  position: relative; min-height: 100vh; overflow: hidden;
-  display: flex; flex-direction: column;
-  background: var(--bg, #0b0f14);
-}
-.home-watermark {
-  position: absolute; right: -4vmin; top: -8vmin;
-  font-size: 58vmin; line-height: 1; font-weight: 700;
-  color: transparent; -webkit-text-stroke: 1px color-mix(in oklch, var(--ink) 8%, transparent);
-  user-select: none; pointer-events: none; z-index: 0;
+  position: relative;
+  min-height: 100vh;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  background: #08080c;
+  color: #fff;
 }
 
+/* ---------- 极光背景 ---------- */
+.aurora {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(110px);
+  opacity: 0.92;
+}
+
+/* 四团光斑铺满视口边缘：左上冷蓝、右上紫品红、右下赤红、左下暗青 */
+.blob-blue {
+  width: 900px;
+  height: 700px;
+  top: -320px;
+  left: -220px;
+  background: radial-gradient(circle at 50% 50%, rgba(37, 99, 235, 0.95), rgba(23, 44, 122, 0) 68%);
+}
+
+.blob-violet {
+  width: 820px;
+  height: 620px;
+  top: -300px;
+  right: -60px;
+  background: radial-gradient(circle at 50% 50%, rgba(168, 85, 247, 0.9), rgba(76, 29, 149, 0) 68%);
+}
+
+.blob-red {
+  width: 900px;
+  height: 640px;
+  right: -220px;
+  bottom: -360px;
+  background: radial-gradient(circle at 50% 50%, rgba(239, 68, 68, 0.85), rgba(127, 29, 29, 0) 68%);
+}
+
+.blob-teal {
+  width: 700px;
+  height: 540px;
+  left: 2%;
+  bottom: -360px;
+  background: radial-gradient(circle at 50% 50%, rgba(13, 148, 136, 0.6), rgba(12, 74, 110, 0) 68%);
+}
+
+/* 细颗粒：压住大面积渐变的塑料感（太重会把颜色吃掉） */
+.grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.07;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.2) 1px, transparent 1px);
+  background-size: 3px 3px;
+  mix-blend-mode: overlay;
+}
+
+/* ---------- 顶栏 ---------- */
 .home-top {
-  position: relative; z-index: 1;
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 26px;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 26px;
 }
-.home-brand { display: flex; align-items: center; gap: 8px; }
+
+.home-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
 .brand-name {
-  font-size: 15px; font-weight: 600; color: var(--ink);
+  font-size: 15px;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.92);
 }
+
 .brand-mode {
-  color: var(--dim); font: 500 9px/1 var(--mono); letter-spacing: .1em;
-}
-.home-top-actions { display: flex; gap: 8px; }
-
-.home-main {
-  position: relative; z-index: 1;
-  width: min(1060px, 92vw); margin: 0 auto;
-  flex: 1; padding: 8vh 0 60px;
+  font-size: 10px;
+  letter-spacing: 0.26em;
+  color: rgba(255, 255, 255, 0.36);
 }
 
-.home-hero { margin-bottom: 5vh; }
-.mark-row { display: flex; align-items: center; gap: 14px; }
-.mark-badge {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 52px; height: 52px; border-radius: 10px;
-  border: 1px solid var(--line-strong);
-  background: var(--panel);
+.home-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-.mark-badge svg { width: 30px; height: 30px; }
-.home-title {
-  margin: 0; font-size: 40px; font-weight: 650; letter-spacing: .01em;
-  color: var(--ink);
+
+.home-top-actions .ghost {
+  color: rgba(255, 255, 255, 0.68);
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
 }
-.home-tagline { margin: 14px 0 6px; font-size: 16px; font-weight: 650; color: var(--ink); }
-.home-hint { margin: 0; font-size: 12.5px; color: var(--muted); max-width: 560px; line-height: 1.8; }
+
+.home-top-actions .ghost:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.26);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+/* ---------- 主体 ---------- */
+.home-stage {
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: clamp(48px, 9vh, 108px) 24px 8px;
+  text-align: center;
+}
+
+.hero-title {
+  margin: 0;
+  font-size: clamp(30px, 4.4vw, 46px);
+  font-weight: 300;
+  line-height: 1.18;
+  letter-spacing: 0.01em;
+  color: #fff;
+  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.35);
+}
+
+.hero-title em {
+  font-style: italic;
+  font-weight: 300;
+}
+
+.hero-sub {
+  margin: 12px 0 30px;
+  font-size: clamp(14px, 1.5vw, 17px);
+  letter-spacing: 0.22em;
+  color: rgba(255, 255, 255, 0.56);
+}
+
+/* ---------- 我的作品 ---------- */
+.home-works {
+  position: relative;
+  z-index: 2;
+  max-width: 1040px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 28px 24px 56px;
+}
 
 .works-head {
-  display: flex; align-items: baseline; gap: 8px;
-  margin: 0 0 12px; padding-top: 3vh;
-  border-top: 1px solid color-mix(in oklch, var(--line) 55%, transparent);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
 }
+
 .works-title {
-  font-size: 10px; font-weight: 650; color: var(--dim);
-  text-transform: uppercase; letter-spacing: .14em;
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  color: rgba(255, 255, 255, 0.58);
 }
-.works-count { font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+.works-count {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.34);
+}
 
 .works-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(212px, 1fr));
+  gap: 14px;
 }
+
 .work-card {
-  position: relative; text-align: left;
-  display: flex; flex-direction: column;
-  border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
-  background: var(--panel);
-  cursor: pointer; padding: 0;
-  transition: border-color 130ms var(--ease);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.045);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
 }
+
 .work-card:hover {
-  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.17);
+  transform: translateY(-1px);
 }
-.work-cover {
-  display: flex; align-items: center; justify-content: center;
-  aspect-ratio: 16 / 7;
-  background: var(--panel2);
-}
-.work-glyph {
-  font-size: 40px; font-weight: 600; color: var(--dim);
-}
-.work-body { padding: 12px 14px 14px; }
-.work-title {
-  margin: 0 0 4px; font-size: 14px; font-weight: 700; color: var(--ink);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.work-meta { margin: 0; font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
-.work-del {
-  position: absolute; right: 8px; top: 8px;
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 24px; height: 24px; border-radius: 6px;
-  border: 1px solid var(--line); background: color-mix(in oklch, var(--bg) 80%, transparent);
-  color: var(--muted); font-size: 12px; line-height: 1;
-  opacity: 0; cursor: pointer; transition: opacity 140ms var(--ease);
-}
-.work-card:hover .work-del { opacity: 1; }
-.work-del:hover { color: #e5776f; border-color: #e5776f; }
 
 .new-card {
-  align-items: center; justify-content: center; gap: 4px;
-  min-height: 150px;
-  border-style: dashed; background: transparent;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 18px 16px;
 }
-.new-card:hover {
-  background: color-mix(in oklch, var(--gold) 4%, transparent);
-  border-color: color-mix(in oklch, var(--gold) 38%, var(--line));
-}
-.new-plus { display: inline-flex; font-size: 28px; color: var(--gold); line-height: 1; }
-.new-text { font-size: 13.5px; font-weight: 700; color: var(--ink); }
-.new-sub { font-size: 11px; color: var(--dim); }
 
-.works-empty { margin: 18px 2px; font-size: 12.5px; color: var(--dim); }
+.new-plus {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.09);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.new-text {
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.new-sub {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.work-cover {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.35), rgba(147, 51, 234, 0.35));
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 17px;
+}
+
+.work-body {
+  min-width: 0;
+}
+
+.work-title {
+  margin: 0 0 3px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-meta {
+  margin: 0;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.work-del {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.work-card:hover .work-del {
+  opacity: 1;
+}
+
+.work-del:hover {
+  background: rgba(239, 68, 68, 0.22);
+  color: #fff;
+}
+
+.works-empty {
+  margin: 18px 0 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+@media (max-width: 720px) {
+  .home-stage {
+    padding-top: 12px;
+  }
+  .hero-sub {
+    margin-bottom: 20px;
+    letter-spacing: 0.14em;
+  }
+  .home-top {
+    padding: 14px 16px;
+  }
+}
 </style>

@@ -258,13 +258,16 @@ textarea:focus-visible { outline: none; }
 
 /* 图片按钮：与模型徽标同排的安静工具按钮 */
 .tool-btn {
-  width: 28px; height: 28px; padding: 0; border-radius: 7px;
-  background: transparent; border: 1px solid var(--line); color: var(--muted);
+  width: 32px; height: 32px; padding: 0; border-radius: 9px;
+  background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.78);
   display: inline-grid; place-items: center; flex: none;
-  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
 .tool-btn .app-ic { font-size: 14px; }
-.tool-btn:hover:not(:disabled) { color: var(--ink); border-color: var(--line-strong); }
+.tool-btn:hover:not(:disabled) {
+  color: #fff; border-color: rgba(255, 255, 255, 0.18); background: rgba(255, 255, 255, 0.1);
+}
 .tool-btn:disabled { opacity: .4; cursor: default; }
 
 /* 工具行 */
@@ -273,13 +276,14 @@ textarea:focus-visible { outline: none; }
 /* 导入文档：可视 36px，命中区扩到 44px */
 /* 模型徽标：安静的文字 chip，点击进设置 */
 .model-chip {
-  height: 24px; padding: 0 8px; border-radius: 6px; flex: none;
-  background: transparent; border: 1px solid var(--line); color: var(--muted);
-  font-size: 10.5px; font-family: var(--mono); line-height: 1;
+  height: 28px; padding: 0 10px; border-radius: 9px; flex: none;
+  background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 12px; font-family: var(--mono); line-height: 1;
   display: inline-flex; align-items: center;
-  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
-.model-chip:hover { color: var(--ink); border-color: var(--line-strong); }
+.model-chip:hover { color: #fff; border-color: rgba(255, 255, 255, 0.18); background: rgba(255, 255, 255, 0.1); }
 .hint { color: var(--dim); font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .composer-context { min-width: 0; display: inline-flex; align-items: center; gap: 7px; color: var(--dim); font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .context-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--dim); }
@@ -307,11 +311,14 @@ textarea:focus-visible { outline: none; }
   transition: background-color 200ms var(--ease), color 200ms var(--ease), border-color 200ms var(--ease);
 }
 .send .app-ic { font-size: 18px; transform: translateY(-0.5px); }
+/* 就绪态：绿色渐变主行动（与首页 CTA 同一套语言） */
 .send.ready {
-  background: var(--accent);
-  color: var(--on-accent);
+  background: linear-gradient(135deg, #86ef7d 0%, #4ade80 45%, #22c55e 100%);
+  color: #06210f;
+  border-color: transparent;
+  box-shadow: 0 8px 24px rgba(34, 197, 94, 0.26);
 }
-.send.ready:hover:not(:disabled) { background: var(--accent-hover); }
-.send.ready:active:not(:disabled) { background: color-mix(in oklch, var(--accent) 88%, black); }
+.send.ready:hover:not(:disabled) { filter: brightness(1.06); }
+.send.ready:active:not(:disabled) { filter: brightness(0.98); }
 .send:disabled { opacity: 0.45; cursor: default; }
 </style>
