@@ -14,6 +14,15 @@ watch(
     if (st === 'running' || st === 'succeeded') autoOpenSidebar('shots')
   },
 )
+
+// 监听：有剧本版本了 → 弹到「大纲」
+// 这是「用户让你帮忙改编」的那一刻——他要看的正是改成了什么样。
+watch(
+  () => store.viewerScript,
+  (v) => {
+    if (v && (v.scenes || []).length) autoOpenSidebar('outline')
+  },
+)
 <script setup>
 // =====================================================================
 // App.vue —— 根组件：创作工作台布局
@@ -285,9 +294,11 @@ onUnmounted(() => {
   min-height: 0;
 }
 
+/* 右栏展开时与对话区**左右平分**（各一半）。
+   收起时 width:0，对话列独占整屏并在视口正中。 */
 .ctx-wrap {
   flex: none;
-  width: 340px;
+  width: 50%;
   min-height: 0;
   transition: width 200ms var(--ease), opacity 200ms var(--ease);
   overflow: hidden;

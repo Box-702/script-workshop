@@ -83,6 +83,16 @@ function openWorkbench() {
     <button
       class="ghost panel-toggle"
       :class="{ on: store.rightOpen }"
+      title="上下文侧栏（大纲 / 镜头 / 资产）"
+      aria-label="切换上下文侧栏"
+      @click="toggleRightPanel()"
+    >
+      <AppIcon name="panel" />
+    </button>
+
+    <button
+      class="ghost panel-toggle"
+      :class="{ on: store.rightOpen }"
       title="切换 Inspector（Ctrl+I）"
       @click="toggleRightPanel"
     >

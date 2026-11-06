@@ -14,9 +14,8 @@
 // 出片时侧边栏会自动弹出并切到「镜头」：这是用户此刻最想看的东西。
 // =====================================================================
 
-import { computed, watch, onMounted } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 import { store, loadShots, loadVideoJobs, loadAssets, notify } from '../stores/app'
-import { api } from '../api'
 import AppIcon from './AppIcon.vue'
 import ShotList from './video/ShotList.vue'
 import VideoPlayer from './video/VideoPlayer.vue'
