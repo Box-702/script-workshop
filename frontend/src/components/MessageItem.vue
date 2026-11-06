@@ -58,29 +58,64 @@ const metaLabel = computed(() => {
   return `${t.model || t.provider || ''} · 处理 ${dur}`.trim()
 })
 
-const visibleEvents = computed(() => {
-  const evts = stepEvents.value
-  if (evts.length <= STEP_COLLAPSE || stepsExpanded.value) return evts
-  return evts.slice(-STEP_COLLAPSE)
+const visibleSteps = computed(() => {
+  const rows = mergedSteps.value
+  if (rows.length <= STEP_COLLAPSE || stepsExpanded.value) return rows
+  return rows.slice(-STEP_COLLAPSE)
 })
-const hiddenCount = computed(() => Math.max(0, stepEvents.value.length - STEP_COLLAPSE))
+const hiddenCount = computed(() => Math.max(0, mergedSteps.value.length - STEP_COLLAPSE))
 
-function stepIcon(e) {
-  // 纯文本符号（非 emoji）：进行中的调用 ›，过程 ·，完成 ✓；颜色由行样式区分
-  if (e.type === 'tool_call') return '›'
-  if (e.type === 'step') return '·'
-  return '✓'
-}
-function stepLabel(e) {
-  if (e.type === 'tool_call') return STAGE_LABELS[e.name] || '正在处理'
-  if (e.type === 'step') return e.label || STAGE_LABELS[e.name] || '正在处理'
-  return e.name
-}
-// 不给用户看函数参数（JSON 片段），工具结果摘要保留。
-function stepDetail(e) {
-  if (e.type === 'tool_call') return ''
-  if (e.type === 'step') return ''
-  return e.summary || ''
+// ---- 步骤行：一次工具调用 = 一行 ----
+// 后端发的是 tool_call / tool_result 两条事件；这里配对成一行，
+// 显示「中文动作 · 结果」，而不是两行英文。
+const mergedSteps = computed(() => {
+  const rows = []
+  for (const e of stepEvents.value) {
+    if (e.type === 'tool_call') {
+      rows.push({
+        name: e.name || '',
+        label: STAGE_LABELS[e.name] || `执行 ${e.name || '工具'}`,
+        detail: '',
+        done: false,
+      })
+    } else if (e.type === 'step') {
+      rows.push({
+        name: e.name || '',
+        label: e.label || STAGE_LABELS[e.name] || '处理中',
+        detail: '',
+        done: true,
+      })
+    } else if (e.type === 'tool_result') {
+      // 配对最近一个还没完成的同名调用
+      const hit = [...rows].reverse().find((r) => !r.done && r.name === (e.name || ''))
+      if (hit) {
+        hit.detail = briefResult(e.summary)
+        hit.done = true
+      } else {
+        rows.push({
+          name: e.name || '',
+          label: STAGE_LABELS[e.name] || `执行 ${e.name || '工具'}`,
+          detail: briefResult(e.summary),
+          done: true,
+        })
+      }
+    }
+  }
+  return rows
+})
+
+/** 结果摘要：工具返回是给模型看的长文本，给用户看的要短。
+
+    不按句号截断——get_status 这类工具会返回多段状态（剧本/镜头/合成），
+    砍掉后面几段反而看不懂。改成按长度截断，且尽量落在标点上。
+*/
+function briefResult(text) {
+  const s = String(text || '').trim().replace(/\s+/g, ' ')
+  if (!s) return ''
+  if (s.length <= 52) return s
+  const cut = s.slice(0, 52)
+  const m = cut.match(/^(.*[，,、；;：:。])[^，,、；;：:。]*$/)
+  return (m ? m[1] : cut) + '…'
 }
 
 // ---- 复制 ----
@@ -144,9 +179,9 @@ onUnmounted(() => clearTimeout(copiedTimer))
       <!-- 工作步骤面板 -->
       <div v-if="stepEvents.length" class="steps-panel">
         <div class="steps-header" @click="stepsExpanded = !stepsExpanded">
-          <span class="steps-icon">{{ message.streaming ? '· · ·' : 'DONE' }}</span>
+          <span class="steps-icon">{{ message.streaming ? '· · ·' : '✓' }}</span>
           <span class="steps-title">
-            {{ message.streaming ? '正在处理…' : '本次完成的工作' }}
+            {{ message.streaming ? '正在处理…' : `已完成 ${mergedSteps.length} 步` }}
           </span>
           <span class="steps-toggle">{{ stepsExpanded ? '收起' : '展开' }}</span>
         </div>
@@ -154,10 +189,11 @@ onUnmounted(() => clearTimeout(copiedTimer))
           <div v-if="hiddenCount > 0 && !stepsExpanded" class="steps-more" @click="stepsExpanded = true">
             还有 {{ hiddenCount }} 个步骤…
           </div>
-          <div v-for="(e, i) in visibleEvents" :key="i" class="step-row" :class="'step-' + (e.type === 'tool_call' ? 'call' : e.type === 'step' ? 'progress' : 'done')">
-            <span class="step-icon">{{ stepIcon(e) }}</span>
-            <span class="step-label">{{ stepLabel(e) }}</span>
-            <span v-if="stepDetail(e)" class="step-detail">{{ stepDetail(e) }}</span>
+          <div v-for="(r, i) in visibleSteps" :key="i" class="step-row" :class="{ done: r.done }">
+            <span class="step-icon" aria-hidden="true">{{ r.done ? '✓' : '›' }}</span>
+            <span class="step-label">{{ r.label }}</span>
+            <span v-if="r.detail" class="step-detail">{{ r.detail }}</span>
+            <span v-else-if="!r.done" class="step-detail">进行中</span>
           </div>
         </div>
       </div>
@@ -208,31 +244,37 @@ onUnmounted(() => clearTimeout(copiedTimer))
 .cmd-image img { display: block; max-height: 180px; width: auto; max-width: 100%; object-fit: cover; }
 
 /* 工作步骤面板 */
+/* 工具调用 / 系统步骤：一条时间线，小字，没有卡片包裹。
+   目的是让用户看懂「这一步在做什么」，而不是看一堆英文工具名。 */
 .steps-panel {
-  background: rgba(255, 255, 255, .04); border: 1px solid var(--line); border-radius: 14px;
-  margin-bottom: 10px; overflow: hidden;
-  backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass);
+  margin-bottom: 10px;
+  border-left: 1px solid var(--line);
+  padding-left: 12px;
 }
 .steps-header {
-  display: flex; align-items: center; gap: 8px; padding: 7px 12px;
-  cursor: pointer; user-select: none; font-size: 12px;
+  display: flex; align-items: center; gap: 8px; padding: 2px 0;
+  cursor: pointer; user-select: none; font-size: 11.5px;
 }
-.steps-header:hover { background: rgba(255, 255, 255, .05); }
+.steps-header:hover { color: var(--ink); }
 .steps-icon { flex: none; }
-.steps-title { flex: 1; color: var(--muted); font-weight: 500; }
+.steps-title { flex: 1; color: var(--dim); font-weight: 400; }
 .steps-toggle { flex: none; color: var(--dim); font-size: 11px; }
-.steps-body { padding: 4px 12px 8px; display: flex; flex-direction: column; gap: 3px; }
+.steps-body { padding: 3px 0 2px; display: flex; flex-direction: column; gap: 4px; }
 .steps-more {
   font-size: 11px; color: var(--dim); padding: 3px 0; cursor: pointer;
 }
 .steps-more:hover { color: var(--muted); }
-.step-row { display: flex; align-items: baseline; gap: 6px; font-size: 11.5px; color: var(--muted); padding: 2px 0; }
-.step-icon { flex: none; width: 16px; text-align: center; }
-.step-label { flex: none; font-weight: 500; }
-.step-detail { flex: 1; color: var(--dim); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.step-call .step-label { color: var(--ink); }
-.step-progress .step-label { color: var(--warn); }
-.step-done .step-label { color: var(--ok); }
+.step-row {
+  display: flex; align-items: baseline; gap: 7px;
+  font-size: 11.5px; line-height: 1.6; color: var(--muted);
+}
+.step-icon { flex: none; width: 12px; text-align: center; color: var(--dim); }
+.step-label { flex: none; color: var(--muted); }
+.step-detail {
+  flex: 1; min-width: 0; color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.step-row.done .step-icon { color: var(--ok); }
 
 /* 思考过程（推理模型 reasoning 实时流） */
 .thinking-panel { margin-bottom: 8px; }

@@ -623,6 +623,13 @@ export const STAGE_LABELS = {
   check_finalize: '查询成片进度',
   map_novel: '建立章节地图',
   propose_arcs: '挑选改编段落',
+  create_project: '新建作品',
+  get_status: '查看项目状态',
+  start_production: '启动制作流水线',
+  load_skill: '读取技能细则',
+  add_asset: '登记素材',
+  remember: '记住这条偏好',
+  recall: '回忆你的偏好',
 }
 
 /** 聚焦底部输入框（开始页主按钮等调用）。 */
@@ -664,7 +671,10 @@ export async function sendMessage(text, imageIds = []) {
 /** 处理单帧 SSE 事件，更新回复消息对象。 */
 function handleStreamEvent(ev, reply) {
   if (ev.event === 'tool_call' || ev.event === 'tool_result') {
-    reply.events.push(ev.data)
+    // 必须带上 type：SSE 的类型在 ev.event 上，而事件体本身没有 type。
+    // 少了它，步骤面板按 type 分派时就匹配不到任何分支（历史回放的消息
+    // 因为服务端存了 type 所以正常，只有正在流式的那条会显示「已完成 0 步」）。
+    reply.events.push({ type: ev.event, ...ev.data })
     // 阶段状态：工具开始即更新文案，供输入区状态条实时展示。
     if (ev.event === 'tool_call') {
       store.streamingStage = STAGE_LABELS[ev.data.name] || '正在处理'
@@ -677,6 +687,11 @@ function handleStreamEvent(ev, reply) {
   } else if (ev.event === 'done') {
     reply.content = ev.data.reply || reply.content
     reply.payloads = ev.data.payloads || []
+    // 消息头（模型 · 耗时）：服务端随 done 一起给，补进事件流的首位，
+    // 与历史回放的消息保持一致。
+    if (ev.data.turn_meta) {
+      reply.events.unshift({ type: 'meta', ...ev.data.turn_meta })
+    }
     afterAgentDone(ev.data)
   } else if (ev.event === 'error') {
     reply.content = `出错：${ev.data.message}`

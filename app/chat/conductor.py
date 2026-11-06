@@ -387,6 +387,9 @@ def _finalize_turn(
         "reply": final_text,
         "payloads": collector.get("payloads") or [],
         "events": events,
+        # turn_meta（模型 · 耗时）单独带出去：流式路径里前端已经在收事件，
+        # 这一条用于给「正在流式的那条消息」补上消息头，不用等历史回放。
+        "turn_meta": turn_meta,
         "project_id": new_project_id,
         "thread_id": thread,
     }
