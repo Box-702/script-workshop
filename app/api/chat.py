@@ -43,6 +43,29 @@ async def upload_chat_image(file: UploadFile = File(...)) -> dict[str, Any]:
     return {"id": img.id, "url": f"/api/chat/images/{img.id}", "mime": mime, "name": img.name}
 
 
+@router.get("/skills")
+def list_skills_api(audience: str = "main") -> dict[str, Any]:
+    """列出可用技能（默认只列主 Agent 能加载的）。
+
+    侧边栏的「技能」段用它渲染；用户手动点一个技能，等于在输入框里预填
+    它的适用场景，Agent 看到就会去 load_skill。
+    """
+    from ..skills import list_skills
+
+    metas = list_skills(audience=audience or None)
+    return {
+        "skills": [
+            {
+                "name": m.name,
+                "description": m.description,
+                "when_to_use": m.when_to_use,
+                "audience": m.audience,
+            }
+            for m in metas
+        ]
+    }
+
+
 @router.get("/chat/images/{image_id}")
 def get_chat_image(image_id: str) -> Response:
     """回放对话图片字节（前端 <img> 与历史消息都用它）。"""

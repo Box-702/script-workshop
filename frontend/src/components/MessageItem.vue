@@ -42,12 +42,28 @@ watch(() => props.message.thinking, () => {
 // 工具名 → 用户能看懂的创作动作（唯一来源在 stores/app.js 的 STAGE_LABELS，
 // 与输入区的阶段状态条共用同一张表）；未登记的工具一律显示「正在处理」。
 
+// meta 事件是「这一轮」的元信息（模型/耗时），不是工作步骤，渲染在消息头上
+const stepEvents = computed(() => (props.message.events || []).filter((e) => e.type !== 'meta'))
+
+const turnMeta = computed(() => {
+  const m = (props.message.events || []).find((e) => e.type === 'meta')
+  return m || null
+})
+
+const metaLabel = computed(() => {
+  const t = turnMeta.value
+  if (!t) return ''
+  const ms = Number(t.ms || 0)
+  const dur = ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`
+  return `${t.model || t.provider || ''} · 处理 ${dur}`.trim()
+})
+
 const visibleEvents = computed(() => {
-  const evts = props.message.events || []
+  const evts = stepEvents.value
   if (evts.length <= STEP_COLLAPSE || stepsExpanded.value) return evts
   return evts.slice(-STEP_COLLAPSE)
 })
-const hiddenCount = computed(() => Math.max(0, (props.message.events || []).length - STEP_COLLAPSE))
+const hiddenCount = computed(() => Math.max(0, stepEvents.value.length - STEP_COLLAPSE))
 
 function stepIcon(e) {
   // 纯文本符号（非 emoji）：进行中的调用 ›，过程 ·，完成 ✓；颜色由行样式区分
@@ -126,7 +142,7 @@ onUnmounted(() => clearTimeout(copiedTimer))
       </div>
 
       <!-- 工作步骤面板 -->
-      <div v-if="(message.events || []).length" class="steps-panel">
+      <div v-if="stepEvents.length" class="steps-panel">
         <div class="steps-header" @click="stepsExpanded = !stepsExpanded">
           <span class="steps-icon">{{ message.streaming ? '· · ·' : 'DONE' }}</span>
           <span class="steps-title">
@@ -134,7 +150,7 @@ onUnmounted(() => clearTimeout(copiedTimer))
           </span>
           <span class="steps-toggle">{{ stepsExpanded ? '收起' : '展开' }}</span>
         </div>
-        <div v-if="stepsExpanded || (message.events || []).length <= STEP_COLLAPSE" class="steps-body">
+        <div v-if="stepsExpanded || stepEvents.length <= STEP_COLLAPSE" class="steps-body">
           <div v-if="hiddenCount > 0 && !stepsExpanded" class="steps-more" @click="stepsExpanded = true">
             还有 {{ hiddenCount }} 个步骤…
           </div>
@@ -146,10 +162,16 @@ onUnmounted(() => clearTimeout(copiedTimer))
         </div>
       </div>
 
+      <!-- 消息头：模型 · 耗时 · 复制 · 重试 -->
+      <div v-if="metaLabel || showCopy" class="msg-meta">
+        <span v-if="metaLabel" class="meta-info">{{ metaLabel }}</span>
+        <span class="meta-spacer"></span>
+        <button v-if="showCopy" class="meta-btn" @click="copyContent">{{ copied ? '✓ 已复制' : '⧉ 复制' }}</button>
+      </div>
+
       <!-- 正文 -->
-      <div v-if="message.content || !message.streaming" class="agent-body" :class="{ 'has-copy': showCopy }">
+      <div v-if="message.content || !message.streaming" class="agent-body">
         <div class="content md" v-html="bodyHtml"></div>
-        <button v-if="showCopy" class="copy" @click="copyContent">{{ copied ? '✓ 已复制' : '⧉ 复制' }}</button>
       </div>
       <div v-else class="typing"><i></i><i></i><i></i></div>
 
@@ -233,6 +255,27 @@ onUnmounted(() => clearTimeout(copiedTimer))
 /* Agent 正文 */
 .agent-body { display: flex; flex-direction: column; min-width: 0; max-width: 100%; position: relative; }
 .content { display: block; min-width: 0; max-width: 78ch; word-break: break-word; text-align: left; font-size: 14px; line-height: 1.78; }
+/* 消息头：模型徽标 · 处理耗时 · 操作 */
+.msg-meta {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 0 6px; min-height: 20px;
+}
+.meta-info {
+  font-size: 11px; color: var(--dim); letter-spacing: .02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.meta-spacer { flex: 1; }
+.meta-btn {
+  height: 22px; padding: 0 8px; border-radius: 6px;
+  background: transparent; border: 1px solid transparent;
+  color: var(--dim); font-size: 11px; font-family: inherit; cursor: pointer;
+  transition: color 130ms var(--ease), background 130ms var(--ease);
+}
+.meta-btn:hover {
+  color: var(--ink); background: rgba(255, 255, 255, .07);
+  border-color: var(--line);
+}
+
 .copy {
   display: block; margin-top: 2px; background: transparent; border: 1px solid transparent;
   color: var(--muted); font-size: 11px; padding: 2px 8px; border-radius: 4px;

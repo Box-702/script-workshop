@@ -21,6 +21,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import time
 from typing import Any
 
 from .. import memory
@@ -338,12 +339,27 @@ def _user_turn_content(message: str, images: list[dict[str, Any]] | None) -> Any
     return blocks
 
 
+def _turn_meta(llm: LLM, started: float) -> dict[str, Any]:
+    """这一轮的元信息：模型名 + 耗时（毫秒）。
+
+    放在消息头（模型徽标 · 处理 Xs），是「对话产品」的基本信息量——
+    用户要知道这一轮是谁答的、答了多久。
+    """
+    info = llm.describe() if llm.available else {}
+    return {
+        "model": str(info.get("model") or info.get("provider_label") or ""),
+        "provider": str(info.get("provider_label") or info.get("provider") or ""),
+        "ms": int((time.monotonic() - started) * 1000),
+    }
+
+
 def _finalize_turn(
     store: Store, collector: _Collector, conversation_id: str | None,
     project_id: str | None, message: str, meta: dict[str, Any] | None,
     final_text: str, events: list[dict[str, Any]],
     save_user: bool = True,
     images: list[dict[str, Any]] | None = None,
+    turn_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """保存消息并返回对话结果。
 
@@ -358,9 +374,14 @@ def _finalize_turn(
     if save_user:
         store.save_chat_message(thread_id=thread, role="user", content=message,
                                 payload=[meta or {}], images=images)
+    # 消息元信息（模型 · 耗时）放在 events 首位——它是「这一轮」的元信息，
+    # 不是工具轨迹的一部分；前端渲染成消息头，步骤列表会把它过滤掉。
+    all_events = events
+    if turn_meta:
+        all_events = [{"type": "meta", **turn_meta}, *events]
     store.save_chat_message(
         thread_id=thread, role="assistant", content=final_text,
-        payload=collector.get("payloads") or [], events=events,
+        payload=collector.get("payloads") or [], events=all_events,
     )
     return {
         "reply": final_text,
@@ -577,6 +598,7 @@ def _run_turn(
     )
     events: list[dict[str, Any]] = []
     final_text = ""
+    started = time.monotonic()
     try:
         final_text, events = _execute_loop_turn(loop, messages)
         if _claims_unverified(final_text, events):
@@ -592,7 +614,7 @@ def _run_turn(
         final_text = f"对话运行出错了：{e}"
 
     return _finalize_turn(store, collector, conversation_id, project_id, message, meta, final_text, events,
-                          images=image_refs)
+                          images=image_refs, turn_meta=_turn_meta(llm, started))
 
 
 def chat_once(
@@ -671,6 +693,7 @@ def chat_stream(
     store.save_chat_message(thread_id=thread, role="user", content=message, payload=[meta or {}], images=image_refs)
     events: list[dict[str, Any]] = []
     final_text = ""
+    started = time.monotonic()
 
     def _pump(msgs: list[dict[str, Any]]):
         """跑一遍内核并实时 yield 事件；正文增量累积到 holder。"""
@@ -713,6 +736,6 @@ def chat_stream(
 
     result = _finalize_turn(
         store, collector, conversation_id, project_id, message, meta, final_text, events,
-        save_user=False,
+        save_user=False, turn_meta=_turn_meta(llm, started),
     )
     yield {"event": "done", "data": result}

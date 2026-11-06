@@ -1,10 +1,36 @@
 <template>
   <div class="asset-panel">
-    <!-- 作品：进入工作区的唯一入口（每个作品一个工作区，工作区内只有一个对话） -->
+    <!-- 新任务：开一部新作品 -->
+    <div class="panel-section">
+      <button class="new-task" @click="store.showNewProject = true">
+        <AppIcon name="plus" />
+        <span>新任务</span>
+      </button>
+    </div>
+
+    <!-- 技能：主 Agent 能加载的技能；点一下预填进输入框 -->
     <div class="panel-section">
       <div class="section-head">
-        <span class="section-title">作品</span>
-        <button class="btn-new" @click="store.showNewProject = true" title="新建作品（导入小说原文）" aria-label="新建作品"><AppIcon name="plus" /></button>
+        <span class="section-title">技能</span>
+      </div>
+      <button
+        v-for="s in store.skills" :key="s.name"
+        class="skill-item"
+        :title="s.description"
+        @click="useSkill(s)"
+      >
+        <span class="skill-name">{{ s.name }}</span>
+        <span class="skill-desc">{{ s.description }}</span>
+      </button>
+      <div v-if="!store.skills.length" class="proj-empty">
+        <p>没有可用技能。</p>
+      </div>
+    </div>
+
+    <!-- 任务历史：作品列表（每个作品一个工作区） -->
+    <div class="panel-section">
+      <div class="section-head">
+        <span class="section-title">任务历史</span>
       </div>
       <div
         v-for="p in projects" :key="p.id"
@@ -72,8 +98,9 @@
 // 现在对话收敛为每作品一个（进入作品自动用默认会话），左栏让给资产库——
 // 对话里引用的每个人物白模 / 场景图都能在这里按编号找到原图。
 // =====================================================================
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { store, selectProject, notify, loadShots } from '../stores/app.js'
+import { loadSkills, useSkill } from '../stores/app'
 import { api } from '../api.js'
 import AppIcon from './AppIcon.vue'
 
@@ -129,6 +156,8 @@ async function startProduction() {
 }
 
 // 进入新作品 / 资产可能被流水线更新 → 重新拉资产库
+onMounted(() => { loadSkills() })
+
 watch(() => store.pid, (pid) => { if (pid) loadLibrary() }, { immediate: true })
 </script>
 
@@ -161,6 +190,40 @@ watch(() => store.pid, (pid) => { if (pid) loadLibrary() }, { immediate: true })
   opacity: .55; color: var(--muted); transition: opacity 120ms, background 120ms;
 }
 .btn-tiny:hover { opacity: 1; background: color-mix(in oklch, var(--ink) 8%, transparent); }
+
+/* 新任务入口 */
+.new-task {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; padding: 9px 11px; border-radius: 10px;
+  background: rgba(255, 255, 255, .05); border: 1px solid var(--line);
+  color: var(--ink); font-size: 13px; font-family: inherit; cursor: pointer;
+  transition: background 130ms var(--ease), border-color 130ms var(--ease);
+}
+.new-task:hover {
+  background: rgba(255, 255, 255, .1); border-color: var(--line-strong);
+}
+.new-task .app-ic { opacity: .8; }
+
+/* 技能条目 */
+.skill-item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  width: 100%; padding: 7px 10px; border-radius: 9px;
+  background: transparent; border: 1px solid transparent;
+  color: var(--muted); font-family: inherit; text-align: left; cursor: pointer;
+  transition: background 130ms var(--ease), color 130ms var(--ease);
+}
+.skill-item:hover {
+  background: rgba(255, 255, 255, .07); color: var(--ink);
+}
+.skill-name {
+  font-size: 12.5px; font-weight: 500; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+.skill-desc {
+  font-size: 11px; line-height: 1.45; color: var(--dim);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
 .proj-item {
   position: relative;

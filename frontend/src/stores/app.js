@@ -84,6 +84,7 @@ export const store = reactive({
   // 开始页建议卡片 -> 输入框的填充通道（draftSeq 变化触发 ChatComposer 取稿）
   draft: '',
   draftSeq: 0,
+  skills: [],            // 主 Agent 可用的技能清单（/api/skills）
 })
 
 // ---------------------------------------------------------------------
@@ -470,6 +471,25 @@ export function showView(name) {
 // 导出剧本（.txt / .md / .docx）+ 工作目录
 // ---------------------------------------------------------------------
 const EXPORT_EXT = { txt: 'txt', md: 'md', docx: 'docx' }
+
+/** 加载技能清单（侧边栏「技能」段渲染用）。 */
+export async function loadSkills() {
+  try {
+    const data = await api('/skills')
+    store.skills = data.skills || []
+  } catch {
+    store.skills = []
+  }
+}
+
+/** 点技能 = 把它的适用场景预填进输入框（用户再改改就能发）。 */
+export function useSkill(skill) {
+  if (!skill) return
+  store.draft = skill.when_to_use
+    ? `${skill.when_to_use}，请帮我推进。`
+    : skill.description || ''
+  store.draftSeq += 1
+}
 
 /** 给版本打里程碑标记（draft/candidate/final / null 清除）。用于定稿管理。 */
 export async function setVersionMilestone(versionId, milestone) {
