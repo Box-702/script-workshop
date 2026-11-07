@@ -51,7 +51,6 @@ export const store = reactive({
   focusSeq: 0,                 // 「聚焦输入框」信号：开始页主按钮等递增它，输入区 watch 后 focus
   checked: reactive(new Map()), // runId -> Set(已勾选 patch 下标)
   showNewProject: false,        // 新建作品弹窗开关
-  showWorkspace: false,             // 工作目录设置弹窗开关
   showSettings: false,
   overlay: null,   // 全屏页面：assets | skills | output | tasks（null=关闭）
   sideView: 'assets',  // 侧边栏视图：outline（大纲）| shots（镜头）| assets（资产）

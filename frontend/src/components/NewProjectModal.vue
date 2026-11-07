@@ -90,21 +90,26 @@ async function submit() {
        在后台标签页会被冻结导致关不掉；这里用纯 CSS 入场动画（仅视觉，
        不影响 DOM 移除时机），v-if 关闭即瞬时移除，任何环境都可靠。 -->
   <div v-if="store.showNewProject" class="modal-backdrop" @click.self="!submitting && (store.showNewProject = false)">
-    <div class="modal" role="dialog" aria-label="新建作品">
-      <h3>新建作品</h3>
+    <div class="modal-card" role="dialog" aria-label="新建作品">
+      <div class="modal-head">
+        <div>
+          <h3 class="modal-title">新建作品</h3>
+          <p class="modal-sub">导入原著原文，就能开始改编</p>
+        </div>
+      </div>
 
-      <label>剧名</label>
-      <input ref="titleInput" v-model="title" placeholder="例如：雨夜" style="width: 100%" @keydown.enter="submit" />
+      <label class="modal-label">剧名</label>
+      <input ref="titleInput" v-model="title" class="modal-input" placeholder="例如：雨夜" @keydown.enter="submit" />
 
-      <label>体裁</label>
+      <label class="modal-label">体裁</label>
       <div class="fixed-type">短剧 · 竖屏</div>
 
-      <label>画风</label>
-      <select v-model="visual" class="style-select" style="width: 100%">
+      <label class="modal-label">画风</label>
+      <select v-model="visual" class="modal-select">
         <option v-for="s in VISUAL_STYLES" :key="s.value" :value="s.value">{{ s.label }}</option>
       </select>
 
-      <label>原著文件</label>
+      <label class="modal-label">原著文件</label>
       <div
         class="drop" :class="{ drag: dragOver, picked: file }"
         @click="fileInput.click()"
@@ -117,57 +122,36 @@ async function submit() {
       </div>
       <input ref="fileInput" type="file" accept=".txt,.md,.markdown,.docx,.pdf" style="display: none" @change="onFileChange" />
 
-      <label>或粘贴原文</label>
-      <textarea v-model="raw" placeholder="粘贴小说原文"></textarea>
+      <label class="modal-label">或粘贴原文</label>
+      <textarea v-model="raw" class="modal-textarea" placeholder="粘贴小说原文"></textarea>
 
       <div v-if="err" class="err"><AppIcon name="warning" /> {{ err }}</div>
 
-      <div class="foot">
+      <div class="modal-foot">
         <button class="ghost" :disabled="submitting" @click="store.showNewProject = false">取消</button>
-        <button :disabled="submitting" @click="submit">{{ submitting ? '创建中…' : '创建作品' }}</button>
+        <button class="primary" :disabled="submitting" @click="submit">{{ submitting ? '创建中…' : '创建作品' }}</button>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.modal-backdrop {
-  position: fixed; inset: 0; background: oklch(0 0 0 / 0.55);
-  display: flex; align-items: center; justify-content: center; z-index: 50;
+/* 外壳（遮罩 / 玻璃卡 / 标签 / 输入框 / 底部按钮）统一走 style.css 的
+   .modal-* 系列，这里只留这个弹窗自己的东西。 */
+.fixed-type {
+  font-size: var(--fs-md); color: var(--ink); padding: 8px 11px;
+  border: 1px solid var(--line); border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, .03);
 }
-.modal {
-  background: var(--panel-solid); border: 1px solid var(--line); border-radius: 16px;
-  backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass);
-  box-shadow: var(--shadow-3);
-  width: 520px; max-width: 94vw; max-height: 88vh; overflow-y: auto;
-  padding: 18px 20px; box-shadow: 0 20px 60px oklch(0 0 0 / 0.5);
-}
-h3 { margin: 0 0 4px; font-size: 16px; }
-label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px; }
 .drop {
   display: flex; align-items: center; justify-content: center; gap: 8px;
-  border: 1.5px dashed var(--line); border-radius: 8px; padding: 16px;
-  text-align: center; color: var(--muted); font-size: 12.5px; cursor: pointer;
+  border: 1.5px dashed var(--line-strong); border-radius: var(--radius-lg); padding: 18px;
+  text-align: center; color: var(--muted); font-size: var(--fs-md); cursor: pointer;
   transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease), background-color var(--dur) var(--ease);
 }
 .drop-ic { font-size: 15px; flex: none; }
-.drop.picked { color: var(--ink); border-color: var(--line-strong); border-style: solid; }
-.drop:hover, .drop.drag { border-color: var(--gold); color: var(--ink); }
-.drop.drag { background: color-mix(in oklch, var(--gold) 7%, transparent); }
-.foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
-textarea { width: 100%; min-height: 110px; }
-.err { display: flex; align-items: center; gap: 6px; color: var(--bad); font-size: 12px; margin-top: 8px; }
-
-/* 画风选择：下拉。分类选择统一用下拉，不用一排胶囊 */
-.style-select { height: 34px; }
-.fixed-type {
-  font-size: 12.5px; color: var(--ink); padding: 8px 10px;
-  border: 1px solid var(--line); border-radius: 8px; background: oklch(1 0 0 / 0.03);
-}
-
-/* 入场动画：遮罩淡入 + 弹窗轻缩放（纯视觉，不影响关闭的可靠性） */
-.modal-backdrop { animation: fade-in 180ms var(--ease); }
-.modal { animation: pop-in 180ms var(--ease); }
-@keyframes fade-in { from { opacity: 0; } }
-@keyframes pop-in { from { opacity: 0; transform: scale(0.96) translateY(6px); } }
+.drop.picked { color: var(--ink); border-color: var(--accent); border-style: solid; }
+.drop:hover, .drop.drag { border-color: var(--accent); color: var(--ink); }
+.drop.drag { background: var(--accent-soft); }
+.err { display: flex; align-items: center; gap: 6px; color: var(--bad); font-size: var(--fs-sm); margin-top: 10px; }
 </style>

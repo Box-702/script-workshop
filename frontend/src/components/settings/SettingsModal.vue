@@ -1,17 +1,22 @@
 <template>
   <Teleport to="body">
-    <div v-if="open" class="modal-mask" @click.self="$emit('close')">
-      <div class="modal-box">
-        <div class="modal-header">
-          <h3>模型与 API 设置</h3>
-          <button class="btn-ghost" @click="$emit('close')"><AppIcon name="close" /></button>
+    <div v-if="open" class="modal-backdrop" @click.self="$emit('close')">
+      <div class="modal-card wide">
+        <div class="modal-head">
+          <div>
+            <h3 class="modal-title">模型与 API 设置</h3>
+            <p class="modal-sub">对话、出图、视频分别用哪个模型，都在这里定</p>
+          </div>
+          <button class="modal-close" title="关闭" aria-label="关闭" @click="$emit('close')">
+            <AppIcon name="close" />
+          </button>
         </div>
 
-        <div class="modal-tabs">
+        <div class="seg-tabs settings-tabs">
           <button
             v-for="t in tabs"
             :key="t.key"
-            :class="['tab', { active: tab === t.key }]"
+            :class="['seg-tab', { active: tab === t.key }]"
             @click="tab = t.key"
           >{{ t.label }}</button>
         </div>
@@ -40,15 +45,15 @@
                 <div class="llm-actions">
                   <button
                     v-if="chatPref?.provider_id !== p.id"
-                    class="btn-small ok"
+                    class="small ok"
                     :disabled="!p.configured"
                     @click="setAsDefault(p)"
                   >设为默认</button>
-                  <button class="btn-small" @click="testProvider(p)" :disabled="p.testing">
+                  <button class="small" @click="testProvider(p)" :disabled="p.testing">
                     {{ p.testing ? '测试中…' : '测试' }}
                   </button>
-                  <button class="btn-small" @click="editLlm(p)">编辑</button>
-                  <button class="btn-small danger" @click="deleteLlm(p)">删除</button>
+                  <button class="small" @click="editLlm(p)">编辑</button>
+                  <button class="small danger" @click="deleteLlm(p)">删除</button>
                 </div>
                 <div v-if="p.testResult" :class="['test-result', p.testResult.ok ? 'ok' : 'err']">
                   {{ p.testResult.message }}
@@ -68,7 +73,7 @@
               <h5>{{ editingLlmRow ? '编辑模型' : '添加自定义模型' }}</h5>
               <div class="form-row">
                 <label>厂商预设</label>
-                <select v-model="llmForm.preset" class="input" :disabled="!!editingLlmRow" @change="applyPreset()">
+                <select v-model="llmForm.preset" class="modal-select" :disabled="!!editingLlmRow" @change="applyPreset()">
                   <option value="deepseek">DeepSeek</option>
                   <option value="zhipu">智谱 (BigModel)</option>
                   <option value="openai">OpenAI 兼容</option>
@@ -77,19 +82,19 @@
               </div>
               <div v-if="llmForm.preset === 'custom'" class="form-row">
                 <label>名称（唯一标识）</label>
-                <input v-model.trim="llmForm.name" class="input" placeholder="my-provider" />
+                <input v-model.trim="llmForm.name" class="modal-input" placeholder="my-provider" />
               </div>
               <div class="form-row">
                 <label>显示名</label>
-                <input v-model.trim="llmForm.label" class="input" placeholder="我的模型" />
+                <input v-model.trim="llmForm.label" class="modal-input" placeholder="我的模型" />
               </div>
               <div class="form-row">
                 <label>Base URL</label>
-                <input v-model.trim="llmForm.baseUrl" class="input" placeholder="https://api.deepseek.com/v1" />
+                <input v-model.trim="llmForm.baseUrl" class="modal-input" placeholder="https://api.deepseek.com/v1" />
               </div>
               <div class="form-row">
                 <label>模型名</label>
-                <input v-model.trim="llmForm.model" class="input" placeholder="deepseek-flash" />
+                <input v-model.trim="llmForm.model" class="modal-input" placeholder="deepseek-flash" />
               </div>
               <div class="form-row">
                 <label>API Key</label>
@@ -97,18 +102,18 @@
                   <input
                     :type="showKey ? 'text' : 'password'"
                     v-model="llmForm.apiKey"
-                    class="input"
+                    class="modal-input"
                     :placeholder="editingLlmRow ? '留空 = 保持不变' : 'sk-...'"
                   />
-                  <button class="btn-small" @click="showKey = !showKey">{{ showKey ? '隐藏' : '显示' }}</button>
+                  <button class="small" @click="showKey = !showKey">{{ showKey ? '隐藏' : '显示' }}</button>
                 </div>
               </div>
               <div v-if="llmFormError" class="test-result err">{{ llmFormError }}</div>
               <div class="form-actions">
-                <button class="btn ok" @click="saveLlm" :disabled="savingLlm">
+                <button class="primary" @click="saveLlm" :disabled="savingLlm">
                   {{ savingLlm ? '保存中…' : '保存' }}
                 </button>
-                <button class="btn-ghost" @click="closeLlmForm">取消</button>
+                <button class="ghost" @click="closeLlmForm">取消</button>
               </div>
             </div>
           </div>
@@ -133,32 +138,32 @@
                 <input
                   :type="showVideoKey ? 'text' : 'password'"
                   v-model="videoForm.apiKey"
-                  class="input"
+                  class="modal-input"
                   :placeholder="minimaxRow?.configured ? '留空 = 保持不变' : 'MiniMax 开放平台 API Key'"
                 />
-                <button class="btn-small" @click="showVideoKey = !showVideoKey">{{ showVideoKey ? '隐藏' : '显示' }}</button>
+                <button class="small" @click="showVideoKey = !showVideoKey">{{ showVideoKey ? '隐藏' : '显示' }}</button>
               </div>
             </div>
             <div class="form-row">
               <label>模型</label>
-              <select v-model="videoForm.model" class="input">
+              <select v-model="videoForm.model" class="modal-select">
                 <option v-for="opt in VIDEO_MODEL_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
                 <option value="custom">自定义…</option>
               </select>
             </div>
             <div v-if="videoForm.model === 'custom'" class="form-row">
               <label>自定义模型名</label>
-              <input v-model.trim="videoForm.customModel" class="input" placeholder="例如 MiniMax-H3" />
+              <input v-model.trim="videoForm.customModel" class="modal-input" placeholder="例如 MiniMax-H3" />
             </div>
             <div class="form-row">
               <label>Base URL（可选）</label>
-              <input v-model.trim="videoForm.baseUrl" class="input" placeholder="默认 https://api.minimax.cn" />
+              <input v-model.trim="videoForm.baseUrl" class="modal-input" placeholder="默认 https://api.minimax.cn" />
             </div>
             <p class="pref-hint">
               海外账户填 https://api.minimaxi.com；Key 与模型只存在本机数据库，不经过任何第三方。
             </p>
             <div class="form-actions">
-              <button class="btn ok" @click="saveMinimax">保存</button>
+              <button class="primary" @click="saveMinimax">保存</button>
             </div>
           </div>
 
@@ -178,20 +183,20 @@
             </p>
             <div class="form-row">
               <label>模型</label>
-              <select v-model="imageForm.model" class="input">
+              <select v-model="imageForm.model" class="modal-select">
                 <option v-for="opt in IMAGE_MODEL_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
                 <option value="custom">自定义…</option>
               </select>
             </div>
             <div v-if="imageForm.model === 'custom'" class="form-row">
               <label>自定义模型名</label>
-              <input v-model.trim="imageForm.customModel" class="input" placeholder="例如 cogview-4" />
+              <input v-model.trim="imageForm.customModel" class="modal-input" placeholder="例如 cogview-4" />
             </div>
             <div class="form-actions">
-              <button class="btn ok" @click="saveImageModel" :disabled="savingImage">
+              <button class="primary" @click="saveImageModel" :disabled="savingImage">
                 {{ savingImage ? '保存中…' : '保存' }}
               </button>
-              <button v-if="imageInfo.source === 'db'" class="btn-ghost" @click="followEnvImage">恢复 .env 默认</button>
+              <button v-if="imageInfo.source === 'db'" class="ghost" @click="followEnvImage">恢复 .env 默认</button>
             </div>
           </div>
 
@@ -559,131 +564,68 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.modal-mask {
-  position: fixed; inset: 0; z-index: 1000;
-  background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center;
-}
-.modal-box {
-  background: var(--panel, #1a1a2e); border: 1px solid var(--border, #333);
-  border-radius: 12px; width: 640px; max-height: 80vh; overflow-y: auto;
-}
-.modal-header {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 16px 20px; border-bottom: 1px solid var(--border, #333);
-}
-.modal-header h3 { margin: 0; font-size: 16px; }
-.modal-tabs {
-  display: flex; gap: 0; border-bottom: 1px solid var(--border, #333);
-}
-.tab {
-  flex: 1; padding: 10px; background: none; border: none; color: var(--text2, #999);
-  cursor: pointer; font-size: 13px; border-bottom: 2px solid transparent;
-}
-.tab.active { color: var(--gold, #e94560); border-bottom-color: var(--gold, #e94560); }
-.modal-body { padding: 20px; }
+/* 外壳走 style.css 的 .modal-* 系列；这里只留设置页自己的东西。 */
+.settings-tabs { margin: 14px 0 16px; align-self: flex-start; }
+.modal-body { padding: 0; }
+.section h4 { margin: 0 0 14px; font-size: var(--fs-md); color: var(--ink); font-weight: 600; }
+
 .active-line {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  padding: 8px 12px; margin-bottom: 14px;
-  border: 1px solid var(--border, #333); border-radius: 8px;
-  background: var(--code-bg, #111); color: var(--text2, #999); font-size: 12px;
+  padding: 9px 12px; margin-bottom: 14px;
+  border: 1px solid var(--line); border-radius: var(--radius-lg);
+  background: var(--panel2); color: var(--muted); font-size: var(--fs-sm);
 }
-.active-line strong { color: var(--text, #eee); }
+.active-line strong { color: var(--ink); }
 .active-src {
-  margin-left: auto; font-size: 10px; padding: 1px 6px;
-  border-radius: 3px; color: var(--text2, #999);
-  background: color-mix(in oklch, var(--ink, #eee) 5%, transparent);
+  margin-left: auto; font-size: var(--fs-xs); padding: 1px 7px;
+  border-radius: var(--radius-full); color: var(--muted);
+  background: rgba(255, 255, 255, .07);
 }
+
 .llm-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 .llm-card {
-  border: 1px solid var(--border, #333); border-radius: 9px; padding: 10px 12px;
-  display: flex; flex-direction: column; gap: 6px;
+  border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 12px 14px;
+  background: var(--panel); display: flex; flex-direction: column; gap: 7px;
 }
-.llm-card.active { border-color: var(--gold, #e94560); }
+.llm-card.active { border-color: color-mix(in oklch, var(--accent) 50%, var(--line)); background: var(--accent-soft); }
 .llm-card.add {
   align-items: center; justify-content: center; cursor: pointer;
-  border-style: dashed; color: var(--text2, #999); font-size: 12.5px; padding: 12px;
-  transition: color 150ms, border-color 150ms;
+  border-style: dashed; color: var(--muted); font-size: var(--fs-md); padding: 14px;
+  transition: color 150ms var(--ease), border-color 150ms var(--ease), background 150ms var(--ease);
 }
-.llm-card.add:hover { color: var(--gold, #e94560); border-color: var(--gold, #e94560); }
+.llm-card.add:hover { color: var(--ink); border-color: var(--accent); background: var(--accent-soft); }
 .llm-main { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.llm-name { font-size: 13px; font-weight: 600; color: var(--text, #eee); }
-.llm-meta { font-size: 11px; color: var(--text2, #999); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.llm-name { font-size: var(--fs-md); font-weight: 600; color: var(--ink); }
+.llm-meta { font-size: var(--fs-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .using-badge {
-  align-self: flex-start; font-size: 10px; padding: 1px 7px; border-radius: 3px;
-  color: var(--gold, #e94560); border: none;
-  background: color-mix(in oklch, var(--gold, #e94560) 12%, transparent);
+  align-self: flex-start; font-size: var(--fs-xs); padding: 1px 8px; border-radius: var(--radius-full);
+  color: var(--accent); border: none;
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
 }
 .llm-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .follow-env {
-  width: 100%; padding: 7px; border: 1px dashed var(--border, #333); border-radius: 8px;
-  background: transparent; color: var(--text2, #999); font-size: 11.5px; cursor: pointer;
+  width: 100%; padding: 8px; border: 1px dashed var(--line-strong); border-radius: var(--radius-md);
+  background: transparent; color: var(--muted); font-size: var(--fs-sm); cursor: pointer;
+  transition: color 150ms var(--ease), border-color 150ms var(--ease);
 }
-.follow-env:hover { color: var(--text, #eee); border-color: var(--text2, #999); }
-.pref-hint { font-size: 12px; color: var(--text2, #999); line-height: 1.6; }
-.sub-modal h5 { margin: 0 0 12px; font-size: 13px; color: var(--text, #eee); }
-.section h4 { margin: 0 0 16px; font-size: 14px; color: var(--text, #eee); }
+.follow-env:hover { color: var(--ink); border-color: var(--line-strong); }
+.pref-hint { font-size: var(--fs-sm); color: var(--muted); line-height: 1.65; }
+.sub-modal h5 { margin: 0 0 12px; font-size: var(--fs-md); color: var(--ink); font-weight: 600; }
 .form-row { margin-bottom: 12px; }
-.form-row label { display: block; font-size: 12px; color: var(--text2, #999); margin-bottom: 4px; }
-.input {
-  width: 100%; padding: 8px 12px; background: var(--code-bg, #111); border: 1px solid var(--border, #333);
-  border-radius: 6px; color: var(--text, #eee); font-size: 13px; box-sizing: border-box;
-}
+.form-row label { display: block; font-size: var(--fs-sm); color: var(--muted); margin-bottom: 5px; }
 .key-row { display: flex; gap: 8px; }
-.key-row .input { flex: 1; }
-.btn-small {
-  padding: 6px 12px; background: var(--code-bg, #111); border: 1px solid var(--border, #333);
-  border-radius: 6px; color: var(--text, #eee); cursor: pointer; font-size: 12px; white-space: nowrap;
-}
-.btn-small.ok { border-color: var(--green, #4ade80); color: var(--green, #4ade80); }
-.btn-small.danger { border-color: var(--red, #f87171); color: var(--red, #f87171); }
-.btn-small:disabled { opacity: .5; cursor: not-allowed; }
-.btn-ghost {
-  background: none; border: none; color: var(--text2, #999); cursor: pointer; font-size: 14px;
-}
-.btn { padding: 8px 20px; border-radius: 6px; cursor: pointer; font-size: 13px; border: 1px solid var(--border, #333); background: var(--code-bg, #111); color: var(--text, #eee); }
-.btn.ok { border-color: var(--green, #4ade80); color: var(--green, #4ade80); }
-.test-result {
-  margin-top: 8px; padding: 8px 12px; border-radius: 6px; font-size: 12px;
-}
-.test-result.ok { background: rgba(74,222,128,.1); color: var(--green, #4ade80); }
-.test-result.err { background: rgba(248,113,113,.1); color: var(--red, #f87171); }
+.key-row .modal-input { flex: 1; }
+.test-result { margin-top: 8px; padding: 8px 12px; border-radius: var(--radius-md); font-size: var(--fs-sm); }
+.test-result.ok { background: rgba(74, 222, 128, .1); color: var(--ok); }
+.test-result.err { background: color-mix(in oklch, var(--bad) 12%, transparent); color: var(--bad); }
 
-.provider-list { display: flex; flex-direction: column; gap: 8px; }
-.provider-card {
-  padding: 12px; background: var(--code-bg, #111); border: 1px solid var(--border, #333);
-  border-radius: 8px; display: flex; flex-direction: column; gap: 6px;
-}
-.provider-card.add {
-  border-style: dashed; cursor: pointer; text-align: center; color: var(--text2, #999);
-  padding: 20px;
-}
-.provider-card.add:hover { border-color: var(--gold); color: var(--gold); }
-.provider-header { display: flex; align-items: center; gap: 8px; }
-.provider-icon { font-size: 18px; }
-.provider-name { font-weight: 600; font-size: 14px; flex: 1; }
-.provider-price { font-size: 11px; color: var(--text2, #999); }
-.provider-meta { display: flex; gap: 6px; }
-.badge {
-  font-size: 10px; padding: 2px 6px; background: rgba(255,255,255,.05);
-  border-radius: 4px; color: var(--text2, #999);
-}
-.badge-cn { font-size: 10px; padding: 2px 6px; background: color-mix(in oklch, var(--gold) 10%, transparent); border-radius: 4px; color: var(--gold); }
-.provider-actions { display: flex; gap: 6px; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; }
-.status-dot.on { background: var(--green, #4ade80); }
-.status-dot.off { background: var(--text2, #555); }
+.status-dot.on { background: var(--ok); }
+.status-dot.off { background: var(--dim); }
 
 .sub-modal {
-  margin-top: 16px; padding: 16px; background: rgba(255,255,255,.03);
-  border: 1px solid var(--border, #333); border-radius: 8px;
+  margin-top: 16px; padding: 16px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--radius-lg);
 }
-.sub-modal h5 { margin: 0 0 12px; font-size: 13px; }
-.form-actions { display: flex; gap: 8px; margin-top: 12px; }
-
-.pref-row {
-  display: flex; align-items: center; gap: 12px; padding: 8px 0;
-  border-bottom: 1px solid var(--border, #222);
-}
-.pref-label { flex: 0 0 100px; font-size: 13px; }
-.pref-model { flex: 1; font-size: 13px; color: var(--text2, #999); }
+.form-actions { display: flex; gap: 8px; margin-top: 14px; }
 </style>

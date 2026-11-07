@@ -104,8 +104,8 @@ function regenerateWith(txt) { resumeReview(runId.value, 'regenerate', { feedbac
 
 <template>
   <!-- 点遮罩关闭；不用 Vue Transition -->
-  <div v-if="drawer.open && payload" class="backdrop" @click.self="closePatchDrawer()">
-    <aside class="drawer" role="dialog" aria-modal="true" aria-label="改编提议审阅">
+  <div v-if="drawer.open && payload" class="drawer-backdrop" @click.self="closePatchDrawer()">
+    <aside class="drawer-card" role="dialog" aria-modal="true" aria-label="改编提议审阅">
       <header class="d-head">
         <div class="d-title">
           <h3><AppIcon name="edit" /> 改编提议（审阅）</h3>
@@ -188,19 +188,7 @@ function regenerateWith(txt) { resumeReview(runId.value, 'regenerate', { feedbac
 </template>
 
 <style scoped>
-.backdrop {
-  position: fixed; inset: 0; background: oklch(0 0 0 / 0.45);
-  z-index: 60; display: flex; justify-content: flex-end;
-}
-.drawer {
-  width: min(520px, 94vw); height: 100%;
-  background: var(--panel-solid); border-left: 1px solid var(--line);
-  backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass);
-  display: flex; flex-direction: column; min-height: 0;
-  box-shadow: -16px 0 48px oklch(0 0 0 / 0.4);
-  animation: slide-in 200ms var(--ease);
-}
-@keyframes slide-in { from { transform: translateX(32px); opacity: 0; } }
+/* 外壳（遮罩 + 玻璃抽屉 + 滑入）走 style.css 的 .drawer-* 系列 */
 
 .d-head {
   display: flex; align-items: flex-start; gap: 10px;

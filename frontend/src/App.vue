@@ -52,7 +52,6 @@ import ContextPanel from './components/ContextPanel.vue'
 import PageShell from './components/PageShell.vue'
 import SkillsPage from './components/SkillsPage.vue'
 import NewProjectModal from './components/NewProjectModal.vue'
-import WorkspaceModal from './components/WorkspaceModal.vue'
 import SettingsModal from './components/settings/SettingsModal.vue'
 import PatchDrawer from './components/PatchDrawer.vue'
 import Toast from './components/Toast.vue'
@@ -283,7 +282,6 @@ onUnmounted(() => {
     </PageShell>
   </template>
   <NewProjectModal />
-  <WorkspaceModal />
   <SettingsModal
     :open="store.showSettings"
     @close="store.showSettings = false; loadModelStatus()"
